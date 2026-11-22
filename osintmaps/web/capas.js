@@ -497,6 +497,7 @@ function teselasDeElemento(e, paso) {
   const puntos = e.linea || (e.anillos ? e.anillos.map((poligono) => poligono[0]).flat() : null);
   if (puntos) for (const [la, lo] of puntos) { if (la < s) s = la; if (la > n) n = la; if (lo < o) o = lo; if (lo > x) x = lo; }
   const lista = [];
+  if ((n - s) / paso > 40 || (x - o) / paso > 40) return lista;      // algo descomunal: no se reparte (irá en todas las pedidas)
   for (let i = Math.floor(s / paso); i <= Math.floor(n / paso); i++) for (let j = Math.floor(o / paso); j <= Math.floor(x / paso); j++) lista.push(`${i}:${j}`);
   return lista;
 }
@@ -504,6 +505,7 @@ function teselasDeElemento(e, paso) {
 function recordar(capa, paso, pedidas, elementos) {
   const porTesela = new Map(pedidas.map((t) => [t, []]));
   for (const e of elementos) {
+    if (!e) continue;
     const suyas = teselasDeElemento(e, paso).filter((t) => porTesela.has(t));
     // Lo que no cae en ninguna (una relación de OSM enorme, con el centro fuera) va en todas, para no perderlo.
     for (const t of suyas.length ? suyas : pedidas) porTesela.get(t).push(e);

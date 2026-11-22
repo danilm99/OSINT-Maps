@@ -704,6 +704,7 @@ const memoria = (() => {
       p.onsuccess = () => resolver(p.result);
       p.onerror = p.onblocked = () => resolver(null);
     } catch { resolver(null); }
+    setTimeout(() => resolver(null), 2500);      // si la base no contesta, se sigue sin memoria: nada debe quedarse esperándola
   }));
   const almacen = (bd, modo) => bd.transaction("trozos", modo).objectStore("trozos");
   return {
@@ -715,6 +716,7 @@ const memoria = (() => {
         const a = almacen(bd, "readonly");
         claves.forEach((clave, k) => { a.get(`${VERSION_MEMORIA}|${clave}`).onsuccess = (ev) => { const v = ev.target.result; if (v && ahora - v.t < vida) salida[k] = v.d; }; });
         a.transaction.oncomplete = a.transaction.onerror = a.transaction.onabort = () => resolver(salida);
+        setTimeout(() => resolver(salida), 3000);      // por si la lectura se atasca: se pide fuera y listo
       } catch { resolver(salida); }
     })),
     /* pares: [[clave, dato], ...] */
@@ -1636,12 +1638,14 @@ const parcelasDibujadas = new Map();   // referencia catastral -> polígono (una
 const vallasDibujadas = new Map();     // «way/123» -> línea o puerta
 const MAX_DIBUJOS_ACCESO = 9000;
 function podar(dibujados, capa, vista) {
-  if (dibujados.size <= MAX_DIBUJOS_ACCESO) return;
+  if (dibujados.size <= (dibujados.tope || MAX_DIBUJOS_ACCESO)) return;
   const lejos = vista.pad(1);
   for (const [id, d] of dibujados) {
     const dentro = d.getBounds ? lejos.intersects(d.getBounds()) : lejos.contains(d.getLatLng());
     if (!dentro) { capa.removeLayer(d); dibujados.delete(id); }
   }
+  // Repasarlos todos cuesta: no se vuelve a hacer hasta que haya bastantes más que ahora.
+  dibujados.tope = Math.max(MAX_DIBUJOS_ACCESO, dibujados.size + 1500);
 }
 function pintarAcceso() {
   const zoom = mapa.getZoom(), vista = mapa.getBounds().pad(0.2);
