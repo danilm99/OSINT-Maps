@@ -1,0 +1,13 @@
+# Resultados y descargas: son grandes y contienen ubicaciones, no se suben por defecto
+datos/
+cache/
+
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+.DS_Store

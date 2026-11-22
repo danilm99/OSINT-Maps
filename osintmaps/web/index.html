@@ -1,0 +1,1716 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OSINT Maps</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+      integrity="sha384-pmjIAcz2bAn0xukfxADbZIb3t8oRT9Sv0rvO+BR5Csr6Dhqq+nZs59P0pPKQJkEV" crossorigin="">
+<style>
+  /* Paleta sacada del oficio: tinta de plano, papel frío y el magenta
+     fluorescente de las marcas de topógrafo para lo que más puntúa. */
+  :root {
+    --tinta: #17242e;
+    --tinta-suave: #51626e;
+    --papel: #f2f4f3;
+    --blanco: #ffffff;
+    --linea: #cfd6d8;
+    --jalon: #e5007d;
+    --naranja: #f08a00;
+    --amarillo: #f2c200;
+    --gris: #8aa0ab;
+    --musgo: #3f7350;
+    --ancho-panel: 404px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Barlow", system-ui, sans-serif;
+    font-size: 15px; line-height: 1.4; color: var(--tinta); background: var(--papel);
+    display: grid; grid-template-columns: var(--ancho-panel) minmax(0, 1fr); overflow: hidden;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 3px solid var(--jalon); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+  kbd { font: inherit; font-size: 12px; border: 1px solid var(--linea); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--blanco); }
+
+  /* ---------- Panel ---------- */
+  #panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; background: var(--papel);
+           border-right: 1px solid var(--linea); z-index: 2; }
+  #cabecera { display: flex; align-items: baseline; gap: 10px; padding: 14px 16px 10px; }
+  #cabecera h1 { font: 600 26px/1 "Barlow Condensed", sans-serif; margin: 0; letter-spacing: .01em; }
+  #recuento { color: var(--tinta-suave); font-size: 14px; }
+  #plegar { display: none; margin-left: auto; border: 0; background: none; padding: 4px 8px; font-weight: 600; }
+
+  #filtros { padding: 0 16px 12px; border-bottom: 1px solid var(--linea); display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
+  #filtros-mas summary { font-weight: 600; cursor: pointer; padding: 2px 0; }
+  #filtros-mas .cuerpo { display: grid; gap: 10px; margin-top: 10px; grid-template-columns: minmax(0, 1fr); }
+  #buscar-texto { width: 100%; padding: 9px 11px; border: 1px solid var(--linea); border-radius: 6px; background: var(--blanco); }
+  .fila { display: flex; align-items: center; gap: 10px; }
+  .fila label { flex: 0 0 auto; font-size: 14px; color: var(--tinta-suave); }
+  .fila input[type=range] { flex: 1; accent-color: var(--jalon); min-width: 0; }
+  .fila output { flex: 0 0 34px; text-align: right; font: 600 17px "Barlow Condensed", sans-serif; }
+  .fila select { flex: 1; padding: 6px 8px; border: 1px solid var(--linea); border-radius: 6px; background: var(--blanco); min-width: 0; }
+  #categorias { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--linea); background: var(--blanco); border-radius: 999px; padding: 3px 10px; font-size: 13px; }
+  .chip[aria-pressed=true] { background: var(--tinta); border-color: var(--tinta); color: var(--blanco); }
+  .chip small { opacity: .65; margin-left: 3px; }
+  .casilla { display: flex; align-items: center; gap: 7px; font-size: 14px; }
+  .casilla input { accent-color: var(--jalon); width: 16px; height: 16px; }
+
+  #contenido { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  #lista { list-style: none; margin: 0; padding: 0; }
+  #lista li button {
+    display: grid; grid-template-columns: 46px 1fr; gap: 10px; align-items: center; width: 100%;
+    text-align: left; border: 0; border-bottom: 1px solid var(--linea); background: none; padding: 9px 16px;
+  }
+  #lista li button:hover { background: var(--blanco); }
+  .nota { font: 600 24px/1 "Barlow Condensed", sans-serif; text-align: center; padding: 7px 0 6px;
+          border-radius: 4px; color: var(--blanco); background: var(--gris); }
+  .nota.n2 { background: var(--amarillo); color: var(--tinta); }
+  .nota.n3 { background: var(--naranja); color: var(--tinta); }
+  .nota.n4 { background: var(--jalon); }
+  .titulo { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sub { font-size: 13px; color: var(--tinta-suave); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .marca-fav { color: var(--jalon); } .marca-vis { color: var(--musgo); } .marca-des { text-decoration: line-through; }
+  #ver-mas { display: block; margin: 12px auto 20px; padding: 8px 16px; border: 1px solid var(--tinta); background: none; border-radius: 6px; }
+  #sin-coincidencias { padding: 20px 16px; margin: 0; color: var(--tinta-suave); }
+  #vacio { padding: 20px 16px; }
+  #vacio h2 { font: 600 20px/1.2 "Barlow Condensed", sans-serif; margin: 0 0 8px; }
+  #vacio code { background: var(--blanco); border: 1px solid var(--linea); border-radius: 4px; padding: 1px 5px; font-size: 13px; }
+  #vacio .cargar { display: inline-block; margin-top: 10px; padding: 9px 14px; background: var(--tinta); color: var(--blanco); border-radius: 6px; cursor: pointer; }
+
+  /* ---------- Ficha ---------- */
+  #ficha { padding: 0 16px 28px; }
+  .navegacion { display: flex; align-items: center; gap: 6px; position: sticky; top: 0; z-index: 3; background: var(--papel); padding: 8px 0; }
+  .navegacion button { border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 6px 12px; }
+  .navegacion button:disabled { opacity: .4; cursor: default; }
+  .navegacion .posicion { margin-left: auto; font-size: 13px; color: var(--tinta-suave); }
+  #volver { font-weight: 600; }
+  #ficha h2 { font: 600 24px/1.1 "Barlow Condensed", sans-serif; margin: 4px 0 2px; overflow-wrap: anywhere; }
+  #ficha .lugar { color: var(--tinta-suave); margin-bottom: 10px; }
+  .bloque { margin-top: 18px; }
+  .bloque h3 { font-size: 14px; font-weight: 600; margin: 0 0 7px; color: var(--tinta-suave); }
+
+  /* Lo distintivo de la ficha: el mismo encuadre aéreo a lo largo de los años,
+     como una tira de contactos de fotografía aérea. */
+  #aereo { position: relative; aspect-ratio: 4 / 3; background: var(--tinta); border-radius: 6px; overflow: hidden; }
+  #aereo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #aereo .cruz { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px;
+                 border: 2px solid var(--jalon); border-radius: 50%; pointer-events: none; }
+  #aereo .anio { position: absolute; left: 0; top: 0; padding: 3px 10px 4px; color: var(--blanco); background: rgba(23,36,46,.82);
+                 font: 600 18px "Barlow Condensed", sans-serif; border-bottom-right-radius: 6px; }
+  #tira { display: flex; gap: 5px; margin-top: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+  #tira button { flex: 0 0 62px; padding: 0; border: 2px solid transparent; border-radius: 4px; background: var(--tinta); overflow: hidden; position: relative; height: 62px; }
+  #tira button img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #tira button span { position: absolute; inset: auto 0 0 0; color: var(--blanco); background: rgba(23,36,46,.78);
+                      font: 600 13px/1.5 "Barlow Condensed", sans-serif; text-align: center; }
+  #tira button[aria-pressed=true] { border-color: var(--jalon); }
+  #comparar { margin-top: 6px; border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 6px 12px; width: 100%; }
+  #comparar:disabled { opacity: .5; cursor: default; }
+
+  .desglose { display: grid; grid-template-columns: auto 1fr 28px; gap: 5px 10px; align-items: center; font-size: 14px; }
+  .barra { height: 8px; background: var(--linea); border-radius: 4px; overflow: hidden; }
+  .barra i { display: block; height: 100%; background: var(--tinta); }
+  .desglose b { text-align: right; font: 600 16px "Barlow Condensed", sans-serif; }
+  dl.datos { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; font-size: 14px; }
+  dl.datos dt { color: var(--tinta-suave); } dl.datos dd { margin: 0; overflow-wrap: anywhere; }
+  .enlaces { display: flex; flex-wrap: wrap; gap: 6px; }
+  .enlaces a, .enlaces button { border: 1px solid var(--tinta); border-radius: 6px; padding: 5px 10px; color: var(--tinta); background: none; text-decoration: none; font-size: 14px; }
+  .enlaces a:hover, .enlaces button:hover { background: var(--tinta); color: var(--blanco); }
+  .fotos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .fotos img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 4px; display: block; }
+  #fachada img { width: 100%; border-radius: 6px; display: block; }
+  .marcas { display: flex; gap: 6px; margin-top: 12px; }
+  .marcas button { flex: 1; border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 8px 4px; }
+  .marcas button[aria-pressed=true] { background: var(--tinta); border-color: var(--tinta); color: var(--blanco); }
+  #nota-personal { width: 100%; min-height: 58px; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--linea); border-radius: 6px; background: var(--blanco); resize: vertical; }
+
+  #pie { padding: 12px 16px 16px; border-top: 1px solid var(--linea); font-size: 12.5px; color: var(--tinta-suave); display: flex; gap: 6px 12px; flex-wrap: wrap; }
+  #pie button, #pie label { border: 0; background: none; padding: 0; text-decoration: underline; cursor: pointer; color: inherit; font-size: inherit; }
+  #pie .atajos { flex-basis: 100%; }
+
+  /* ---------- Mapa ---------- */
+  #mapa-zona { position: relative; min-height: 0; display: grid; }
+  #mapa { min-height: 0; background: #dfe4e3; }
+  .leaflet-container { font: inherit; }
+  .grupo { background: var(--tinta); color: var(--blanco); border-radius: 50%; display: grid; place-items: center;
+           font: 600 15px "Barlow Condensed", sans-serif; border: 2px solid var(--blanco); }
+  #capas { position: absolute; right: 10px; top: 10px; z-index: 800; background: var(--papel); border: 1px solid var(--linea);
+           border-radius: 8px; padding: 10px 12px; width: 240px; font-size: 14px; }
+  #capas summary { font-weight: 600; cursor: pointer; }
+  #capas select { width: 100%; padding: 5px 6px; border: 1px solid var(--linea); border-radius: 6px; background: var(--blanco); }
+  #capas input[type=range] { width: 100%; accent-color: var(--jalon); }
+  #capas .cuerpo { display: grid; gap: 8px; margin-top: 8px; }
+  #cerca { position: absolute; right: 10px; bottom: 96px; z-index: 800; border: 1px solid var(--linea); background: var(--papel);
+           border-radius: 8px; padding: 8px 12px; font-weight: 600; }
+  .yo { background: #1a73e8; border: 3px solid var(--blanco); border-radius: 50%; box-shadow: 0 0 0 2px #1a73e8; }
+
+  /* Marcadores propios: rombos, para no confundirlos con los puntos redondos de los sitios */
+  .mio { width: 18px; height: 18px; transform: rotate(45deg); border: 2px solid var(--blanco); border-radius: 3px;
+         box-shadow: 0 0 0 1.5px var(--tinta); background: var(--gris); }
+  .mio.abierto { box-shadow: 0 0 0 3px var(--jalon); }
+  .grupo.grupo-camaras { background: #b3001b; }
+  #anadir { position: absolute; right: 10px; bottom: 140px; z-index: 800; border: 1px solid var(--linea); background: var(--papel);
+            border-radius: 8px; padding: 8px 12px; font-weight: 600; }
+  #anadir[aria-pressed=true] { background: var(--jalon); border-color: var(--jalon); color: var(--blanco); }
+  #mapa.colocando { cursor: crosshair; }
+  #ficha-marcador { padding: 0 16px 28px; }
+  #ficha-marcador h2 { font: 600 24px/1.1 "Barlow Condensed", sans-serif; margin: 4px 0 2px; }
+  #ficha-marcador .lugar { color: var(--tinta-suave); margin-bottom: 10px; }
+  .tipos { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tipos button { flex: 1 1 30%; display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--linea);
+                  background: var(--blanco); border-radius: 6px; padding: 8px 4px; }
+  .tipos button[aria-pressed=true] { background: var(--tinta); border-color: var(--tinta); color: var(--blanco); }
+  .tipos i { width: 11px; height: 11px; transform: rotate(45deg); border: 1.5px solid var(--blanco); box-shadow: 0 0 0 1px var(--tinta); }
+  #nota-marcador { width: 100%; min-height: 76px; margin-top: 10px; padding: 8px 10px; border: 1px solid var(--linea); border-radius: 6px; background: var(--blanco); resize: vertical; }
+  .acciones { display: flex; gap: 6px; margin-top: 10px; }
+  .acciones button { flex: 1; border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 8px 4px; }
+  .acciones button.peligro[aria-pressed=true] { background: #b3001b; border-color: #b3001b; color: var(--blanco); }
+  #capas button.accion { border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 6px 8px; font-size: 13.5px; }
+  .ficha-parcela dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 6px 0; }
+  .ficha-parcela dt { color: var(--tinta-suave); } .ficha-parcela dd { margin: 0; }
+  .ficha-parcela button { border: 1px solid var(--tinta); background: none; border-radius: 6px; padding: 5px 10px; margin-top: 4px; }
+
+  /* Leyenda de la capa de acceso */
+  #capas .grupo-capas { font-weight: 600; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--linea); }
+  #leyenda { position: absolute; left: 10px; bottom: 34px; z-index: 800; background: var(--papel); border: 1px solid var(--linea);
+             border-radius: 8px; padding: 9px 12px; font-size: 13px; max-width: 290px; display: grid; gap: 4px; }
+  #leyenda .clave { display: flex; align-items: center; gap: 8px; }
+  #leyenda .clave i { flex: 0 0 26px; height: 12px; display: block; }
+  #leyenda .aviso { color: var(--tinta-suave); font-size: 12.5px; margin-top: 3px; }
+  #leyenda .estado { font-weight: 600; }
+  .ficha-parcela { font: 14px/1.4 "Barlow", system-ui, sans-serif; color: var(--tinta); min-width: 220px; max-width: 290px; }
+  .ficha-parcela h4 { font: 600 18px/1.15 "Barlow Condensed", sans-serif; margin: 0 0 4px; }
+  .ficha-parcela p { margin: 4px 0; }
+  .ficha-parcela .nota-legal { color: var(--tinta-suave); font-size: 12.5px; }
+  .ficha-parcela a { color: var(--tinta); font-weight: 600; }
+  .puerta { background: var(--blanco); border: 2px solid #ff2d2d; }
+
+  /* Cortina: a la izquierda el fondo actual, a la derecha la ortofoto antigua. */
+  #cortina { position: absolute; top: 0; bottom: 0; width: 44px; margin-left: -22px; z-index: 700; cursor: ew-resize; touch-action: none; }
+  #cortina::before { content: ""; position: absolute; left: 21px; top: 0; bottom: 0; width: 2px; background: var(--blanco); box-shadow: 0 0 0 1px var(--tinta); }
+  #cortina::after { content: "‹ ›"; position: absolute; left: 4px; top: 78%; width: 36px; height: 36px; margin-top: -18px; border-radius: 50%;
+                    background: var(--blanco); border: 2px solid var(--tinta); display: grid; place-items: center; font-weight: 600; }
+  #cortina-etiqueta { position: absolute; top: 10px; z-index: 700; margin-left: 12px; padding: 2px 8px; border-radius: 4px; pointer-events: none;
+                      color: var(--blanco); background: rgba(23,36,46,.82); font: 600 16px "Barlow Condensed", sans-serif; }
+
+  /* ---------- Móvil: el panel pasa a ser una hoja inferior ---------- */
+  @media (max-width: 760px) {
+    body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+    #mapa-zona { grid-row: 1; }
+    #panel { grid-row: 2; border-right: 0; border-top: 1px solid var(--linea); height: 54vh; height: 54dvh;
+             padding-bottom: env(safe-area-inset-bottom); }
+    #panel.plegado { height: auto; }
+    #panel.plegado #filtros, #panel.plegado #contenido { display: none; }
+    #plegar { display: block; }
+    #categorias { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+    #categorias .chip { flex: 0 0 auto; }
+    #capas { width: 204px; }
+    #pie .atajos { display: none; }
+    #cerca { right: auto; left: 10px; bottom: 34px; }
+    #anadir { right: auto; left: 10px; bottom: 78px; }
+    #leyenda { left: auto; right: 10px; bottom: 34px; max-width: 200px; font-size: 12px; }
+    #leyenda .aviso { display: none; }
+    .leaflet-control-zoom { display: none; }   /* en táctil se amplía con dos dedos */
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+
+<aside id="panel" aria-label="Candidatos">
+  <header id="cabecera">
+    <h1>OSINT Maps</h1>
+    <span id="recuento"></span>
+    <button id="plegar" type="button" aria-expanded="true">Ocultar</button>
+  </header>
+
+  <section id="filtros" aria-label="Filtros" hidden>
+    <input id="buscar-texto" type="search" placeholder="Buscar por nombre o municipio" aria-label="Buscar por nombre o municipio">
+    <details id="filtros-mas">
+    <summary>Filtros y orden</summary>
+    <div class="cuerpo">
+    <div class="fila">
+      <label for="f-nota">Nota mínima</label>
+      <input id="f-nota" type="range" min="0" max="90" step="5" value="40">
+      <output id="f-nota-valor">40</output>
+    </div>
+    <div class="fila">
+      <select id="f-sup" aria-label="Superficie mínima">
+        <option value="0">Cualquier superficie</option>
+        <option value="500">Más de 500 m²</option>
+        <option value="2000">Más de 2.000 m²</option>
+        <option value="10000">Más de 10.000 m²</option>
+      </select>
+      <select id="f-marca" aria-label="Mis marcas">
+        <option value="activos">Sin descartar</option>
+        <option value="todos">Todos</option>
+        <option value="pendientes">Sin revisar</option>
+        <option value="favorito">Favoritos</option>
+        <option value="visitado">Visitados</option>
+        <option value="descartado">Descartados</option>
+      </select>
+    </div>
+    <div class="fila">
+      <label for="f-orden">Ordenar por</label>
+      <select id="f-orden">
+        <option value="nota">Nota</option>
+        <option value="superficie">Superficie</option>
+        <option value="cercania">Cercanía a mí</option>
+        <option value="vista">Cercanía al centro del mapa</option>
+      </select>
+    </div>
+    <label class="casilla"><input id="f-multi" type="checkbox"> Solo confirmados por varias fuentes</label>
+    <label class="casilla"><input id="f-vista" type="checkbox"> Solo lo que se ve en el mapa</label>
+    <div id="categorias" role="group" aria-label="Categorías"></div>
+    </div>
+    </details>
+  </section>
+
+  <div id="contenido">
+    <div id="vacio">
+      <h2>Aún no hay resultados cargados</h2>
+      <p>Genera los datos con <code>osintmaps buscar --provincia 46</code> y abre este mapa con <code>osintmaps servir</code>.</p>
+      <p>También puedes abrir aquí un <code>candidatos.geojson</code> que ya tengas.</p>
+      <label class="cargar">Abrir candidatos.geojson<input id="fichero" type="file" accept=".geojson,.json,application/geo+json" hidden></label>
+    </div>
+    <ul id="lista" hidden></ul>
+    <p id="sin-coincidencias" hidden>Ningún candidato cumple estos filtros. Baja la nota mínima o quita alguno.</p>
+    <button id="ver-mas" type="button" hidden>Ver más</button>
+    <article id="ficha" hidden></article>
+    <article id="ficha-marcador" hidden></article>
+    <footer id="pie" hidden>
+      <button id="exportar-marcas" type="button">Guardar copia de marcas y marcadores</button>
+      <label>Recuperar una copia<input id="importar-marcas" type="file" accept=".json" hidden></label>
+      <span id="estado-marcas"></span>
+      <span class="atajos">Marcador nuevo: botón derecho sobre el mapa (o mantener pulsado en el móvil).</span>
+      <span class="atajos">Teclado, con una ficha abierta: <kbd>→</kbd> siguiente, <kbd>←</kbd> anterior, <kbd>F</kbd> favorito, <kbd>V</kbd> visitado, <kbd>X</kbd> descartar, <kbd>Esc</kbd> lista.</span>
+      <span>Datos: Catastro, © OpenStreetMap, Wikidata. Ortofotos PNOA CC BY 4.0 scne.es</span>
+    </footer>
+  </div>
+</aside>
+
+<div id="mapa-zona">
+  <div id="mapa"></div>
+  <div id="cortina" role="slider" aria-label="Posición de la cortina" tabindex="0" hidden></div>
+  <div id="cortina-etiqueta" hidden></div>
+  <button id="anadir" type="button" aria-pressed="false">Añadir marcador</button>
+  <button id="cerca" type="button">Cerca de mí</button>
+  <div id="leyenda" hidden></div>
+  <details id="capas">
+    <summary>Capas del mapa</summary>
+    <div class="cuerpo">
+      <label>Fondo
+        <select id="capa-fondo">
+          <option value="pnoa">Ortofoto actual (PNOA)</option>
+          <option value="mtn">Mapa topográfico (IGN)</option>
+          <option value="osm">OpenStreetMap</option>
+        </select>
+      </label>
+      <label>Comparar con la ortofoto de
+        <select id="capa-historica"><option value="">Ninguna</option></select>
+      </label>
+      <label class="casilla"><input id="usar-cortina" type="checkbox" checked> Con cortina deslizante</label>
+      <label id="fila-opacidad" hidden>Opacidad
+        <input id="opacidad-historica" type="range" min="0" max="100" value="100">
+      </label>
+      <div class="grupo-capas">Qué se ve</div>
+      <label class="casilla"><input id="capa-sitios" type="checkbox" checked> Sitios abandonados</label>
+      <label class="casilla"><input id="capa-camaras" type="checkbox" checked> Cámaras (OpenStreetMap)</label>
+      <label class="casilla"><input id="capa-marcadores" type="checkbox" checked> Mis marcadores</label>
+      <button id="cargar-camaras" class="accion" type="button">Cargar cámaras de esta zona</button>
+      <label class="casilla"><input id="capa-huellas" type="checkbox" checked> Contornos al acercar</label>
+      <div class="grupo-capas">Por dónde se puede pasar</div>
+      <label class="casilla"><input id="capa-parcelas" type="checkbox"> Parcelas y suelo público</label>
+      <label class="casilla"><input id="capa-vallas" type="checkbox"> Vallas, puertas y caminos</label>
+      <label class="casilla"><input id="capa-pecuarias" type="checkbox"> Vías pecuarias y senderos</label>
+      <label class="casilla"><input id="capa-montes" type="checkbox"> Montes y fincas públicas</label>
+      <label class="casilla"><input id="capa-catastro" type="checkbox"> Plano catastral (imagen)</label>
+    </div>
+  </details>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin=""></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"
+        integrity="sha384-eXVCORTRlv4FUUgS/xmOyr66XBVraen8ATNLMESp92FKXLAMiKkerixTiBvXriZr" crossorigin=""></script>
+<!--DATOS_INCRUSTADOS-->
+<script>
+"use strict";
+/* Visor de OSINT Maps. Un solo fichero, sin compilación.
+   Lee datos/candidatos.geojson (y datos/huellas.geojson si existe), o los datos
+   incrustados cuando se genera con «osintmaps paquete».
+   Los textos vienen de OSM y Wikidata, que edita cualquiera: nunca se insertan
+   como HTML, siempre como texto (textContent). */
+
+const WMS_ACTUAL = "https://www.ign.es/wms-inspire/pnoa-ma";
+const WMS_HISTORICO = "https://www.ign.es/wms/pnoa-historico";
+const POR_PAGINA = 150;
+
+/* Vuelos históricos que interesan, con el año con que se ordenan y rotulan. */
+const VUELOS_FIJOS = {
+  "AMS_1956-1957": [1956, "1956"], "Interministerial_1973-1986": [1977, "1973-86"], "Nacional_1981-1986": [1984, "1981-86"],
+  "OLISTAT": [1998, "1998"], "SIGPAC": [2002, "2002"],
+};
+const vuelo = (nombre) => {
+  if (VUELOS_FIJOS[nombre]) return { nombre, anio: VUELOS_FIJOS[nombre][0], rotulo: VUELOS_FIJOS[nombre][1] };
+  const m = /^PNOA(\d{4})$/.exec(nombre);
+  return m ? { nombre, anio: +m[1], rotulo: m[1] } : null;
+};
+let vuelos = ["PNOA2021", "PNOA2018", "PNOA2015", "PNOA2012", "PNOA2009", "PNOA2006", "SIGPAC", "Nacional_1981-1986", "AMS_1956-1957"].map(vuelo);
+
+const NOMBRE_CATEGORIA = {
+  despoblado: "Despoblado", industrial: "Industrial", mineria: "Minería", militar: "Militar",
+  ferroviario: "Ferroviario", sanitario: "Sanitario", educativo: "Educativo", religioso: "Religioso",
+  ocio_hosteleria: "Ocio y hostelería", equipamiento: "Equipamiento", patrimonio: "Patrimonio",
+  oficinas: "Oficinas", comercial: "Comercial", residencial: "Residencial", agrario: "Agrario", otro: "Sin clasificar",
+};
+const NOMBRE_ESTADO = { ruina: "en ruina", abandonado: "abandonado", deficiente: "estado deficiente", en_desuso: "en desuso" };
+const NOMBRE_FACTOR = {
+  estado: ["Estado", 16], tamano: ["Tamaño", 20], categoria: ["Tipo de sitio", 15], fuentes: ["Varias fuentes", 15],
+  aislamiento: ["Aislamiento", 12], conjunto: ["Conjunto", 8], identidad: ["Nombre y artículo", 5],
+  antiguedad: ["Antigüedad", 4], vegetacion: ["Vegetación", 5],
+};
+const NOMBRE_ENLACE = {
+  google_maps: "Google Maps", street_view: "Street View", google_earth: "Google Earth", catastro: "Ficha catastral",
+  osm: "OpenStreetMap", wikipedia: "Wikipedia", wikidata: "Wikidata",
+  mapillary: "Mapillary", commons_cerca: "Fotos en Commons", busqueda: "Buscar en la web", noticias: "Prensa",
+};
+
+const $ = (id) => document.getElementById(id);
+const el = (etiqueta, props = {}, ...hijos) => {
+  const nodo = Object.assign(document.createElement(etiqueta), props);
+  for (const h of hijos) if (h != null) nodo.append(h);
+  return nodo;
+};
+const miles = (n) => Math.round(n).toLocaleString("es-ES");
+/* Texto para comparar en búsquedas: minúsculas y sin acentos ("Llíria" = "lliria"). */
+const sinAcentos = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const claseNota = (p) => (p >= 60 ? "n4" : p >= 50 ? "n3" : p >= 40 ? "n2" : "n1");
+const colorNota = (p) => (p >= 60 ? "#e5007d" : p >= 50 ? "#f08a00" : p >= 40 ? "#f2c200" : "#8aa0ab");
+const urlSegura = (u) => { try { return new URL(u).protocol === "https:" ? u : null; } catch { return null; } };
+function distanciaKm(a, b) {
+  const rad = Math.PI / 180, dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+}
+
+/* ---------- Almacenamiento ----------
+   El navegador puede negarlo (modo privado, lleno): todo sigue funcionando
+   mientras la página esté abierta. */
+const pedirJSON = (ruta) => fetch(ruta, { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))));
+const leerLocal = (clave, porDefecto) => { try { return JSON.parse(localStorage.getItem(clave)) ?? porDefecto; } catch { return porDefecto; } };
+const guardarLocal = (clave, valor) => { try { localStorage.setItem(clave, JSON.stringify(valor)); } catch { /* sin almacenamiento */ } };
+
+/* ---------- Lo que el usuario anota ----------
+   Dos almacenes con la misma mecánica:
+   - marcas: favorito / visitado / descartado + nota sobre un sitio de la lista.
+   - marcadores: puntos propios puestos en el mapa (sitio, cámara, acceso...).
+
+   Con «osintmaps servir» se guardan además en datos/marcas.json y
+   datos/marcadores.json: así no dependen del navegador y valen igual desde el
+   móvil por la red local. Al servidor solo se le manda lo que ha cambiado aquí
+   (los «pendientes») y él lo incorpora a su fichero: dos dispositivos no se pisan
+   aunque uno tenga datos viejos. Los pendientes se recuerdan hasta que el
+   servidor confirma, de modo que cerrar la página a medias no pierde nada. */
+function crearAlmacen(nombre, normalizar, esVacio) {
+  const claveDatos = `osintmaps.${nombre}.v1`, clavePendientes = `osintmaps.${nombre}.pendientes.v1`, ruta = `datos/${nombre}.json`;
+  const a = { datos: leerLocal(claveDatos, {}), pendientes: new Set([].concat(leerLocal(clavePendientes, [])).map(String)), enServidor: false };
+  if (!a.datos || typeof a.datos !== "object" || Array.isArray(a.datos)) a.datos = {};
+  let reloj = null;
+  const recordar = () => { guardarLocal(claveDatos, a.datos); guardarLocal(clavePendientes, [...a.pendientes]); };
+  const cambios = () => Object.fromEntries([...a.pendientes].filter((id) => a.datos[id]).map((id) => [id, a.datos[id]]));
+  const aviso = (texto) => { const e = $("estado-marcas"); if (e) e.textContent = texto; };
+
+  /* Guarda en el navegador y, si hay servidor, programa el envío. `id` es el registro que cambió. */
+  a.guardar = (id) => {
+    if (id != null) a.pendientes.add(String(id));
+    recordar();
+    if (!a.enServidor) return;
+    clearTimeout(reloj);
+    reloj = setTimeout(a.enviar, 600);
+  };
+  a.enviar = () => {
+    if (!a.enServidor || !a.pendientes.size) return;
+    const enviado = cambios();
+    fetch(ruta, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(enviado) })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+      .then((delServidor) => {
+        // Deja de estar pendiente lo que no ha vuelto a cambiar mientras viajaba.
+        for (const [id, m] of Object.entries(enviado)) if (JSON.stringify(a.datos[id]) === JSON.stringify(m)) a.pendientes.delete(id);
+        a.incorporarDelServidor(delServidor);
+        aviso("Cambios guardados en la carpeta datos.");
+        if (a.pendientes.size) a.guardar(null);
+      })
+      .catch(() => aviso("No se pudo guardar en disco; se reintentará."));
+  };
+  /* Lo que dice el servidor manda, salvo en lo que aquí está pendiente de enviar.
+     Lo que el servidor no conoce (hecho sin él) se le envía. */
+  a.incorporarDelServidor = (datos) => {
+    if (!datos || typeof datos !== "object" || Array.isArray(datos)) throw new Error("formato");
+    for (const [id, m] of Object.entries(datos)) {
+      const registro = normalizar(m);
+      if (registro && !a.pendientes.has(id)) a.datos[id] = registro;
+    }
+    for (const id of Object.keys(a.datos)) if (!(id in datos) && !esVacio(a.datos[id])) a.pendientes.add(id);
+    recordar();
+  };
+  /* Registros recuperados de una copia: los que llegan mandan y quedan por enviar. */
+  a.incorporarDeCopia = (datos) => {
+    let n = 0;
+    for (const [id, m] of Object.entries(datos || {})) {
+      const registro = normalizar(m);
+      if (registro) { a.datos[id] = registro; a.pendientes.add(id); n++; }
+    }
+    a.guardar(null);
+    return n;
+  };
+  a.sincronizar = (base) => pedirJSON(`${base}${nombre}.json`).then((datos) => {
+    a.incorporarDelServidor(datos);
+    a.enServidor = base === "datos/";
+    if (a.pendientes.size) a.guardar(null);
+  });
+  /* Al cerrar o cambiar de pestaña se manda lo pendiente sin esperar al temporizador. */
+  a.alSalir = () => {
+    if (!a.enServidor || !a.pendientes.size || !navigator.sendBeacon) return;
+    navigator.sendBeacon(ruta, new Blob([JSON.stringify(cambios())], { type: "application/json" }));
+  };
+  return a;
+}
+
+const normalizarMarca = (m) => (m && typeof m === "object" && !Array.isArray(m) ? { estado: String(m.estado || ""), nota: String(m.nota || "") } : null);
+/* Tipos de marcador propio. «spot» y «camera» se llaman igual que en GraffMap,
+   para que sus copias de seguridad se puedan abrir aquí tal cual. */
+const TIPOS_MARCADOR = { spot: ["Sitio", "#2fbf71"], camera: ["Cámara", "#ff2d2d"], acceso: ["Acceso", "#5ee6ff"], aviso: ["Aviso", "#f2c200"], nota: ["Nota", "#ffffff"] };
+function normalizarMarcador(m) {
+  if (!m || typeof m !== "object" || Array.isArray(m)) return null;
+  const lat = Number(m.lat), lng = Number(m.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { type: TIPOS_MARCADOR[m.type] ? m.type : "spot", lat: +lat.toFixed(6), lng: +lng.toFixed(6),
+           note: typeof m.note === "string" ? m.note.slice(0, 500) : "", created: Number.isFinite(Number(m.created)) ? Number(m.created) : Date.now(), deleted: !!m.deleted };
+}
+const almacenMarcas = crearAlmacen("marcas", normalizarMarca, (m) => !m.estado && !m.nota);
+const almacenMarcadores = crearAlmacen("marcadores", normalizarMarcador, (m) => m.deleted);
+const marcas = almacenMarcas.datos, marcadores = almacenMarcadores.datos;
+const guardarMarcas = (id) => almacenMarcas.guardar(id);
+
+window.addEventListener("pagehide", () => { almacenMarcas.alSalir(); almacenMarcadores.alSalir(); });
+/* Al volver a la pestaña se recoge lo anotado desde otro dispositivo. */
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || !almacenMarcas.enServidor) return;
+  Promise.allSettled([almacenMarcas.sincronizar("datos/"), almacenMarcadores.sincronizar("datos/")]).then(() => {
+    if (!seleccion && !marcadorAbierto && candidatos.length) filtrar();
+    if (!marcadorAbierto) pintarMarcadores();
+  });
+});
+
+/* ---------- Mapa ---------- */
+const vista = leerLocal("osintmaps.vista.v1", {}) || {};
+// tolerance: margen en píxeles alrededor de cada punto que también cuenta como clic.
+const mapa = L.map("mapa", { preferCanvas: true, renderer: L.canvas({ tolerance: 8 }), zoomControl: false }).setView([40.2, -3.6], 6);
+L.control.zoom({ position: "bottomright" }).addTo(mapa);
+L.control.scale({ imperial: false, position: "topleft" }).addTo(mapa);
+
+const wmtsIGN = (servicio, capa) =>
+  `https://www.ign.es/wmts/${servicio}?layer=${capa}&style=default&tilematrixset=GoogleMapsCompatible` +
+  `&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image/jpeg&TileMatrix={z}&TileCol={x}&TileRow={y}`;
+const fondos = {
+  pnoa: L.tileLayer(wmtsIGN("pnoa-ma", "OI.OrthoimageCoverage"), { maxZoom: 20, maxNativeZoom: 19, attribution: "PNOA CC BY 4.0 scne.es" }),
+  mtn: L.tileLayer(wmtsIGN("mapa-raster", "MTN"), { maxZoom: 20, maxNativeZoom: 17, attribution: "IGN CC BY 4.0 ign.es" }),
+  osm: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 20, maxNativeZoom: 19, attribution: "© colaboradores de OpenStreetMap" }),
+};
+let fondoActual = fondos.pnoa.addTo(mapa);
+let capaHistorica = null;
+const capaCatastro = L.tileLayer.wms("https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx", {
+  layers: "Catastro", format: "image/png", transparent: true, version: "1.1.1", maxZoom: 20, minZoom: 15,
+  attribution: "D. G. del Catastro",
+});
+mapa.createPane("historico").style.zIndex = 250;      // por encima del fondo, por debajo de los puntos
+
+$("capa-fondo").addEventListener("change", (e) => {
+  mapa.removeLayer(fondoActual);
+  fondoActual = fondos[e.target.value].addTo(mapa);
+  fondoActual.bringToBack();
+});
+$("capa-catastro").addEventListener("change", (e) => { e.target.checked ? capaCatastro.addTo(mapa) : mapa.removeLayer(capaCatastro); });
+
+/* Comparación con una ortofoto antigua: con cortina (mitad y mitad) o con opacidad. */
+let cortinaX = 0.5;
+function ponerHistorica(nombre) {
+  if (capaHistorica) mapa.removeLayer(capaHistorica);
+  capaHistorica = null;
+  if (nombre) {
+    capaHistorica = L.tileLayer.wms(WMS_HISTORICO, {
+      layers: nombre, format: "image/jpeg", version: "1.1.1", maxZoom: 20, pane: "historico",
+      attribution: "PNOA CC BY 4.0 scne.es",
+    }).addTo(mapa);
+  }
+  if ($("capa-historica").value !== nombre) $("capa-historica").value = nombre;
+  actualizarComparacion();
+}
+function actualizarComparacion() {
+  const conCortina = !!capaHistorica && $("usar-cortina").checked;
+  $("cortina").hidden = $("cortina-etiqueta").hidden = !conCortina;
+  $("fila-opacidad").hidden = !capaHistorica || conCortina;
+  const panel = mapa.getPane("historico");
+  panel.style.opacity = capaHistorica && !conCortina ? $("opacidad-historica").value / 100 : 1;
+  if (!conCortina) { panel.style.clipPath = ""; return; }
+  // El panel se desplaza con el mapa: el recorte se calcula en sus coordenadas.
+  const x = cortinaX * mapa.getSize().x;
+  const a = mapa.containerPointToLayerPoint([x, 0]), b = mapa.containerPointToLayerPoint(mapa.getSize());
+  panel.style.clipPath = `polygon(${a.x}px ${a.y}px, ${b.x}px ${a.y}px, ${b.x}px ${b.y}px, ${a.x}px ${b.y}px)`;
+  $("cortina").style.left = $("cortina-etiqueta").style.left = `${x}px`;
+  $("cortina").setAttribute("aria-valuenow", Math.round(cortinaX * 100));
+  const v = vuelo($("capa-historica").value);
+  $("cortina-etiqueta").textContent = v ? v.rotulo : "";
+}
+mapa.on("move zoom zoomend viewreset resize", actualizarComparacion);
+$("capa-historica").addEventListener("change", (e) => ponerHistorica(e.target.value));
+$("usar-cortina").addEventListener("change", actualizarComparacion);
+$("opacidad-historica").addEventListener("input", actualizarComparacion);
+const moverCortina = (x) => { cortinaX = Math.min(0.97, Math.max(0.03, x)); actualizarComparacion(); };
+$("cortina").addEventListener("pointerdown", (e) => {
+  e.preventDefault(); $("cortina").setPointerCapture(e.pointerId);
+  const mover = (ev) => { const caja = $("mapa").getBoundingClientRect(); moverCortina((ev.clientX - caja.left) / caja.width); };
+  const soltar = () => { $("cortina").removeEventListener("pointermove", mover); $("cortina").removeEventListener("pointerup", soltar); };
+  $("cortina").addEventListener("pointermove", mover); $("cortina").addEventListener("pointerup", soltar);
+});
+$("cortina").addEventListener("keydown", (e) => {
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  e.stopPropagation(); e.preventDefault();
+  moverCortina(cortinaX + (e.key === "ArrowLeft" ? -0.03 : 0.03));
+});
+
+function pintarVuelos() {
+  const actual = $("capa-historica").value;
+  $("capa-historica").replaceChildren(el("option", { value: "", textContent: "Ninguna" }),
+    ...vuelos.map((v) => el("option", { value: v.nombre, textContent: v.rotulo })));
+  $("capa-historica").value = vuelos.some((v) => v.nombre === actual) ? actual : "";
+}
+pintarVuelos();
+/* La lista real de vuelos se pregunta al servicio del IGN; si no contesta, vale la de reserva. */
+fetch(`${WMS_HISTORICO}?SERVICE=WMS&REQUEST=GetCapabilities`)
+  .then((r) => (r.ok ? r.text() : Promise.reject(new Error("sin respuesta"))))
+  .then((xml) => {
+    const doc = new DOMParser().parseFromString(xml, "text/xml");
+    const encontrados = [...doc.querySelectorAll("Layer > Name")].map((n) => vuelo(n.textContent.trim())).filter(Boolean);
+    const unicos = [...new Map(encontrados.map((v) => [v.nombre, v])).values()].sort((a, b) => b.anio - a.anio);
+    if (unicos.length < 3) return;
+    vuelos = unicos; pintarVuelos();
+    if (seleccion && document.activeElement !== $("nota-personal")) abrirFicha(seleccion, false);
+  })
+  .catch(() => { /* se queda la lista de reserva */ });
+
+/* ---------- Datos ---------- */
+let candidatos = [];          // [{id, lat, lon, p: propiedades, marcador}]
+const huellas = new Map();    // id -> geometría GeoJSON
+let visibles = [];
+let mostrados = 0;
+let seleccion = null;
+let miPosicion = null, marcadorYo = null;
+const categoriasActivas = new Set(Array.isArray(vista.categorias) ? vista.categorias : []);
+// Los contornos van en su propio panel, por debajo de los puntos y sin recibir
+// clics: si compartieran altura con ellos, su lienzo taparía los puntos al ratón.
+const panelHuellas = mapa.createPane("huellas");
+panelHuellas.style.zIndex = 350;
+panelHuellas.style.pointerEvents = "none";
+const lienzo = L.canvas({ padding: 0.3, pane: "huellas" });
+const capaHuellas = L.layerGroup().addTo(mapa);
+
+const grupo = L.markerClusterGroup({
+  maxClusterRadius: 46, disableClusteringAtZoom: 14, chunkedLoading: true, showCoverageOnHover: false,
+  iconCreateFunction: (c) => {
+    const n = c.getChildCount();
+    const lado = n > 500 ? 46 : n > 50 ? 38 : 30;
+    return L.divIcon({ html: String(n), className: "grupo", iconSize: [lado, lado] });
+  },
+}).addTo(mapa);
+
+function estiloMarcador(c) {
+  const nota = c.p.puntuacion || 0, elegido = c === seleccion;
+  return {
+    radius: (nota >= 60 ? 9 : nota >= 50 ? 8 : 7) + (elegido ? 4 : 0), color: elegido ? "#ffffff" : "#17242e",
+    weight: elegido ? 3.5 : 1.5, fillColor: colorNota(nota), fillOpacity: 0.95,
+  };
+}
+
+function cargar(geojson) {
+  const feats = (geojson && geojson.features) || [];
+  candidatos = feats
+    .filter((f) => f.geometry && f.geometry.type === "Point" && f.properties)
+    .map((f) => ({ id: String(f.properties.id), lon: +f.geometry.coordinates[0], lat: +f.geometry.coordinates[1], p: f.properties, km: null,
+      busca: sinAcentos(`${f.properties.nombre || ""} ${f.properties.municipio || ""}`) }))
+    .filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lon));
+  for (const c of candidatos) {
+    c.marcador = L.circleMarker([c.lat, c.lon], estiloMarcador(c));
+    // stopPropagation: el clic en un punto no debe contar además como clic en la parcela de debajo.
+    c.marcador.on("click", (e) => { L.DomEvent.stopPropagation(e); abrirFicha(c, false); });
+  }
+  if (!candidatos.length) return;
+
+  // Chips de categoría con su recuento.
+  const cuenta = {};
+  for (const c of candidatos) cuenta[c.p.categoria] = (cuenta[c.p.categoria] || 0) + 1;
+  for (const cat of [...categoriasActivas]) if (!cuenta[cat]) categoriasActivas.delete(cat);
+  $("categorias").replaceChildren(...Object.keys(cuenta).sort((a, b) => cuenta[b] - cuenta[a]).map((cat) => {
+    const chip = el("button", { type: "button", className: "chip" }, NOMBRE_CATEGORIA[cat] || cat, el("small", { textContent: miles(cuenta[cat]) }));
+    chip.setAttribute("aria-pressed", String(categoriasActivas.has(cat)));
+    chip.addEventListener("click", () => {
+      categoriasActivas.has(cat) ? categoriasActivas.delete(cat) : categoriasActivas.add(cat);
+      chip.setAttribute("aria-pressed", String(categoriasActivas.has(cat)));
+      filtrar();
+    });
+    return chip;
+  }));
+
+  $("vacio").hidden = true; $("filtros").hidden = false; $("pie").hidden = false;
+  const limites = L.latLngBounds(candidatos.map((c) => [c.lat, c.lon]));
+  // Se recupera el encuadre de la última vez si sigue cayendo sobre los datos.
+  if (Array.isArray(vista.centro) && limites.pad(0.5).contains(vista.centro)) mapa.setView(vista.centro, vista.zoom || 10);
+  else mapa.fitBounds(limites.pad(0.05));
+  filtrar();
+}
+
+function cargarHuellas(geojson) {
+  for (const f of (geojson && geojson.features) || []) if (f.properties && f.geometry) huellas.set(String(f.properties.id), f.geometry);
+  pintarHuellas();
+}
+
+/* Contornos de los edificios: solo al acercarse y solo los que están a la vista. */
+function pintarHuellas() {
+  capaHuellas.clearLayers();
+  const dibujar = (c, elegido) => {
+    const g = huellas.get(c.id);
+    if (g) L.geoJSON(g, { renderer: lienzo, pane: "huellas", interactive: false,
+      style: { color: elegido ? "#e5007d" : "#ffffff", weight: elegido ? 2.5 : 1.5, fill: false } }).addTo(capaHuellas);
+  };
+  if ($("capa-huellas").checked && mapa.getZoom() >= 15) {
+    const caja = mapa.getBounds().pad(0.1);
+    let n = 0;
+    for (const c of visibles) { if (c !== seleccion && caja.contains([c.lat, c.lon])) { dibujar(c, false); if (++n >= 300) break; } }
+  }
+  if (seleccion) dibujar(seleccion, true);
+}
+$("capa-huellas").addEventListener("change", pintarHuellas);
+
+function guardarVista() {
+  const c = mapa.getCenter();
+  guardarLocal("osintmaps.vista.v1", {
+    centro: [c.lat, c.lng], zoom: mapa.getZoom(), nota: +$("f-nota").value, sup: $("f-sup").value, marca: $("f-marca").value,
+    orden: $("f-orden").value, multi: $("f-multi").checked, categorias: [...categoriasActivas],
+  });
+}
+
+function filtrar() {
+  const texto = sinAcentos($("buscar-texto").value.trim());
+  const notaMin = +$("f-nota").value, supMin = +$("f-sup").value, soloMulti = $("f-multi").checked, marca = $("f-marca").value;
+  // Una búsqueda por texto mira todo el conjunto, no solo lo que hay en pantalla.
+  const caja = $("f-vista").checked && !texto ? mapa.getBounds() : null;
+  $("f-nota-valor").textContent = notaMin;
+  visibles = candidatos.filter((c) => {
+    const p = c.p, m = (marcas[c.id] || {}).estado || "";
+    if ((p.puntuacion || 0) < notaMin) return false;
+    if (supMin && !(p.superficie_m2 >= supMin)) return false;
+    if (soloMulti && (p.fuentes || []).length < 2) return false;
+    if (categoriasActivas.size && !categoriasActivas.has(p.categoria)) return false;
+    if (marca === "activos" && m === "descartado") return false;
+    if (marca === "pendientes" && m) return false;
+    if (["favorito", "visitado", "descartado"].includes(marca) && m !== marca) return false;
+    if (texto && !c.busca.includes(texto)) return false;
+    if (caja && !caja.contains([c.lat, c.lon])) return false;
+    return true;
+  });
+
+  // Orden de la lista (y de «siguiente» / «anterior» en la ficha).
+  const orden = $("f-orden").value, centro = mapa.getCenter();
+  const origen = orden === "vista" ? { lat: centro.lat, lon: centro.lng } : miPosicion;
+  for (const c of visibles) c.km = origen ? distanciaKm(origen, c) : null;
+  if ((orden === "cercania" || orden === "vista") && origen) visibles.sort((a, b) => a.km - b.km);
+  else if (orden === "superficie") visibles.sort((a, b) => (b.p.superficie_m2 || 0) - (a.p.superficie_m2 || 0));
+  else visibles.sort((a, b) => (b.p.puntuacion || 0) - (a.p.puntuacion || 0));
+
+  grupo.clearLayers();
+  grupo.addLayers(visibles.map((c) => c.marcador));
+  $("recuento").textContent = `${miles(visibles.length)} de ${miles(candidatos.length)}`;
+  mostrados = 0;
+  $("lista").replaceChildren();
+  pintarMas();
+  if (!seleccion && !marcadorAbierto) mostrarLista();
+  pintarHuellas();
+  guardarVista();
+}
+
+function tituloDe(c) {
+  return c.p.nombre || [NOMBRE_CATEGORIA[c.p.categoria] || "Sitio", NOMBRE_ESTADO[c.p.estado]].filter(Boolean).join(", ");
+}
+function subtituloDe(c) {
+  const p = c.p, trozos = [];
+  if (c.km != null) trozos.push(c.km < 10 ? `${c.km.toFixed(1).replace(".", ",")} km` : `${Math.round(c.km)} km`);
+  if (p.municipio) trozos.push(p.municipio);
+  if (p.nombre) trozos.push(NOMBRE_CATEGORIA[p.categoria] || p.categoria);
+  if (p.superficie_m2) trozos.push(`${miles(p.superficie_m2)} m²`);
+  if ((p.fuentes || []).length > 1) trozos.push(`${p.fuentes.length} fuentes`);
+  return trozos.join(", ");
+}
+
+function pintarMas() {
+  const trozo = visibles.slice(mostrados, mostrados + POR_PAGINA);
+  for (const c of trozo) {
+    const m = (marcas[c.id] || {}).estado;
+    const titulo = el("div", { className: "titulo" + (m === "descartado" ? " marca-des" : ""), textContent: tituloDe(c) });
+    if (m === "favorito") titulo.prepend(el("span", { className: "marca-fav", textContent: "★ " }));
+    if (m === "visitado") titulo.prepend(el("span", { className: "marca-vis", textContent: "✓ " }));
+    const boton = el("button", { type: "button" },
+      el("div", { className: `nota ${claseNota(c.p.puntuacion || 0)}`, textContent: Math.round(c.p.puntuacion || 0) }),
+      el("div", { style: "min-width:0" }, titulo, el("div", { className: "sub", textContent: subtituloDe(c) })));
+    boton.addEventListener("click", () => abrirFicha(c, true));
+    $("lista").append(el("li", {}, boton));
+  }
+  mostrados += trozo.length;
+  $("ver-mas").hidden = seleccion !== null || marcadorAbierto !== null || mostrados >= visibles.length;
+  $("ver-mas").textContent = `Ver más (quedan ${miles(visibles.length - mostrados)})`;
+}
+
+function mostrarLista() {
+  soltarMarcador();
+  const anterior = seleccion;
+  seleccion = null;
+  if (anterior) anterior.marcador.setStyle(estiloMarcador(anterior));
+  $("ficha").hidden = true;
+  $("filtros").hidden = $("pie").hidden = candidatos.length === 0;
+  $("lista").hidden = candidatos.length === 0;
+  $("sin-coincidencias").hidden = !(candidatos.length && !visibles.length);
+  $("ver-mas").hidden = mostrados >= visibles.length;
+  pintarHuellas();
+}
+
+/* Volver a la lista a petición del usuario. Mientras hay una ficha abierta la
+   lista no se recalcula (para que «siguiente» sea estable); al salir, sí. */
+function volverALista() {
+  mostrarLista();
+  if (candidatos.length && ($("f-vista").checked || $("f-orden").value === "vista")) filtrar();
+}
+
+/* ---------- Ficha ---------- */
+function urlAerea(c, capa, px) {
+  // Encuadre cuadrado en metros, adaptado al tamaño del sitio.
+  const lado = Math.min(900, Math.max(220, 4 * Math.sqrt(c.p.superficie_m2 || 2500)));
+  const dLat = lado / 2 / 111320, dLon = lado / 2 / (111320 * Math.cos((c.lat * Math.PI) / 180));
+  const actual = capa === "actual";
+  const q = new URLSearchParams({
+    SERVICE: "WMS", VERSION: "1.1.1", REQUEST: "GetMap", LAYERS: actual ? "OI.OrthoimageCoverage" : capa, STYLES: "",
+    FORMAT: "image/jpeg", SRS: "EPSG:4326", WIDTH: px, HEIGHT: px,
+    BBOX: [c.lon - dLon, c.lat - dLat, c.lon + dLon, c.lat + dLat].map((v) => v.toFixed(6)).join(","),
+  });
+  return `${actual ? WMS_ACTUAL : WMS_HISTORICO}?${q}`;
+}
+
+/* Una imagen lisa (toda blanca o toda negra) significa que ese vuelo no cubre la zona. */
+function esImagenLisa(img) {
+  try {
+    const prueba = Object.assign(document.createElement("canvas"), { width: 12, height: 12 });
+    const ctx = prueba.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, 12, 12);
+    const d = ctx.getImageData(0, 0, 12, 12).data;
+    let min = 255, max = 0;
+    for (let i = 0; i < d.length; i += 4) { const v = (d[i] + d[i + 1] + d[i + 2]) / 3; if (v < min) min = v; if (v > max) max = v; }
+    return max - min < 10;
+  } catch { return false; }   // si el navegador no deja leer la imagen, se da por buena
+}
+
+function bloque(titulo, ...contenido) {
+  return el("section", { className: "bloque" }, el("h3", { textContent: titulo }), ...contenido);
+}
+
+function irA(desplazamiento) {
+  if (!seleccion) return;
+  const i = visibles.indexOf(seleccion);
+  const destino = visibles[i === -1 ? 0 : i + desplazamiento];
+  if (destino) abrirFicha(destino, true);
+}
+
+function abrirFicha(c, mover) {
+  soltarMarcador();
+  const anterior = seleccion;
+  seleccion = c;
+  if (anterior && anterior !== c) anterior.marcador.setStyle(estiloMarcador(anterior));
+  c.marcador.setStyle(estiloMarcador(c));
+  const p = c.p, ficha = $("ficha");
+  $("panel").classList.remove("plegado"); $("plegar").textContent = "Ocultar"; $("plegar").setAttribute("aria-expanded", "true");
+
+  // Navegación: lista, anterior y siguiente siguen el orden de la lista.
+  const indice = visibles.indexOf(c);
+  const volver = el("button", { id: "volver", type: "button", textContent: "Lista" });
+  volver.addEventListener("click", volverALista);
+  const previo = el("button", { type: "button", textContent: "Anterior", disabled: indice <= 0 });
+  previo.addEventListener("click", () => irA(-1));
+  const siguiente = el("button", { type: "button", textContent: "Siguiente", disabled: indice === -1 || indice >= visibles.length - 1 });
+  siguiente.addEventListener("click", () => irA(1));
+  const navegacion = el("div", { className: "navegacion" }, volver, previo, siguiente,
+    el("span", { className: "posicion", textContent: indice === -1 ? "" : `${miles(indice + 1)} de ${miles(visibles.length)}` }));
+
+  // Vista aérea por años: imagen grande y tira de miniaturas del mismo encuadre.
+  const img = el("img", { alt: "Ortofoto del lugar", referrerPolicy: "no-referrer" });
+  const rotulo = el("div", { className: "anio" });
+  const aereo = el("div", { id: "aereo" }, img, el("div", { className: "cruz" }), rotulo);
+  const tira = el("div", { id: "tira", role: "group", ariaLabel: "Año de la ortofoto" });
+  const comparar = el("button", { id: "comparar", type: "button", disabled: true, textContent: "Elige un año para compararlo en el mapa" });
+  let capaElegida = "actual";
+  const elegir = (v, boton) => {
+    for (const b of tira.children) b.setAttribute("aria-pressed", String(b === boton));
+    capaElegida = v.nombre;
+    rotulo.textContent = v.rotulo;
+    img.src = urlAerea(c, v.nombre, 640);
+    comparar.disabled = v.nombre === "actual";
+    comparar.textContent = v.nombre === "actual" ? "Elige un año para compararlo en el mapa" : `Comparar ${v.rotulo} con hoy en el mapa`;
+  };
+  comparar.addEventListener("click", () => { $("usar-cortina").checked = true; ponerHistorica(capaElegida); });
+  for (const v of [{ nombre: "actual", rotulo: "Hoy" }, ...vuelos]) {
+    const mini = el("img", { alt: "", crossOrigin: "anonymous", referrerPolicy: "no-referrer" });
+    const b = el("button", { type: "button", title: `Ortofoto de ${v.rotulo}` }, mini, el("span", { textContent: v.rotulo }));
+    b.addEventListener("click", () => elegir(v, b));
+    if (v.nombre !== "actual") {
+      // Los vuelos que no cubren esta zona devuelven una imagen lisa: se quitan de la tira.
+      mini.addEventListener("load", () => { if (esImagenLisa(mini)) b.remove(); });
+      mini.addEventListener("error", () => b.remove());
+    }
+    mini.src = urlAerea(c, v.nombre, 96);
+    tira.append(b);
+  }
+  elegir({ nombre: "actual", rotulo: "Hoy" }, tira.firstChild);
+
+  // Marcas personales.
+  const mia = marcas[c.id] || {};
+  const botones = el("div", { className: "marcas" });
+  for (const [estado, nombre] of [["favorito", "Favorito"], ["visitado", "Visitado"], ["descartado", "Descartar"]]) {
+    const b = el("button", { type: "button", textContent: nombre });
+    b.dataset.estado = estado;
+    b.setAttribute("aria-pressed", String(mia.estado === estado));
+    b.addEventListener("click", () => marcarDesdeFicha(estado));
+    botones.append(b);
+  }
+  const nota = el("textarea", { id: "nota-personal", placeholder: "Notas: accesos, estado real, fecha de la visita", value: mia.nota || "" });
+  nota.setAttribute("aria-label", "Notas personales");
+  // Se guarda mientras se escribe: si la ficha se reconstruye o se cierra la página, no se pierde.
+  nota.addEventListener("input", () => { marcas[c.id] = normalizarMarca(Object.assign({}, marcas[c.id], { nota: nota.value })); guardarMarcas(c.id); });
+
+  // Enlaces de comprobación.
+  const enlaces = el("div", { className: "enlaces" });
+  enlaces.append(el("a", { href: `https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lon}`, target: "_blank", rel: "noopener noreferrer", textContent: "Cómo llegar" }));
+  for (const [clave, nombre] of Object.entries(NOMBRE_ENLACE)) {
+    const url = urlSegura((p.enlaces || {})[clave]);
+    if (url) enlaces.append(el("a", { href: url, target: "_blank", rel: "noopener noreferrer", textContent: nombre }));
+  }
+  const copiar = el("button", { type: "button", textContent: "Copiar coordenadas" });
+  copiar.addEventListener("click", () => {
+    const texto = `${c.lat.toFixed(6)}, ${c.lon.toFixed(6)}`;
+    (navigator.clipboard ? navigator.clipboard.writeText(texto) : Promise.reject(new Error("sin portapapeles"))).then(
+      () => { copiar.textContent = "Coordenadas copiadas"; }, () => { copiar.textContent = texto; });
+  });
+  enlaces.append(copiar);
+
+  // Foto de fachada de Catastro: no todos los edificios la tienen.
+  let fachada = null;
+  const urlFachada = urlSegura((p.enlaces || {}).foto_fachada);
+  if (urlFachada) {
+    const foto = el("img", { alt: "Foto de fachada de Catastro", referrerPolicy: "no-referrer" });
+    fachada = bloque("Foto de fachada (Catastro)", el("div", { id: "fachada" }, foto));
+    fachada.hidden = true;
+    foto.addEventListener("load", () => { fachada.hidden = foto.naturalWidth < 50; });
+    foto.src = urlFachada;
+  }
+
+  // Desglose de la nota.
+  const desglose = el("div", { className: "desglose" });
+  for (const [clave, [nombre, maximo]] of Object.entries(NOMBRE_FACTOR)) {
+    const v = (p.desglose || {})[clave];
+    if (!v) continue;
+    const relleno = el("i"); relleno.style.width = `${Math.min(100, (v / maximo) * 100)}%`;
+    desglose.append(el("span", { textContent: nombre }), el("div", { className: "barra" }, relleno), el("b", { textContent: Math.round(v) }));
+  }
+
+  // Datos.
+  const datos = el("dl", { className: "datos" });
+  const dato = (k, v) => { if (v !== null && v !== undefined && v !== "") datos.append(el("dt", { textContent: k }), el("dd", { textContent: v })); };
+  const soloCatastro = p.tipo_confirmado === false && (p.fuentes || []).includes("catastro");
+  dato("Estado", NOMBRE_ESTADO[p.estado] || p.estado);
+  dato("Tipo", (NOMBRE_CATEGORIA[p.categoria] || p.categoria) + (soloCatastro ? " (uso según Catastro)" : ""));
+  dato("Superficie en planta", p.superficie_m2 ? `${miles(p.superficie_m2)} m²` : null);
+  dato("Edificio mayor", p.n_edificios > 1 && p.mayor_edificio_m2 ? `${miles(p.mayor_edificio_m2)} m²` : null);
+  dato("Superficie construida", p.superficie_construida_m2 ? `${miles(p.superficie_construida_m2)} m²` : null);
+  dato("Edificios", p.n_edificios > 1 ? p.n_edificios : null);
+  dato("Año de construcción", p.anio);
+  dato("Edificios en uso a 150 m", p.vecinos_150m);
+  dato("Fuentes", (p.fuentes || []).join(", "));
+  dato("Coordenadas", `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`);
+  dato("Referencia catastral", (p.refcats || [])[0]);
+  for (const [k, v] of Object.entries(p.etiquetas || {}).slice(0, 12)) dato(k, v);
+
+  // Fotos de Commons, si se pidieron al generar los datos.
+  let fotos = null;
+  const lista = (p.fotos || []).filter((f) => urlSegura(f.miniatura) && urlSegura(f.pagina));
+  if (lista.length) {
+    fotos = bloque("Fotos cercanas en Wikimedia Commons", el("div", { className: "fotos" }, ...lista.map((f) =>
+      el("a", { href: f.pagina, target: "_blank", rel: "noopener noreferrer", title: f.titulo || "" },
+        el("img", { src: f.miniatura, alt: f.titulo || "Foto cercana", loading: "lazy", referrerPolicy: "no-referrer" })))));
+  }
+
+  ficha.replaceChildren(
+    navegacion,
+    el("h2", { textContent: tituloDe(c) }),
+    el("div", { className: "lugar", textContent: [p.municipio, `nota ${Math.round(p.puntuacion || 0)} de 100`].filter(Boolean).join(", ") }),
+    aereo, tira, comparar, botones, nota,
+    bloque("Comprobar en otras fuentes", enlaces),
+    fachada,
+    bloque("Por qué tiene esta nota", desglose),
+    bloque("Datos", datos),
+    fotos,
+  );
+  $("lista").hidden = true; $("ver-mas").hidden = true; $("sin-coincidencias").hidden = true; ficha.hidden = false;
+  $("filtros").hidden = true; $("pie").hidden = true;
+  $("contenido").scrollTop = 0;
+
+  if (mover) mapa.setView([c.lat, c.lon], Math.max(mapa.getZoom(), 17));
+  pintarHuellas();
+}
+
+/* Marcar desde la ficha. Si con la marca el sitio sale de la lista (p. ej. al
+   descartar), se pasa solo al siguiente: así se criba una lista larga de corrido. */
+function marcarDesdeFicha(estado) {
+  const c = seleccion;
+  if (!c) return;
+  const i = visibles.indexOf(c), vecino = visibles[i + 1] || visibles[i - 1] || null;
+  const actual = Object.assign({ estado: "", nota: "" }, marcas[c.id]);
+  actual.estado = actual.estado === estado ? "" : estado;
+  marcas[c.id] = actual;
+  guardarMarcas(c.id);
+  for (const b of document.querySelectorAll(".marcas button")) b.setAttribute("aria-pressed", String(b.dataset.estado === actual.estado));
+  filtrar();
+  if (visibles.includes(c)) { $("lista").hidden = true; $("ver-mas").hidden = true; }
+  else if (vecino && visibles.includes(vecino)) abrirFicha(vecino, true);
+  else mostrarLista();
+}
+
+/* ---------- Capa de acceso: por dónde se puede pasar ----------
+   Junta lo que hay publicado sobre a quién pertenece el suelo y qué lo cierra:
+
+   - Parcelas de Catastro (servicio WFS). Catastro NO publica quién es el dueño.
+     Lo que sí se sabe: si la parcela es urbana o rústica y, en rústica, que las
+     numeradas de 9000 en adelante son dominio público (caminos, cauces, vías).
+     Al hacer clic se piden a Catastro el uso, el cultivo y si tiene construcciones.
+   - Vallas, muros, puertas y caminos de OpenStreetMap. Solo aparece lo que alguien
+     ha dibujado: que no salga una valla no significa que no la haya.
+   - Vías pecuarias, senderos, montes y fincas públicas del Institut Cartogràfic
+     Valencià (solo Comunitat Valenciana).
+   Nada de esto dice si un sitio está ocupado, vigilado o en venta. */
+const WFS_PARCELAS = "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx";
+const DATOS_PARCELA = "https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/COVCCallejero.svc/json/Consulta_DNPRC";
+const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
+const WMS_FORESTAL = "https://carto.icv.gva.es/arcgis/services/tm_medio_ambiente/forestal/MapServer/WMSServer";
+const COLOR = { publico: "#2fbf71", rustica: "#f2c200", urbana: "#ff7a59", valla: "#ff2d2d", camino: "#5ee6ff" };
+const ZOOM_PARCELAS = 16, ZOOM_VALLAS = 15, MAX_TESELAS = 24;
+// Catastro no sirve más de 1 km² por petición: se pide en teselas de unos 890 x 860 m.
+const PASO_LAT = 0.008, PASO_LON = 0.010;
+
+for (const [nombre, z] of [["publico", 300], ["acceso", 340]]) {
+  const panel = mapa.createPane(nombre);
+  panel.style.zIndex = z;
+  panel.style.pointerEvents = "none";      // no deben tapar los puntos; los clics se resuelven aparte
+}
+const lienzoAcceso = L.canvas({ padding: 0.3, pane: "acceso" });
+const capaParcelas = L.layerGroup().addTo(mapa), capaVallas = L.layerGroup().addTo(mapa);
+const capaPecuarias = L.tileLayer.wms(WMS_FORESTAL, { layers: "34,23,24,25", format: "image/png", transparent: true, version: "1.1.1", pane: "publico", minZoom: 12, maxZoom: 20, attribution: "Institut Cartogràfic Valencià" });
+const capaMontes = L.tileLayer.wms(WMS_FORESTAL, { layers: "11,13", format: "image/png", transparent: true, version: "1.1.1", pane: "publico", opacity: 0.55, minZoom: 10, maxZoom: 20, attribution: "Institut Cartogràfic Valencià" });
+
+const teselasParcelas = new Map();   // clave -> { estado: "cargando" | "lista" | "fallo", parcelas: [] }
+const teselasVallas = new Map();
+let estadoAcceso = "";
+
+/* Tipo de parcela a partir de la referencia catastral. Una rústica tiene la forma
+   provincia(2) municipio(3) sector(1) polígono(3) parcela(5), todo cifras salvo el sector. */
+function tipoParcela(refcat) {
+  const m = /^\d{5}[A-Z](\d{3})(\d{5})$/.exec(refcat);
+  if (!m) return "urbana";
+  return +m[2] >= 9000 ? "publico" : "rustica";
+}
+
+function leerParcelas(xml) {
+  const doc = new DOMParser().parseFromString(xml, "text/xml");
+  const parcelas = [];
+  for (const nodo of doc.getElementsByTagNameNS("*", "CadastralParcel")) {
+    const texto = (nombre) => { const e = nodo.getElementsByTagNameNS("*", nombre)[0]; return e ? e.textContent.trim() : ""; };
+    const refcat = texto("nationalCadastralReference");
+    if (!refcat) continue;
+    const poligonos = [];
+    let s = 90, n = -90, o = 180, e = -180;
+    for (const parche of nodo.getElementsByTagNameNS("*", "PolygonPatch")) {
+      const anillos = [];
+      for (const lista of parche.getElementsByTagNameNS("*", "posList")) {
+        // Con EPSG:4326 el servicio devuelve pares "latitud longitud".
+        const v = lista.textContent.trim().split(/\s+/).map(Number), anillo = [];
+        for (let i = 0; i + 1 < v.length; i += 2) {
+          if (!Number.isFinite(v[i]) || !Number.isFinite(v[i + 1])) continue;
+          anillo.push([v[i], v[i + 1]]);
+          if (v[i] < s) s = v[i]; if (v[i] > n) n = v[i]; if (v[i + 1] < o) o = v[i + 1]; if (v[i + 1] > e) e = v[i + 1];
+        }
+        if (anillo.length >= 3) anillos.push(anillo);
+      }
+      if (anillos.length) poligonos.push(anillos);
+    }
+    if (poligonos.length) parcelas.push({ refcat, area: +texto("areaValue") || 0, tipo: tipoParcela(refcat), poligonos, caja: [s, o, n, e] });
+  }
+  return parcelas;
+}
+
+/* ¿Está el punto dentro del anillo? Se cuenta cuántas veces cruza los lados una
+   semirrecta que sale del punto: si es impar, está dentro. */
+function dentroDeAnillo(lat, lon, anillo) {
+  let dentro = false;
+  for (let i = 0, j = anillo.length - 1; i < anillo.length; j = i++) {
+    const [la1, lo1] = anillo[i], [la2, lo2] = anillo[j];
+    if ((la1 > lat) !== (la2 > lat) && lon < ((lo2 - lo1) * (lat - la1)) / (la2 - la1) + lo1) dentro = !dentro;
+  }
+  return dentro;
+}
+function parcelaEn(lat, lon) {
+  let mejor = null;
+  for (const t of teselasParcelas.values()) {
+    for (const p of t.parcelas || []) {
+      if (lat < p.caja[0] || lat > p.caja[2] || lon < p.caja[1] || lon > p.caja[3]) continue;
+      const toca = p.poligonos.some((anillos) => dentroDeAnillo(lat, lon, anillos[0]) && !anillos.slice(1).some((h) => dentroDeAnillo(lat, lon, h)));
+      if (toca && (!mejor || p.area < mejor.area)) mejor = p;     // si se solapan, la más pequeña
+    }
+  }
+  return mejor;
+}
+
+function teselasDeLaVista(pasoLat, pasoLon) {
+  const b = mapa.getBounds(), claves = [];
+  for (let i = Math.floor(b.getSouth() / pasoLat); i <= Math.floor(b.getNorth() / pasoLat); i++)
+    for (let j = Math.floor(b.getWest() / pasoLon); j <= Math.floor(b.getEast() / pasoLon); j++) claves.push([i, j]);
+  return claves;
+}
+
+/* Cola de peticiones con un máximo de simultáneas: Catastro aguanta tres a la
+   vez; Overpass (OSM) es un servicio compartido y lento, así que de una en una. */
+function crearCola(maximo) {
+  const pendientes = [];
+  let enCurso = 0;
+  const despachar = () => {
+    while (enCurso < maximo && pendientes.length) {
+      enCurso++;
+      pendientes.shift()().finally(() => { enCurso--; despachar(); pintarAcceso(); });
+    }
+  };
+  return (tarea) => { pendientes.push(tarea); despachar(); };
+}
+const encolarCatastro = crearCola(3), encolarOSM = crearCola(1);
+const PASO_OSM = 0.03, ESPERA_OSM = 45000;
+
+function pedirParcelas() {
+  if (!$("capa-parcelas").checked || mapa.getZoom() < ZOOM_PARCELAS) return;
+  const teselas = teselasDeLaVista(PASO_LAT, PASO_LON);
+  if (teselas.length > MAX_TESELAS) return;
+  for (const [i, j] of teselas) {
+    const clave = `${i},${j}`;
+    const previa = teselasParcelas.get(clave);
+    if (previa && previa.estado !== "fallo") continue;
+    const tesela = { estado: "cargando", parcelas: [] };
+    teselasParcelas.set(clave, tesela);
+    const caja = [i * PASO_LAT, j * PASO_LON, (i + 1) * PASO_LAT, (j + 1) * PASO_LON].map((v) => v.toFixed(6)).join(",");
+    encolarCatastro(() => fetch(`${WFS_PARCELAS}?service=wfs&version=2&request=getfeature&Typenames=cp.cadastralparcel&SRSname=EPSG::4326&bbox=${caja}`)
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(r.status))))
+      .then((xml) => { if (/ExceptionReport/.test(xml.slice(0, 400))) throw new Error("catastro"); tesela.parcelas = leerParcelas(xml); tesela.estado = "lista"; })
+      .catch(() => { tesela.estado = "fallo"; }));
+  }
+}
+
+function pedirVallas() {
+  if (!$("capa-vallas").checked || mapa.getZoom() < ZOOM_VALLAS) return;
+  const paso = PASO_OSM;
+  const teselas = teselasDeLaVista(paso, paso);
+  if (teselas.length > 6) return;
+  for (const [i, j] of teselas) {
+    const clave = `${i},${j}`;
+    const previa = teselasVallas.get(clave);
+    if (previa && previa.estado !== "fallo") continue;
+    const tesela = { estado: "cargando", elementos: [] };
+    teselasVallas.set(clave, tesela);
+    const z = `(${(i * paso).toFixed(5)},${(j * paso).toFixed(5)},${((i + 1) * paso).toFixed(5)},${((j + 1) * paso).toFixed(5)})`;
+    const consulta = `[out:json][timeout:25];(way["barrier"~"^(fence|wall|hedge|retaining_wall)$"]${z};` +
+      `node["barrier"~"^(gate|lift_gate|swing_gate|sliding_gate|chain)$"]${z};` +
+      `way["highway"~"^(path|track|footway|bridleway|cycleway|steps|pedestrian)$"]${z};` +
+      `way["highway"]["access"~"^(private|no)$"]${z};);out geom tags;`;
+    // Si un servidor no contesta a tiempo, se corta y se prueba con el siguiente.
+    const pedir = (k) => {
+      const corte = new AbortController(), reloj = setTimeout(() => corte.abort(), ESPERA_OSM);
+      return fetch(OVERPASS[k], { method: "POST", body: new URLSearchParams({ data: consulta }), signal: corte.signal })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+        .catch((err) => (k + 1 < OVERPASS.length ? pedir(k + 1) : Promise.reject(err)))
+        .finally(() => clearTimeout(reloj));
+    };
+    encolarOSM(() => pedir(0).then((d) => { tesela.elementos = d.elements || []; tesela.estado = "lista"; }).catch(() => { tesela.estado = "fallo"; }));
+  }
+}
+
+function pintarAcceso() {
+  capaParcelas.clearLayers(); capaVallas.clearLayers();
+  const zoom = mapa.getZoom(), vista = mapa.getBounds().pad(0.2);
+  const avisos = [];
+  if ($("capa-parcelas").checked) {
+    if (zoom < ZOOM_PARCELAS || teselasDeLaVista(PASO_LAT, PASO_LON).length > MAX_TESELAS) avisos.push("Acerca el mapa para ver las parcelas.");
+    else {
+      const vistas = new Set();
+      let cargando = 0, fallos = 0;
+      for (const [i, j] of teselasDeLaVista(PASO_LAT, PASO_LON)) {
+        const t = teselasParcelas.get(`${i},${j}`);
+        if (!t) continue;
+        if (t.estado === "cargando") cargando++;
+        if (t.estado === "fallo") fallos++;
+        for (const p of t.parcelas) {
+          if (vistas.has(p.refcat)) continue;      // una parcela puede venir en dos teselas
+          vistas.add(p.refcat);
+          if (!vista.intersects([[p.caja[0], p.caja[1]], [p.caja[2], p.caja[3]]])) continue;
+          const publico = p.tipo === "publico";
+          L.polygon(p.poligonos, { renderer: lienzoAcceso, pane: "acceso", interactive: false, color: COLOR[p.tipo],
+            weight: publico ? 2 : 1.3, fillColor: COLOR[p.tipo], fillOpacity: publico ? 0.38 : p.tipo === "urbana" ? 0.1 : 0.03 }).addTo(capaParcelas);
+        }
+      }
+      if (cargando) avisos.push(`Cargando parcelas de Catastro (${cargando} zonas)…`);
+      if (fallos) avisos.push("Catastro no respondió en parte de la zona; mueve el mapa para reintentar.");
+    }
+  }
+  if ($("capa-vallas").checked) {
+    if (zoom < ZOOM_VALLAS || teselasDeLaVista(PASO_OSM, PASO_OSM).length > 6) avisos.push("Acerca el mapa para ver vallas y caminos.");
+    else {
+      const vistos = new Set();
+      let cargando = 0, fallos = 0;
+      for (const [i, j] of teselasDeLaVista(PASO_OSM, PASO_OSM)) {
+        const t = teselasVallas.get(`${i},${j}`);
+        if (!t) continue;
+        if (t.estado === "cargando") cargando++;
+        if (t.estado === "fallo") fallos++;
+        for (const el of t.elementos) {
+          const id = `${el.type}/${el.id}`;
+          if (vistos.has(id)) continue;
+          vistos.add(id);
+          const tags = el.tags || {};
+          if (el.type === "node") {
+            L.marker([el.lat, el.lon], { pane: "acceso", interactive: false, icon: L.divIcon({ className: "puerta", iconSize: [9, 9] }) }).addTo(capaVallas);
+          } else if (el.geometry) {
+            const linea = el.geometry.map((g) => [g.lat, g.lon]);
+            const restringido = /^(private|no)$/.test(tags.access || "") || /^(private|no)$/.test(tags.foot || "");
+            const estilo = tags.barrier ? { color: COLOR.valla, weight: 2.5 }
+              : restringido ? { color: COLOR.valla, weight: 2.5, dashArray: "3 7" }
+              : { color: COLOR.camino, weight: 2.5, dashArray: "7 6" };
+            L.polyline(linea, Object.assign({ renderer: lienzoAcceso, pane: "acceso", interactive: false }, estilo)).addTo(capaVallas);
+          }
+        }
+      }
+      if (cargando) avisos.push("Cargando vallas y caminos de OpenStreetMap (puede tardar hasta un minuto)…");
+      if (fallos) avisos.push("OpenStreetMap no respondió; mueve el mapa para reintentar.");
+    }
+  }
+  estadoAcceso = avisos.join(" ");
+  pintarLeyenda();
+}
+
+function pintarLeyenda() {
+  const caja = $("leyenda"), filas = [];
+  const clave = (estilo, texto) => { const i = el("i"); i.style.cssText = estilo; return el("div", { className: "clave" }, i, el("span", { textContent: texto })); };
+  if ($("capa-parcelas").checked) filas.push(
+    clave(`background:${COLOR.publico};opacity:.75`, "Dominio público: camino, cauce o vía"),
+    clave(`border:2px solid ${COLOR.rustica}`, "Parcela rústica"),
+    clave(`border:2px solid ${COLOR.urbana};background:${COLOR.urbana}33`, "Parcela urbana"));
+  if ($("capa-vallas").checked) filas.push(
+    clave(`border-top:3px solid ${COLOR.valla};height:0`, "Valla, muro o seto"),
+    clave(`border-top:3px dotted ${COLOR.valla};height:0`, "Camino de paso restringido"),
+    clave(`border-top:3px dashed ${COLOR.camino};height:0`, "Camino o senda"),
+    clave(`width:9px;flex-basis:9px;height:9px;margin:0 8px;border:2px solid ${COLOR.valla};background:#fff`, "Puerta o barrera"));
+  if ($("capa-pecuarias").checked) filas.push(el("div", { textContent: "Vías pecuarias y senderos GR, PR y SL (Comunitat Valenciana)." }));
+  if ($("capa-montes").checked) filas.push(el("div", { textContent: "Montes gestionados por la Generalitat y fincas patrimoniales." }));
+  if (!filas.length) { caja.hidden = true; return; }
+  if (estadoAcceso) filas.push(el("div", { className: "estado", textContent: estadoAcceso }));
+  if ($("capa-parcelas").checked) filas.push(el("div", { className: "aviso", textContent: "Catastro no publica quién es el dueño. Toca una parcela para ver su uso. Que no haya valla dibujada no significa que no exista." }));
+  caja.replaceChildren(...filas);
+  caja.hidden = false;
+}
+
+/* Ficha de una parcela: lo que Catastro deja consultar sin identificarse. */
+const USO_SUBPARCELA_PUBLICO = /DOMINIO P[ÚU]BLICO|HIDROGRAF|V[ÍI]A F[ÉE]RREA/i;
+function abrirParcela(p, latlng) {
+  const titulo = { publico: "Dominio público", rustica: "Parcela rústica", urbana: "Parcela urbana" }[p.tipo];
+  const explicacion = {
+    publico: "Por su numeración en Catastro es un camino, un cauce o una vía de dominio público.",
+    rustica: "Catastro no publica el titular: puede ser de un particular o de una administración.",
+    urbana: "Suelo urbano. Catastro no publica el titular.",
+  }[p.tipo];
+  const detalle = el("p", { textContent: "Consultando Catastro…" });
+  const sede = `https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1=${encodeURIComponent(p.refcat.slice(0, 7))}&rc2=${encodeURIComponent(p.refcat.slice(7, 14))}`;
+  const contenido = el("div", { className: "ficha-parcela" },
+    el("h4", { textContent: titulo }),
+    el("p", { textContent: `${miles(p.area)} m², referencia ${p.refcat}` }),
+    detalle,
+    el("p", { className: "nota-legal", textContent: explicacion }),
+    el("p", {}, el("a", { href: sede, target: "_blank", rel: "noopener noreferrer", textContent: "Ficha en la Sede del Catastro" })));
+  L.popup({ maxWidth: 310 }).setLatLng(latlng).setContent(contenido).openOn(mapa);
+
+  fetch(`${DATOS_PARCELA}?RefCat=${encodeURIComponent(p.refcat)}`)
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+    .then((j) => {
+      const res = j.consulta_dnprcResult || {}, lineas = [];
+      if (res.bico) {
+        const bi = res.bico.bi || {}, debi = bi.debi || {};
+        if (bi.ldt) lineas.push(bi.ldt);
+        const cultivos = (res.bico.lspr || []).map((x) => (x.dspr || {}).dcc).filter(Boolean);
+        if (cultivos.length) lineas.push("Aprovechamiento: " + [...new Set(cultivos)].join(", ").toLowerCase());
+        if (cultivos.some((c) => USO_SUBPARCELA_PUBLICO.test(c))) lineas.push("Catastro la describe como dominio público.");
+        const cons = res.bico.lcons || [];
+        if (cons.length) {
+          const usos = [...new Set(cons.map((x) => x.lcd).filter(Boolean))].join(", ").toLowerCase();
+          lineas.push(`Con construcciones: ${usos || "sin detalle"}` + (debi.sfc ? `, ${miles(+debi.sfc)} m² construidos` : "") + (debi.ant ? `, año ${debi.ant}` : ""));
+        } else if (debi.luso) lineas.push(`Uso: ${debi.luso.toLowerCase()}, sin construcciones registradas`);
+      } else if (res.lrcdnp && res.lrcdnp.rcdnp) {
+        // Varios inmuebles en la misma parcela (un edificio con pisos, por ejemplo).
+        const inmuebles = [].concat(res.lrcdnp.rcdnp);
+        const usos = [...new Set(inmuebles.map((x) => ((x.debi || {}).luso || "")).filter(Boolean))].join(", ").toLowerCase();
+        lineas.push(`${inmuebles.length} inmuebles en la parcela` + (usos ? ` (${usos})` : ""));
+      }
+      detalle.replaceChildren(...(lineas.length ? lineas : ["Catastro no devuelve más datos de esta parcela."]).flatMap((t, k) => (k ? [el("br"), t] : [t])));
+    })
+    .catch(() => { detalle.textContent = "No se pudo consultar el detalle en Catastro."; });
+}
+mapa.on("click", (e) => {
+  if (colocando) { dejarDeColocar(); nuevoMarcador(e.latlng); return; }
+  if (!$("capa-parcelas").checked || mapa.getZoom() < ZOOM_PARCELAS) return;
+  const p = parcelaEn(e.latlng.lat, e.latlng.lng);
+  if (p) abrirParcela(p, e.latlng);
+});
+
+const ajustesAcceso = leerLocal("osintmaps.acceso.v1", {}) || {};
+function actualizarAcceso() {
+  $("capa-pecuarias").checked ? capaPecuarias.addTo(mapa) : mapa.removeLayer(capaPecuarias);
+  $("capa-montes").checked ? capaMontes.addTo(mapa) : mapa.removeLayer(capaMontes);
+  guardarLocal("osintmaps.acceso.v1", { parcelas: $("capa-parcelas").checked, vallas: $("capa-vallas").checked, pecuarias: $("capa-pecuarias").checked, montes: $("capa-montes").checked });
+  pedirParcelas(); pedirVallas(); pintarAcceso();
+}
+for (const [id, clave] of [["capa-parcelas", "parcelas"], ["capa-vallas", "vallas"], ["capa-pecuarias", "pecuarias"], ["capa-montes", "montes"]]) {
+  $(id).checked = !!ajustesAcceso[clave];
+  $(id).addEventListener("change", actualizarAcceso);
+}
+mapa.on("moveend", () => { pedirParcelas(); pedirVallas(); pintarAcceso(); });
+actualizarAcceso();
+
+/* ---------- Cámaras de vigilancia (OpenStreetMap) ----------
+   Vienen de datos/camaras.geojson (las descarga «osintmaps buscar») y se pueden
+   ampliar al momento con las de la zona que se esté viendo. Es un dato
+   colaborativo: que no haya cámara dibujada no significa que no la haya. */
+const TEXTO_CAMARA = {
+  tipo: { camera: "Cámara", ALPR: "Lector de matrículas" },
+  camara: { fixed: "fija", panning: "móvil (PTZ)", dome: "domo" },
+  vigila: { public: "Vía pública", outdoor: "Exterior de un recinto" },
+  zona: { traffic: "Tráfico", town: "Calle o plaza", parking: "Aparcamiento", building: "Edificio", shop: "Comercio", bank: "Banco",
+          atm: "Cajero", public_transport_platform: "Andén", public_transport: "Transporte público", entrance: "Entrada",
+          gate: "Puerta o barrera", street: "Calle", station: "Estación" },
+  montaje: { wall: "Pared", pole: "Poste", ceiling: "Techo", street_lamp: "Farola", traffic_signals: "Semáforo", roof: "Tejado" },
+};
+const textoCamara = (grupo, valor) => TEXTO_CAMARA[grupo][valor] || String(valor).replace(/_/g, " ");
+const camaras = new Map();    // id -> { id, lat, lon, tipo, camara, vigila, zona, montaje, direccion, operador }
+const capaConos = L.layerGroup().addTo(mapa);
+const grupoCamaras = L.markerClusterGroup({
+  maxClusterRadius: 38, disableClusteringAtZoom: 16, chunkedLoading: true, showCoverageOnHover: false,
+  iconCreateFunction: (c) => L.divIcon({ html: String(c.getChildCount()), className: "grupo grupo-camaras", iconSize: [26, 26] }),
+});
+
+/* Rumbo en grados (0 = norte, sentido horario) si la etiqueta de OSM es un número. */
+function rumboDe(c) {
+  return /^-?\d+(\.\d+)?$/.test(c.direccion || "") ? ((Number(c.direccion) % 360) + 360) % 360 : null;
+}
+function filasCamara(c) {
+  const filas = [];
+  filas.push(["Tipo", (c.tipo ? textoCamara("tipo", c.tipo) : "Cámara") + (c.camara ? " " + textoCamara("camara", c.camara) : "")]);
+  if (c.vigila) filas.push(["Vigila", textoCamara("vigila", c.vigila)]);
+  if (c.zona) filas.push(["Zona", textoCamara("zona", c.zona)]);
+  if (c.montaje) filas.push(["Montaje", textoCamara("montaje", c.montaje)]);
+  const rumbo = rumboDe(c);
+  if (rumbo !== null) filas.push(["Orientación", `${Math.round(rumbo)}° (${["N", "NE", "E", "SE", "S", "SO", "O", "NO"][Math.round(rumbo / 45) % 8]})`]);
+  else if (c.direccion) filas.push(["Orientación", c.direccion]);
+  if (c.operador) filas.push(["Operador", c.operador]);
+  return filas;
+}
+
+function anadirCamaras(lista) {
+  let nuevas = 0;
+  for (const c of lista) {
+    if (!c || !c.id || !Number.isFinite(c.lat) || !Number.isFinite(c.lon)) continue;
+    if (!camaras.has(c.id)) nuevas++;
+    camaras.set(c.id, c);
+  }
+  pintarCamaras();
+  return nuevas;
+}
+function cargarCamaras(geojson) {
+  anadirCamaras(((geojson && geojson.features) || []).filter((f) => f.geometry && f.properties).map((f) =>
+    Object.assign({}, f.properties, { id: String(f.properties.id), lon: +f.geometry.coordinates[0], lat: +f.geometry.coordinates[1] })));
+}
+function pintarCamaras() {
+  grupoCamaras.clearLayers();
+  const puntos = [];
+  for (const c of camaras.values()) {
+    const m = L.circleMarker([c.lat, c.lon], { radius: 6, color: "#ff2d2d", weight: 2.5, fillColor: "#ffffff", fillOpacity: 0.85 });
+    m.on("click", (e) => { L.DomEvent.stopPropagation(e); abrirCamara(c); });
+    puntos.push(m);
+  }
+  grupoCamaras.addLayers(puntos);
+  $("capa-camaras").checked ? grupoCamaras.addTo(mapa) : mapa.removeLayer(grupoCamaras);
+  pintarConos();
+}
+/* Al acercar, un abanico marca hacia dónde mira cada cámara que tiene la orientación anotada. */
+function pintarConos() {
+  capaConos.clearLayers();
+  if (!$("capa-camaras").checked || mapa.getZoom() < 17) return;
+  const vista = mapa.getBounds().pad(0.1), alcance = 30, apertura = 28;
+  for (const c of camaras.values()) {
+    const rumbo = rumboDe(c);
+    if (rumbo === null || !vista.contains([c.lat, c.lon])) continue;
+    const puntos = [[c.lat, c.lon]];
+    for (let g = rumbo - apertura; g <= rumbo + apertura; g += 7) {
+      const rad = (g * Math.PI) / 180;
+      puntos.push([c.lat + (alcance * Math.cos(rad)) / 111320, c.lon + (alcance * Math.sin(rad)) / (111320 * Math.cos((c.lat * Math.PI) / 180))]);
+    }
+    L.polygon(puntos, { renderer: lienzoAcceso, pane: "acceso", interactive: false, color: "#ff2d2d", weight: 1, fillColor: "#ff2d2d", fillOpacity: 0.28 }).addTo(capaConos);
+  }
+}
+function abrirCamara(c) {
+  const datos = el("dl");
+  for (const [k, v] of filasCamara(c)) datos.append(el("dt", { textContent: k }), el("dd", { textContent: v }));
+  const guardar = el("button", { type: "button", textContent: "Guardar entre mis marcadores" });
+  guardar.addEventListener("click", () => {
+    const ya = Object.values(marcadores).some((m) => !m.deleted && m.type === "camera" && mapa.distance([m.lat, m.lng], [c.lat, c.lon]) < 3);
+    if (ya) { guardar.textContent = "Ya la tienes guardada"; return; }
+    mapa.closePopup();
+    nuevoMarcador(L.latLng(c.lat, c.lon), "camera", ("OSM: " + filasCamara(c).map((f) => f[1]).join(", ")).slice(0, 500));
+  });
+  const contenido = el("div", { className: "ficha-parcela" },
+    el("h4", { textContent: "Cámara de vigilancia" }),
+    el("p", { textContent: `${c.lat.toFixed(6)}, ${c.lon.toFixed(6)}` }),
+    datos, guardar,
+    /^(node|way|relation)\/\d+$/.test(c.id) ? el("p", {}, el("a", { href: `https://www.openstreetmap.org/${c.id}`, target: "_blank", rel: "noopener noreferrer", textContent: "Ver en OpenStreetMap" })) : null);
+  L.popup({ maxWidth: 310 }).setLatLng([c.lat, c.lon]).setContent(contenido).openOn(mapa);
+}
+/* Descarga al momento las cámaras de lo que se ve en pantalla. */
+function cargarCamarasDeLaVista() {
+  const boton = $("cargar-camaras");
+  if (mapa.getZoom() < 12) { boton.textContent = "Acerca el mapa y vuelve a pulsar"; return; }
+  const b = mapa.getBounds();
+  const z = `(${b.getSouth().toFixed(5)},${b.getWest().toFixed(5)},${b.getNorth().toFixed(5)},${b.getEast().toFixed(5)})`;
+  const consulta = `[out:json][timeout:25];nwr["man_made"="surveillance"]${z};out center tags;`;
+  boton.disabled = true; boton.textContent = "Buscando cámaras (hasta un minuto)…";
+  const pedir = (k) => {
+    const corte = new AbortController(), reloj = setTimeout(() => corte.abort(), ESPERA_OSM);
+    return fetch(OVERPASS[k], { method: "POST", body: new URLSearchParams({ data: consulta }), signal: corte.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+      .catch((err) => (k + 1 < OVERPASS.length ? pedir(k + 1) : Promise.reject(err)))
+      .finally(() => clearTimeout(reloj));
+  };
+  encolarOSM(() => pedir(0).then((d) => {
+    const lista = [];
+    for (const e of d.elements || []) {
+      const t = e.tags || {}, centro = e.type === "node" ? e : e.center || {};
+      if (t.surveillance === "indoor" || t["surveillance:type"] === "guard" || centro.lat == null) continue;
+      lista.push({ id: `${e.type}/${e.id}`, lat: +centro.lat, lon: +centro.lon, tipo: t["surveillance:type"], camara: t["camera:type"], vigila: t.surveillance,
+                   zona: t["surveillance:zone"], montaje: t["camera:mount"], direccion: t["camera:direction"] || t.direction, operador: t.operator });
+    }
+    const nuevas = anadirCamaras(lista);
+    boton.textContent = `${lista.length} cámaras en la zona (${nuevas} nuevas)`;
+  }).catch(() => { boton.textContent = "OpenStreetMap no respondió; vuelve a pulsar"; }).finally(() => { boton.disabled = false; }));
+}
+$("cargar-camaras").addEventListener("click", cargarCamarasDeLaVista);
+mapa.on("moveend", pintarConos);
+
+/* ---------- Mis marcadores ----------
+   Puntos propios sobre el mapa. Se crean con el botón «Añadir marcador» (y un
+   clic en el sitio), con el botón derecho o manteniendo pulsado en el móvil.
+   Mientras su ficha está abierta, el marcador se puede arrastrar. */
+const capaMarcadores = L.layerGroup().addTo(mapa);
+const pinesMarcadores = new Map();     // id -> marcador de Leaflet
+let marcadorAbierto = null, colocando = false;
+let ultimoTipo = leerLocal("osintmaps.ultimo-tipo.v1", "spot");
+if (!TIPOS_MARCADOR[ultimoTipo]) ultimoTipo = "spot";
+
+function iconoMarcador(tipo, abierto) {
+  return L.divIcon({ className: "", iconSize: [18, 18], iconAnchor: [9, 9],
+    html: `<div class="mio${abierto ? " abierto" : ""}" style="background:${TIPOS_MARCADOR[tipo][1]}"></div>` });
+}
+function pintarMarcadores() {
+  capaMarcadores.clearLayers(); pinesMarcadores.clear();
+  if (!$("capa-marcadores").checked) return;
+  for (const [id, m] of Object.entries(marcadores)) {
+    if (m.deleted) continue;
+    const abierto = id === marcadorAbierto;
+    const pin = L.marker([m.lat, m.lng], { icon: iconoMarcador(m.type, abierto), draggable: abierto, title: TIPOS_MARCADOR[m.type][0], zIndexOffset: abierto ? 1000 : 500 });
+    pin.on("click", (e) => { L.DomEvent.stopPropagation(e); abrirMarcador(id); });
+    pin.on("dragend", () => {
+      const p = pin.getLatLng();
+      marcadores[id] = normalizarMarcador(Object.assign({}, marcadores[id], { lat: p.lat, lng: p.lng }));
+      almacenMarcadores.guardar(id);
+      if (marcadorAbierto === id) abrirMarcador(id);
+    });
+    pin.addTo(capaMarcadores); pinesMarcadores.set(id, pin);
+  }
+}
+function nuevoMarcador(latlng, tipo, nota) {
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  marcadores[id] = normalizarMarcador({ type: tipo || ultimoTipo, lat: latlng.lat, lng: latlng.lng, note: nota || "", created: Date.now() });
+  almacenMarcadores.guardar(id);
+  $("capa-marcadores").checked = true;
+  abrirMarcador(id);
+}
+/* Cierra la ficha de marcador sin tocar el resto del panel (lo usan las otras fichas al abrirse). */
+function soltarMarcador() {
+  if (marcadorAbierto === null) return;
+  marcadorAbierto = null;
+  $("ficha-marcador").hidden = true;
+  pintarMarcadores();
+}
+function cerrarMarcador() { soltarMarcador(); mostrarLista(); if (candidatos.length) filtrar(); }
+
+function abrirMarcador(id) {
+  const m = marcadores[id];
+  if (!m || m.deleted) return;
+  if (seleccion) mostrarLista();
+  marcadorAbierto = id;
+  $("panel").classList.remove("plegado"); $("plegar").textContent = "Ocultar"; $("plegar").setAttribute("aria-expanded", "true");
+
+  const volver = el("button", { id: "volver-marcador", type: "button", textContent: "Lista" });
+  volver.addEventListener("click", cerrarMarcador);
+  const tipos = el("div", { className: "tipos", role: "group", ariaLabel: "Tipo de marcador" });
+  for (const [tipo, [nombre, color]] of Object.entries(TIPOS_MARCADOR)) {
+    const muestra = el("i"); muestra.style.background = color;
+    const b = el("button", { type: "button" }, muestra, nombre);
+    b.setAttribute("aria-pressed", String(m.type === tipo));
+    b.addEventListener("click", () => {
+      marcadores[id] = normalizarMarcador(Object.assign({}, marcadores[id], { type: tipo }));
+      almacenMarcadores.guardar(id);
+      ultimoTipo = tipo; guardarLocal("osintmaps.ultimo-tipo.v1", tipo);
+      abrirMarcador(id);
+    });
+    tipos.append(b);
+  }
+  const nota = el("textarea", { id: "nota-marcador", placeholder: "Nota: qué hay, por dónde se entra, cuándo lo viste", value: m.note });
+  nota.setAttribute("aria-label", "Nota del marcador"); nota.maxLength = 500;
+  nota.addEventListener("input", () => { marcadores[id] = normalizarMarcador(Object.assign({}, marcadores[id], { note: nota.value })); almacenMarcadores.guardar(id); });
+
+  const borrar = el("button", { type: "button", className: "peligro", textContent: "Borrar" });
+  borrar.setAttribute("aria-pressed", "false");
+  borrar.addEventListener("click", () => {
+    // Dos pulsaciones para borrar: la primera arma el botón.
+    if (borrar.getAttribute("aria-pressed") !== "true") { borrar.setAttribute("aria-pressed", "true"); borrar.textContent = "Pulsa otra vez para borrar"; return; }
+    marcadores[id] = normalizarMarcador(Object.assign({}, marcadores[id], { deleted: true }));
+    almacenMarcadores.guardar(id);
+    cerrarMarcador();
+  });
+  const centrar = el("button", { type: "button", textContent: "Centrar en el mapa" });
+  centrar.addEventListener("click", () => mapa.setView([marcadores[id].lat, marcadores[id].lng], Math.max(mapa.getZoom(), 17)));
+
+  const enlaces = el("div", { className: "enlaces" });
+  const pos = `${m.lat},${m.lng}`;
+  for (const [nombre, url] of [["Cómo llegar", `https://www.google.com/maps/dir/?api=1&destination=${pos}`],
+    ["Google Maps", `https://www.google.com/maps/@?api=1&map_action=map&center=${pos}&zoom=19&basemap=satellite`],
+    ["Street View", `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${pos}`],
+    ["Google Earth", `https://earth.google.com/web/search/${pos}`]]) {
+    enlaces.append(el("a", { href: url, target: "_blank", rel: "noopener noreferrer", textContent: nombre }));
+  }
+  const copiar = el("button", { type: "button", textContent: "Copiar coordenadas" });
+  copiar.addEventListener("click", () => {
+    const texto = `${m.lat.toFixed(6)}, ${m.lng.toFixed(6)}`;
+    (navigator.clipboard ? navigator.clipboard.writeText(texto) : Promise.reject(new Error("sin portapapeles"))).then(
+      () => { copiar.textContent = "Coordenadas copiadas"; }, () => { copiar.textContent = texto; });
+  });
+  enlaces.append(copiar);
+
+  const mantenerFoco = document.activeElement && document.activeElement.id === "nota-marcador";
+  $("ficha-marcador").replaceChildren(
+    el("div", { className: "navegacion" }, volver),
+    el("h2", { textContent: `Marcador: ${TIPOS_MARCADOR[m.type][0].toLowerCase()}` }),
+    el("div", { className: "lugar", textContent: `${m.lat.toFixed(5)}, ${m.lng.toFixed(5)}, creado el ${new Date(m.created).toLocaleDateString("es-ES")}` }),
+    tipos, nota,
+    el("div", { className: "acciones" }, centrar, borrar),
+    el("p", { className: "ayuda", textContent: "Arrastra el marcador en el mapa para moverlo. Los cambios se guardan solos." }),
+    bloque("Abrir en", enlaces));
+  $("lista").hidden = true; $("ver-mas").hidden = true; $("sin-coincidencias").hidden = true; $("ficha").hidden = true;
+  $("filtros").hidden = true; $("pie").hidden = true; $("vacio").hidden = true;
+  $("ficha-marcador").hidden = false;
+  $("contenido").scrollTop = 0;
+  if (mantenerFoco) $("nota-marcador").focus();
+  pintarMarcadores();
+}
+
+function dejarDeColocar() {
+  colocando = false;
+  $("anadir").setAttribute("aria-pressed", "false"); $("anadir").textContent = "Añadir marcador";
+  $("mapa").classList.remove("colocando");
+}
+$("anadir").addEventListener("click", () => {
+  if (colocando) { dejarDeColocar(); return; }
+  colocando = true;
+  $("anadir").setAttribute("aria-pressed", "true"); $("anadir").textContent = "Toca el sitio en el mapa";
+  $("mapa").classList.add("colocando");
+});
+// Botón derecho del ratón, o mantener pulsado con el dedo.
+mapa.on("contextmenu", (e) => { dejarDeColocar(); nuevoMarcador(e.latlng); });
+
+/* Qué capas de puntos se ven. */
+const capasVisibles = leerLocal("osintmaps.capas.v1", {}) || {};
+function actualizarCapasDePuntos() {
+  $("capa-sitios").checked ? grupo.addTo(mapa) : mapa.removeLayer(grupo);
+  guardarLocal("osintmaps.capas.v1", { sitios: $("capa-sitios").checked, camaras: $("capa-camaras").checked, marcadores: $("capa-marcadores").checked });
+  pintarCamaras(); pintarMarcadores();
+}
+for (const [id, clave] of [["capa-sitios", "sitios"], ["capa-camaras", "camaras"], ["capa-marcadores", "marcadores"]]) {
+  if (capasVisibles[clave] === false) $(id).checked = false;
+  $(id).addEventListener("change", actualizarCapasDePuntos);
+}
+
+/* ---------- Controles ---------- */
+$("filtros-mas").open = window.matchMedia("(min-width: 761px)").matches;
+if (vista.nota != null) $("f-nota").value = vista.nota;
+if (vista.sup) $("f-sup").value = vista.sup;
+if (vista.marca) $("f-marca").value = vista.marca;
+if (vista.orden && vista.orden !== "cercania") $("f-orden").value = vista.orden;
+$("f-multi").checked = !!vista.multi;
+
+$("f-nota").addEventListener("input", filtrar);
+/* Al buscar, la lista se filtra al momento y, cuando se deja de escribir, el mapa
+   se mueve para enseñar los resultados. Con Intro se mueve sin esperar. */
+let temporizadorBusqueda = null;
+function encuadrarResultados() {
+  clearTimeout(temporizadorBusqueda);
+  if (!$("buscar-texto").value.trim() || !visibles.length) return;
+  mapa.fitBounds(L.latLngBounds(visibles.map((c) => [c.lat, c.lon])).pad(0.15), { maxZoom: 16 });
+}
+$("buscar-texto").addEventListener("input", () => {
+  filtrar();
+  clearTimeout(temporizadorBusqueda);
+  temporizadorBusqueda = setTimeout(encuadrarResultados, 500);
+});
+$("buscar-texto").addEventListener("keydown", (e) => { if (e.key === "Enter") encuadrarResultados(); });
+for (const id of ["f-sup", "f-marca", "f-multi", "f-vista"]) $(id).addEventListener("change", filtrar);
+$("f-orden").addEventListener("change", () => { if ($("f-orden").value === "cercania" && !miPosicion) localizar(); else filtrar(); });
+$("ver-mas").addEventListener("click", pintarMas);
+$("plegar").addEventListener("click", () => {
+  const plegado = $("panel").classList.toggle("plegado");
+  $("plegar").textContent = plegado ? "Mostrar" : "Ocultar";
+  $("plegar").setAttribute("aria-expanded", String(!plegado));
+  setTimeout(() => mapa.invalidateSize(), 50);
+});
+mapa.on("moveend", () => {
+  if (!candidatos.length) return;
+  if (!seleccion && !marcadorAbierto && ($("f-vista").checked || $("f-orden").value === "vista")) filtrar();
+  else { pintarHuellas(); guardarVista(); }
+});
+
+function localizar() {
+  if (!navigator.geolocation) { $("cerca").textContent = "Este navegador no da la posición"; return; }
+  $("cerca").textContent = "Buscando tu posición";
+  navigator.geolocation.getCurrentPosition((pos) => {
+    miPosicion = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+    if (marcadorYo) mapa.removeLayer(marcadorYo);
+    marcadorYo = L.marker([miPosicion.lat, miPosicion.lon], { icon: L.divIcon({ className: "yo", iconSize: [16, 16] }), interactive: false }).addTo(mapa);
+    $("cerca").textContent = "Cerca de mí";
+    $("f-orden").value = "cercania";
+    if (seleccion) mostrarLista();
+    mapa.setView([miPosicion.lat, miPosicion.lon], Math.max(mapa.getZoom(), 12));
+    filtrar();
+  }, () => {
+    // Los navegadores solo dan la posición en páginas https o abiertas en el propio equipo.
+    $("cerca").textContent = "Posición no disponible";
+    if ($("f-orden").value === "cercania") { $("f-orden").value = "nota"; filtrar(); }
+  }, { enableHighAccuracy: true, timeout: 15000 });
+}
+$("cerca").addEventListener("click", localizar);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && colocando) { dejarDeColocar(); return; }
+  if (e.key === "Escape" && marcadorAbierto && !/^(INPUT|SELECT)$/.test((document.activeElement || {}).tagName || "")) { cerrarMarcador(); return; }
+  if (!seleccion || e.ctrlKey || e.metaKey || e.altKey) return;
+  const foco = document.activeElement;
+  // Escribiendo en un campo, o con el foco en el mapa (que usa las flechas), no hay atajos.
+  if (foco && (/^(INPUT|TEXTAREA|SELECT)$/.test(foco.tagName) || foco.closest("#mapa-zona"))) return;
+  const tecla = e.key.toLowerCase();
+  if (tecla === "arrowright" || tecla === "j") irA(1);
+  else if (tecla === "arrowleft" || tecla === "k") irA(-1);
+  else if (tecla === "f") marcarDesdeFicha("favorito");
+  else if (tecla === "v") marcarDesdeFicha("visitado");
+  else if (tecla === "x") marcarDesdeFicha("descartado");
+  else if (tecla === "escape") volverALista();
+  else return;
+  e.preventDefault();
+});
+
+const leerFichero = (fichero) => fichero.text().then(JSON.parse);
+$("fichero").addEventListener("change", (e) => {
+  if (!e.target.files[0]) return;
+  leerFichero(e.target.files[0]).then(cargar).catch(() => window.alert("Ese fichero no es un GeoJSON válido."));
+});
+/* Copia de seguridad: un fichero con las marcas y los marcadores. La lista
+   «markers» tiene el mismo formato que las copias de GraffMap. */
+$("exportar-marcas").addEventListener("click", () => {
+  const copia = { app: "OSINT Maps", version: 1, exported: new Date().toISOString(), marcas,
+    markers: Object.entries(marcadores).filter(([, m]) => !m.deleted).map(([id, m]) => ({ id, type: m.type, lat: m.lat, lng: m.lng, note: m.note, created: m.created })) };
+  const enlace = el("a", { href: URL.createObjectURL(new Blob([JSON.stringify(copia, null, 2)], { type: "application/json" })), download: "osintmaps-copia.json" });
+  enlace.click(); URL.revokeObjectURL(enlace.href);
+});
+/* Admite una copia de OSINT Maps, una de GraffMap ({markers: [...]} o la lista
+   sola) o un fichero antiguo solo con marcas. */
+function recuperarCopia(datos) {
+  let nMarcas = 0, nMarcadores = 0;
+  const lista = Array.isArray(datos) ? datos : datos && Array.isArray(datos.markers) ? datos.markers : null;
+  if (lista) {
+    const porId = {};
+    for (const m of lista) if (m && typeof m === "object") porId[typeof m.id === "string" && m.id ? m.id : Date.now().toString(36) + Math.random().toString(36).slice(2, 8)] = m;
+    nMarcadores = almacenMarcadores.incorporarDeCopia(porId);
+  }
+  const deMarcas = datos && !Array.isArray(datos) ? (datos.marcas && typeof datos.marcas === "object" ? datos.marcas : lista ? null : datos) : null;
+  if (deMarcas) nMarcas = almacenMarcas.incorporarDeCopia(Object.fromEntries(Object.entries(deMarcas).filter(([, m]) => m && typeof m === "object" && ("estado" in m || "nota" in m))));
+  if (!nMarcas && !nMarcadores) throw new Error("vacía");
+  return `Recuperados ${nMarcadores} marcadores y ${nMarcas} marcas.`;
+}
+$("importar-marcas").addEventListener("change", (e) => {
+  if (!e.target.files[0]) return;
+  leerFichero(e.target.files[0]).then((datos) => {
+    $("estado-marcas").textContent = recuperarCopia(datos);
+    pintarMarcadores(); if (candidatos.length) filtrar();
+  }).catch(() => { $("estado-marcas").textContent = "Ese fichero no es una copia de OSINT Maps ni de GraffMap."; });
+  e.target.value = "";
+});
+
+/* ---------- Arranque ---------- */
+actualizarCapasDePuntos();
+if (window.OSINT_DATOS) {
+  // Fichero autónomo generado con «osintmaps paquete»: los datos van dentro y lo
+  // que se anote se queda en este navegador.
+  if (window.OSINT_HUELLAS) cargarHuellas(window.OSINT_HUELLAS);
+  if (window.OSINT_CAMARAS) cargarCamaras(window.OSINT_CAMARAS);
+  cargar(window.OSINT_DATOS);
+  pintarMarcadores();
+} else {
+  const base = new URLSearchParams(location.search).get("datos") || "datos/";
+  // Primero lo anotado que haya en disco, luego los datos.
+  Promise.allSettled([almacenMarcas.sincronizar(base), almacenMarcadores.sincronizar(base)]).then(() => {
+    pintarMarcadores();
+    pedirJSON(`${base}huellas.geojson`).then(cargarHuellas).catch(() => { /* las huellas son opcionales */ });
+    pedirJSON(`${base}camaras.geojson`).then(cargarCamaras).catch(() => { /* las cámaras son opcionales */ });
+    pedirJSON(`${base}candidatos.geojson`).then(cargar).catch(() => { /* se queda la pantalla de inicio */ });
+  });
+}
+</script>
+</body>
+</html>
