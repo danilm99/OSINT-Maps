@@ -345,6 +345,8 @@ LIMPIADORES = {"marcas.json": _limpiar_marca, "marcadores.json": _limpiar_marcad
 # peticiones simultáneas por la misma zona no salgan las dos a la red.
 _AVIONES: OrderedDict[tuple, tuple[float, bytes]] = OrderedDict()
 _CANDADO_AVIONES = threading.Lock()
+_RELEVO: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
+_CANDADO_RELEVO = threading.Lock()
 VIDA_AVIONES = 8.0       # segundos que se reutiliza una respuesta
 MAX_ZONAS_AVIONES = 32
 
@@ -419,9 +421,48 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
             return
         self._responder_json(200, guardado[1])
 
+    def _relevo(self, clave: str, url: str, vida: float, convertir=None) -> None:
+        """Devuelve como JSON lo que contesta un servicio que no deja que una página web le
+        pregunte directamente. Guarda la respuesta `vida` segundos para no repetir la consulta."""
+        with _CANDADO_RELEVO:
+            ahora = time.monotonic()
+            guardado = _RELEVO.get(clave)
+            if not guardado or ahora - guardado[0] > vida:
+                try:
+                    resp = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0 OSINT-Maps"})
+                    resp.raise_for_status()
+                    contenido = convertir(resp) if convertir else resp.content
+                except Exception:  # noqa: BLE001
+                    guardado = None
+                else:
+                    guardado = (time.monotonic(), contenido)
+                    _RELEVO[clave] = guardado
+                    _RELEVO.move_to_end(clave)
+                    while len(_RELEVO) > 300:
+                        _RELEVO.popitem(last=False)
+        if guardado is None:
+            self.send_error(502)
+            return
+        self._responder_json(200, guardado[1])
+
+    def _ficha_externa(self) -> None:
+        """Foto y descripción de una ficha de Hispania Nostra, sacadas de su página."""
+        url = (parse_qs(urlparse(self.path).query).get("url") or [""])[0]
+        if not url.startswith("https://listaroja.hispanianostra.org/") or len(url) > 300:
+            self.send_error(400)
+            return
+        self._relevo(f"ficha:{url}", url, 86400, lambda resp: json.dumps(listaroja.detalle(resp.text)).encode("utf-8"))
+
     def do_GET(self) -> None:
-        if urlparse(self.path).path == "/vivo/aviones":
+        ruta = urlparse(self.path).path
+        if ruta == "/vivo/aviones":
             self._aviones()
+            return
+        if ruta == "/vivo/trenes":
+            self._relevo("trenes", "https://gtfsrt.renfe.com/vehicle_positions.json", 15)
+            return
+        if ruta == "/vivo/ficha":
+            self._ficha_externa()
             return
         # Si el fichero aún no existe se responde con un objeto vacío en vez de un
         # 404: así el visor sabe que puede guardar aquí.
@@ -574,7 +615,7 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
                   f"window.OSINT_CAPAS={_json_para_script(capas)};</script>")
     pagina = pagina.replace(marca, incrustado, 1)
     # El resto del programa del visor va en un fichero aparte: dentro también.
-    for fichero in ("capas.js",):
+    for fichero in ("iconos.js", "capas.js", "herramientas.js"):
         etiqueta = f'<script src="{fichero}"></script>'
         if etiqueta in pagina:
             codigo = (CARPETA_WEB / fichero).read_text(encoding="utf-8").replace("</script", "<\\/script")

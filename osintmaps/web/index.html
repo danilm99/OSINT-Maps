@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>OSINT Maps</title>
+<script>
+/* El tema se decide antes de pintar nada, para que la página no parpadee en claro:
+   el que se eligió la última vez o, si nunca se ha elegido, el del sistema. */
+try {
+  const guardado = JSON.parse(localStorage.getItem("osintmaps.tema.v1"));
+  document.documentElement.dataset.tema = guardado === "oscuro" || guardado === "claro" ? guardado
+    : matchMedia("(prefers-color-scheme: dark)").matches ? "oscuro" : "claro";
+} catch { document.documentElement.dataset.tema = "claro"; }
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&display=swap" rel="stylesheet">
@@ -25,8 +34,36 @@
     --amarillo: #f2c200;
     --gris: #8aa0ab;
     --musgo: #3f7350;
+    --fondo-mapa: #dfe4e3;
     --ancho-panel: 404px;
   }
+  /* Modo oscuro: mismas piezas, tinta clara sobre papel de pizarra. Lo que va encima de las
+     fotos (rótulos, símbolos, visor) lleva sus colores fijos y no cambia. */
+  :root[data-tema=oscuro] {
+    color-scheme: dark;
+    --tinta: #e7edf0;
+    --tinta-suave: #9eb0ba;
+    --papel: #131a20;
+    --blanco: #1e2830;
+    --linea: #364652;
+    --gris: #6f8591;
+    --fondo-mapa: #0d1216;
+  }
+  [data-tema=oscuro] .leaflet-bar a, [data-tema=oscuro] .leaflet-bar a:hover { background: var(--blanco); color: var(--tinta); border-color: var(--linea); }
+  [data-tema=oscuro] .leaflet-bar { border-color: var(--linea); }
+  [data-tema=oscuro] .leaflet-control-attribution { background: rgba(19,26,32,.82); color: var(--tinta-suave); }
+  [data-tema=oscuro] .leaflet-control-attribution a { color: var(--tinta); }
+  [data-tema=oscuro] .leaflet-control-scale-line { background: rgba(19,26,32,.82); color: var(--tinta); border-color: var(--tinta-suave); text-shadow: none; }
+  [data-tema=oscuro] .leaflet-popup-content-wrapper, [data-tema=oscuro] .leaflet-popup-tip { background: var(--blanco); color: var(--tinta); }
+  [data-tema=oscuro] .leaflet-container a.leaflet-popup-close-button { color: var(--tinta-suave); }
+  [data-tema=oscuro] .leaflet-tooltip { background: var(--blanco); color: var(--tinta); border-color: var(--linea); }
+  [data-tema=oscuro] .leaflet-tooltip-top::before { border-top-color: var(--blanco); }
+  [data-tema=oscuro] .leaflet-tooltip-bottom::before { border-bottom-color: var(--blanco); }
+  /* Los mapas dibujados (callejero, topográfico, OpenStreetMap) se invierten para que no deslumbren; las fotos, no. */
+  [data-tema=oscuro] .fondo-dibujado .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.88); }
+  #tema { border: 1px solid var(--linea); background: var(--blanco); border-radius: 50%; width: 34px; height: 34px; padding: 0; margin-left: auto;
+          display: grid; place-items: center; align-self: center; flex: none; }
+  #tema:hover { border-color: var(--tinta); }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
@@ -44,9 +81,10 @@
   #panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; background: var(--papel);
            border-right: 1px solid var(--linea); z-index: 2; }
   #cabecera { display: flex; align-items: baseline; gap: 10px; padding: 14px 16px 10px; }
-  #cabecera h1 { font: 600 26px/1 "Barlow Condensed", sans-serif; margin: 0; letter-spacing: .01em; }
+  #cabecera h1 { font: 600 26px/1 "Barlow Condensed", sans-serif; margin: 0; letter-spacing: .01em; white-space: nowrap; }
+  #recuento { white-space: nowrap; }
   #recuento { color: var(--tinta-suave); font-size: 14px; }
-  #plegar { display: none; margin-left: auto; border: 0; background: none; padding: 4px 8px; font-weight: 600; }
+  #plegar { display: none; border: 0; background: none; padding: 4px 8px; font-weight: 600; }
 
   #filtros { padding: 0 16px 12px; border-bottom: 1px solid var(--linea); display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
   #filtros-mas summary { font-weight: 600; cursor: pointer; padding: 2px 0; }
@@ -72,9 +110,9 @@
   }
   #lista li button:hover { background: var(--blanco); }
   .nota { font: 600 24px/1 "Barlow Condensed", sans-serif; text-align: center; padding: 7px 0 6px;
-          border-radius: 4px; color: var(--blanco); background: var(--gris); }
-  .nota.n2 { background: var(--amarillo); color: var(--tinta); }
-  .nota.n3 { background: var(--naranja); color: var(--tinta); }
+          border-radius: 4px; color: #fff; background: #8aa0ab; }
+  .nota.n2 { background: var(--amarillo); color: #17242e; }
+  .nota.n3 { background: var(--naranja); color: #17242e; }
   .nota.n4 { background: var(--jalon); }
   .titulo { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sub { font-size: 13px; color: var(--tinta-suave); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -100,16 +138,16 @@
 
   /* Lo distintivo de la ficha: el mismo encuadre aéreo a lo largo de los años,
      como una tira de contactos de fotografía aérea. */
-  #aereo { position: relative; aspect-ratio: 4 / 3; background: var(--tinta); border-radius: 6px; overflow: hidden; }
+  #aereo { position: relative; aspect-ratio: 4 / 3; background: #17242e; border-radius: 6px; overflow: hidden; }
   #aereo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   #aereo .cruz { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px;
                  border: 2px solid var(--jalon); border-radius: 50%; pointer-events: none; }
-  #aereo .anio { position: absolute; left: 0; top: 0; padding: 3px 10px 4px; color: var(--blanco); background: rgba(23,36,46,.82);
+  #aereo .anio { position: absolute; left: 0; top: 0; padding: 3px 10px 4px; color: #fff; background: rgba(23,36,46,.82);
                  font: 600 18px "Barlow Condensed", sans-serif; border-bottom-right-radius: 6px; }
   #tira { display: flex; gap: 5px; margin-top: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
-  #tira button { flex: 0 0 62px; padding: 0; border: 2px solid transparent; border-radius: 4px; background: var(--tinta); overflow: hidden; position: relative; height: 62px; }
+  #tira button { flex: 0 0 62px; padding: 0; border: 2px solid transparent; border-radius: 4px; background: #17242e; overflow: hidden; position: relative; height: 62px; }
   #tira button img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  #tira button span { position: absolute; inset: auto 0 0 0; color: var(--blanco); background: rgba(23,36,46,.78);
+  #tira button span { position: absolute; inset: auto 0 0 0; color: #fff; background: rgba(23,36,46,.78);
                       font: 600 13px/1.5 "Barlow Condensed", sans-serif; text-align: center; }
   #tira button[aria-pressed=true] { border-color: var(--jalon); }
   #comparar { margin-top: 6px; border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 6px 12px; width: 100%; }
@@ -138,10 +176,11 @@
 
   /* ---------- Mapa ---------- */
   #mapa-zona { position: relative; min-height: 0; display: grid; }
-  #mapa { min-height: 0; background: #dfe4e3; }
+  #mapa { min-height: 0; background: var(--fondo-mapa); }
   .leaflet-container { font: inherit; }
-  .grupo { background: var(--tinta); color: var(--blanco); border-radius: 50%; display: grid; place-items: center;
-           font: 600 15px "Barlow Condensed", sans-serif; border: 2px solid var(--blanco); }
+  /* Grupos de puntos: cuadrados los de sitios, redondos los de cámaras, como sus símbolos. */
+  .grupo { background: #17242e; color: #fff; border-radius: 30%; display: grid; place-items: center;
+           font: 600 15px "Barlow Condensed", sans-serif; border: 2px solid #fff; box-shadow: 0 0 0 1.5px rgba(23,36,46,.75); }
   #capas { position: absolute; right: 10px; top: 10px; z-index: 800; background: var(--papel); border: 1px solid var(--linea);
            border-radius: 8px; padding: 10px 12px; width: 240px; font-size: 14px; }
   #capas summary { font-weight: 600; cursor: pointer; }
@@ -150,13 +189,13 @@
   #capas .cuerpo { display: grid; gap: 8px; margin-top: 8px; }
   #cerca { position: absolute; right: 10px; bottom: 96px; z-index: 800; border: 1px solid var(--linea); background: var(--papel);
            border-radius: 8px; padding: 8px 12px; font-weight: 600; }
-  .yo { background: #1a73e8; border: 3px solid var(--blanco); border-radius: 50%; box-shadow: 0 0 0 2px #1a73e8; }
+  .yo { background: #1a73e8; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 2px #1a73e8; }
 
   /* Marcadores propios: rombos, para no confundirlos con los puntos redondos de los sitios */
-  .mio { width: 18px; height: 18px; transform: rotate(45deg); border: 2px solid var(--blanco); border-radius: 3px;
-         box-shadow: 0 0 0 1.5px var(--tinta); background: var(--gris); }
-  .mio.abierto { box-shadow: 0 0 0 3px var(--jalon); }
-  .grupo.grupo-camaras { background: #b3001b; }
+  .chincheta { display: block; filter: drop-shadow(0 1px 2px rgba(23,36,46,.7)); }
+  .chincheta.abierta { filter: drop-shadow(0 0 3px #e5007d) drop-shadow(0 0 3px #e5007d); }
+  .grupo.grupo-camaras { background: #d90429; border-radius: 50%; }
+  .simbolo { flex: none; vertical-align: -4px; }
   #anadir { position: absolute; right: 10px; bottom: 140px; z-index: 800; border: 1px solid var(--linea); background: var(--papel);
             border-radius: 8px; padding: 8px 12px; font-weight: 600; }
   #anadir[aria-pressed=true] { background: var(--jalon); border-color: var(--jalon); color: var(--blanco); }
@@ -168,7 +207,6 @@
   .tipos button { flex: 1 1 30%; display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--linea);
                   background: var(--blanco); border-radius: 6px; padding: 8px 4px; }
   .tipos button[aria-pressed=true] { background: var(--tinta); border-color: var(--tinta); color: var(--blanco); }
-  .tipos i { width: 11px; height: 11px; transform: rotate(45deg); border: 1.5px solid var(--blanco); box-shadow: 0 0 0 1px var(--tinta); }
   #nota-marcador { width: 100%; min-height: 76px; margin-top: 10px; padding: 8px 10px; border: 1px solid var(--linea); border-radius: 6px; background: var(--blanco); resize: vertical; }
   .acciones { display: flex; gap: 6px; margin-top: 10px; }
   .acciones button { flex: 1; border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 8px 4px; }
@@ -185,17 +223,13 @@
   #resultados-extra { list-style: none; margin: 0 0 6px; padding: 0 8px; }
   #contenido:has(> article:not([hidden])) #resultados-extra { display: none; }
   #resultados-extra li { border-bottom: 1px solid var(--linea); }
-  #resultados-extra button { display: grid; grid-template-columns: 14px minmax(0,1fr); gap: 2px 10px; align-items: baseline; width: 100%; text-align: left;
+  #resultados-extra button { display: grid; grid-template-columns: 22px minmax(0,1fr); gap: 2px 10px; align-items: baseline; width: 100%; text-align: left;
                              border: 0; background: none; padding: 8px; border-radius: 6px; }
   #resultados-extra button:hover { background: var(--blanco); }
-  #resultados-extra .punto { grid-row: span 2; align-self: center; }
+  #resultados-extra .simbolo { grid-row: span 2; align-self: center; }
   #resultados-extra b { font-weight: 600; overflow-wrap: anywhere; }
   #resultados-extra small { grid-column: 2; color: var(--tinta-suave); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #resultados-extra .rotulo { padding: 8px 8px 2px; font-size: 13px; font-weight: 600; color: var(--tinta-suave); border: 0; }
-  .punto { display: inline-block; flex: none; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--blanco); box-shadow: 0 0 0 1px var(--tinta); }
-  .punto.rombo { border-radius: 2px; transform: rotate(45deg) scale(.85); }
-  .punto.raya { height: 4px; border-radius: 2px; border: 0; }
-  .punto.area { border-radius: 3px; }
 
   /* Panel de capas */
   #capas { width: 300px; max-height: calc(100% - 20px); overflow-y: auto; }
@@ -213,18 +247,68 @@
   #ficha-elemento .lugar { color: var(--tinta-suave); margin-bottom: 10px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
   #ficha-elemento .datos a { color: var(--tinta); }
   #ficha-elemento details summary { cursor: pointer; color: var(--tinta-suave); font-weight: 600; font-size: 14px; margin-bottom: 6px; }
-  .portada { position: relative; width: 100%; aspect-ratio: 16 / 10; background: var(--tinta); border-radius: 8px; overflow: hidden; border: 0; padding: 0; display: block; }
+  .portada { position: relative; width: 100%; aspect-ratio: 16 / 10; background: #17242e; border-radius: 8px; overflow: hidden; border: 0; padding: 0; display: block; }
   .portada img, .portada iframe { width: 100%; height: 100%; object-fit: cover; display: block; border: 0; }
-  .portada span { position: absolute; left: 8px; bottom: 8px; background: rgba(23,36,46,.78); color: var(--blanco); border-radius: 5px; padding: 2px 8px; font-size: 13px; }
-  .vistas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
-  .vistas button { border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 7px 2px; font-size: 13.5px; }
+  .portada span { position: absolute; left: 8px; bottom: 8px; background: rgba(23,36,46,.78); color: #fff; border-radius: 5px; padding: 2px 8px; font-size: 13px; }
+  .vistas { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin: 8px 0 2px; }
+  .vistas button { border: 1px solid var(--linea); background: var(--blanco); border-radius: 8px; padding: 8px 2px 6px; font-size: 13px;
+                   display: grid; justify-items: center; gap: 3px; }
   .vistas button:hover { border-color: var(--tinta); }
+  .vistas button:last-child { border-color: #1a73e8; color: #1a73e8; }
+  [data-tema=oscuro] .vistas button:last-child { border-color: #8ab4f8; color: #8ab4f8; }
+  .descripcion { margin: 10px 0 0; }
+  .portada.fachada { margin-top: 10px; aspect-ratio: 16 / 9; }
+
+  /* Pestañas del panel y sus listas */
+  #pestanas { display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--linea); }
+  #pestanas button { border: 0; background: none; padding: 7px 10px 8px; border-bottom: 3px solid transparent; margin-bottom: -1px; color: var(--tinta-suave); font-weight: 500; }
+  #pestanas button[aria-selected=true] { color: var(--tinta); border-bottom-color: var(--jalon); font-weight: 600; }
+  #pestanas small { margin-left: 5px; font-weight: 400; color: var(--tinta-suave); font-size: 12.5px; }
+  #panel:has(#contenido > article:not([hidden])) #pestanas { display: none; }
+  #panel:not([data-pestana=sitios]) :is(#filtros, #lista, #ver-mas, #sin-coincidencias, #vacio) { display: none !important; }
+  #panel:not([data-pestana=mapa]) #lista-capas, #panel:not([data-pestana=marcadores]) #lista-marcadores,
+  #contenido:has(> article:not([hidden])) .lista-simple { display: none; }
+  #filtros { padding-top: 10px; }
+  .lista-simple { list-style: none; margin: 0; padding: 0; }
+  .lista-simple li button { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 1px 10px; align-items: center; width: 100%; text-align: left;
+                            border: 0; border-bottom: 1px solid var(--linea); background: none; padding: 8px 16px; }
+  .lista-simple li button:hover { background: var(--blanco); }
+  .lista-simple .simbolo { grid-row: span 2; }
+  .lista-simple b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lista-simple small { grid-column: 2; color: var(--tinta-suave); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lista-simple .hueco { padding: 18px 16px; color: var(--tinta-suave); }
+  .lista-simple .cabecera-lista { display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--tinta-suave); font-size: 13.5px; border-bottom: 1px solid var(--linea); }
+  .lista-simple .cabecera-lista button { display: inline-flex; grid-template-columns: none; width: auto; margin-left: auto; gap: 5px; border: 1px solid var(--linea); border-radius: 6px;
+                                         padding: 4px 9px; background: var(--blanco); color: var(--tinta); }
+
+  /* Grupos del panel de capas */
+  .grupo-de-capas { border-top: 1px solid var(--linea); padding-top: 8px; }
+  .grupo-de-capas > summary { display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; list-style: none; }
+  .grupo-de-capas > summary::-webkit-details-marker { display: none; }
+  .grupo-de-capas > summary::before { content: "▸"; color: var(--tinta-suave); width: 12px; }
+  .grupo-de-capas[open] > summary::before { content: "▾"; }
+  .grupo-de-capas > summary small { margin-left: auto; font-weight: 400; color: var(--tinta-suave); font-size: 12.5px; }
+  .grupo-de-capas[open] > summary { margin-bottom: 8px; }
+  .grupo-de-capas .casilla + .casilla { margin-top: 8px; }
+  #capas > summary { display: flex; align-items: center; gap: 6px; }
+
+  /* Tarjeta sobre el mapa: ruta y medición */
+  #tarjeta-mapa { position: absolute; left: 50%; transform: translateX(-50%); bottom: 26px; z-index: 800; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+                  max-width: min(92%, 640px); background: var(--papel); color: var(--tinta); border: 1px solid var(--linea); border-radius: 12px; padding: 8px 12px;
+                  box-shadow: 0 6px 22px rgba(23,36,46,.3); }
+  #tarjeta-mapa b { font: 600 20px/1 "Barlow Condensed", sans-serif; }
+  #tarjeta-mapa span { color: var(--tinta-suave); font-size: 14px; }
+  #tarjeta-mapa button { border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 4px 10px; font-size: 14px; }
+  #tarjeta-mapa button[aria-pressed=true] { background: var(--tinta); border-color: var(--tinta); color: var(--blanco); }
+  #tarjeta-mapa .grupo-botones { display: inline-flex; gap: 4px; }
+  #menu-mapa button { display: flex; align-items: center; gap: 9px; }
+  #menu-mapa svg { color: var(--tinta-suave); flex: none; }
   .datos { display: grid; grid-template-columns: minmax(84px, auto) minmax(0, 1fr); gap: 4px 12px; margin: 0; }
   .datos dt { color: var(--tinta-suave); } .datos dd { margin: 0; overflow-wrap: anywhere; }
   .tira-fotos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
-  .tira-fotos button { border: 0; padding: 0; background: var(--tinta); border-radius: 5px; overflow: hidden; aspect-ratio: 4 / 3; position: relative; }
+  .tira-fotos button { border: 0; padding: 0; background: #17242e; border-radius: 5px; overflow: hidden; aspect-ratio: 4 / 3; position: relative; }
   .tira-fotos img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .tira-fotos span { position: absolute; left: 4px; bottom: 4px; background: rgba(23,36,46,.78); color: var(--blanco); border-radius: 4px; padding: 0 6px; font-size: 12px; }
+  .tira-fotos span { position: absolute; left: 4px; bottom: 4px; background: rgba(23,36,46,.78); color: #fff; border-radius: 4px; padding: 0 6px; font-size: 12px; }
   .pendiente { color: var(--tinta-suave); font-size: 14px; }
 
   /* Menú del botón derecho */
@@ -235,11 +319,11 @@
   #menu-mapa .coordenadas { font-size: 13px; color: var(--tinta-suave); padding: 4px 10px 6px; border-bottom: 1px solid var(--linea); margin-bottom: 4px; }
 
   /* Visor a pantalla completa */
-  #visor { position: fixed; inset: 0; z-index: 2000; background: rgba(12,18,23,.96); color: var(--blanco); display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+  #visor { position: fixed; inset: 0; z-index: 2000; background: rgba(12,18,23,.96); color: #fff; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }
   #visor header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
   #visor h2 { font: 600 20px/1.1 "Barlow Condensed", sans-serif; margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #visor button { border: 1px solid rgba(255,255,255,.35); background: none; color: var(--blanco); border-radius: 6px; padding: 6px 11px; }
-  #visor button[aria-pressed=true], #visor button[aria-selected=true] { background: var(--blanco); color: var(--tinta); border-color: var(--blanco); }
+  #visor button { border: 1px solid rgba(255,255,255,.35); background: none; color: #fff; border-radius: 6px; padding: 6px 11px; }
+  #visor button[aria-pressed=true], #visor button[aria-selected=true] { background: #fff; color: #17242e; border-color: #fff; }
   #visor .pestanas, #visor .opciones { display: flex; gap: 6px; padding: 0 14px 10px; overflow-x: auto; }
   #visor .opciones { padding: 10px 14px; flex-wrap: wrap; justify-content: center; }
   #visor .lienzo { position: relative; min-height: 0; display: grid; place-items: center; overflow: hidden; }
@@ -247,7 +331,7 @@
   #visor .lienzo iframe, #visor .lienzo .mapa-visor { width: 100%; height: 100%; border: 0; background: #000; }
   #visor .lienzo p { max-width: 520px; padding: 20px; text-align: center; color: #c9d3d8; }
   #visor .pie-foto { font-size: 13px; color: #c9d3d8; padding: 0 14px; text-align: center; }
-  #visor .pie-foto a { color: var(--blanco); }
+  #visor .pie-foto a { color: #fff; }
   #visor .miniaturas { display: flex; gap: 6px; overflow-x: auto; padding: 8px 14px; justify-content: safe center; }
   #visor .miniaturas button { flex: none; width: 96px; height: 64px; padding: 0; overflow: hidden; border-width: 2px; }
   #visor .miniaturas img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -261,20 +345,22 @@
   #leyenda .clave i { flex: 0 0 26px; height: 12px; display: block; }
   #leyenda .aviso { color: var(--tinta-suave); font-size: 12.5px; margin-top: 3px; }
   #leyenda .estado { font-weight: 600; }
+  #leyenda .plegar-leyenda { border: 0; background: none; padding: 0; font-weight: 600; color: var(--tinta-suave); text-align: left; justify-self: start; }
+  #leyenda .plegar-leyenda:hover { color: var(--tinta); }
   .ficha-parcela { font: 14px/1.4 "Barlow", system-ui, sans-serif; color: var(--tinta); min-width: 220px; max-width: 290px; }
   .ficha-parcela h4 { font: 600 18px/1.15 "Barlow Condensed", sans-serif; margin: 0 0 4px; }
   .ficha-parcela p { margin: 4px 0; }
   .ficha-parcela .nota-legal { color: var(--tinta-suave); font-size: 12.5px; }
   .ficha-parcela a { color: var(--tinta); font-weight: 600; }
-  .puerta { background: var(--blanco); border: 2px solid #ff2d2d; }
+  .puerta { background: #fff; border: 2px solid #ff2d2d; }
 
   /* Cortina: a la izquierda el fondo actual, a la derecha la ortofoto antigua. */
   #cortina { position: absolute; top: 0; bottom: 0; width: 44px; margin-left: -22px; z-index: 700; cursor: ew-resize; touch-action: none; }
-  #cortina::before { content: ""; position: absolute; left: 21px; top: 0; bottom: 0; width: 2px; background: var(--blanco); box-shadow: 0 0 0 1px var(--tinta); }
+  #cortina::before { content: ""; position: absolute; left: 21px; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 0 1px #17242e; }
   #cortina::after { content: "‹ ›"; position: absolute; left: 4px; top: 78%; width: 36px; height: 36px; margin-top: -18px; border-radius: 50%;
-                    background: var(--blanco); border: 2px solid var(--tinta); display: grid; place-items: center; font-weight: 600; }
+                    background: #fff; color: #17242e; border: 2px solid #17242e; display: grid; place-items: center; font-weight: 600; }
   #cortina-etiqueta { position: absolute; top: 10px; z-index: 700; margin-left: 12px; padding: 2px 8px; border-radius: 4px; pointer-events: none;
-                      color: var(--blanco); background: rgba(23,36,46,.82); font: 600 16px "Barlow Condensed", sans-serif; }
+                      color: #fff; background: rgba(23,36,46,.82); font: 600 16px "Barlow Condensed", sans-serif; }
 
   /* ---------- Móvil: el panel pasa a ser una hoja inferior ---------- */
   @media (max-width: 760px) {
@@ -289,7 +375,10 @@
     #categorias .chip { flex: 0 0 auto; }
     #capas { width: min(280px, calc(100% - 20px)); }
     #buscador { padding: 0 12px 8px; }
-    .vistas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #pestanas { padding: 0 12px; }
+    /* En el móvil la tarjeta va arriba: abajo están los botones y el panel. */
+    #tarjeta-mapa { top: 58px; bottom: auto; left: 10px; right: 10px; transform: none; max-width: none; }
+    .vistas button { font-size: 12.5px; }
     #pie .atajos { display: none; }
     #cerca { right: auto; left: 10px; bottom: 34px; }
     #anadir { right: auto; left: 10px; bottom: 78px; }
@@ -306,12 +395,15 @@
   <header id="cabecera">
     <h1>OSINT Maps</h1>
     <span id="recuento"></span>
+    <button id="tema" type="button" aria-pressed="false" title="Cambiar a modo oscuro"></button>
     <button id="plegar" type="button" aria-expanded="true">Ocultar</button>
   </header>
 
   <div id="buscador">
     <input id="buscar-texto" type="search" placeholder="Buscar sitios, calles, coordenadas, referencia catastral" aria-label="Buscar sitios, calles, coordenadas o una referencia catastral" autocomplete="off">
   </div>
+
+  <nav id="pestanas" role="tablist" aria-label="Qué se lista"></nav>
 
   <section id="filtros" aria-label="Filtros" hidden>
     <details id="filtros-mas">
@@ -363,6 +455,8 @@
     </div>
     <ul id="resultados-extra" aria-label="Lugares y otras capas" hidden></ul>
     <ul id="lista" hidden></ul>
+    <ul id="lista-capas" class="lista-simple" aria-label="Elementos de las capas encendidas"></ul>
+    <ul id="lista-marcadores" class="lista-simple" aria-label="Mis marcadores"></ul>
     <p id="sin-coincidencias" hidden>Ningún candidato cumple estos filtros. Baja la nota mínima o quita alguno.</p>
     <button id="ver-mas" type="button" hidden>Ver más</button>
     <article id="ficha" hidden></article>
@@ -387,8 +481,9 @@
   <button id="cerca" type="button">Cerca de mí</button>
   <div id="leyenda" hidden></div>
   <div id="aviso-capas" role="status" hidden></div>
+  <div id="tarjeta-mapa" role="status" hidden></div>
   <details id="capas">
-    <summary>Capas</summary>
+    <summary><span data-icono="capas"></span> Capas</summary>
     <div class="cuerpo">
       <div class="grupo-capas primero">Mapa de fondo</div>
       <select id="capa-fondo" aria-label="Mapa de fondo">
@@ -405,9 +500,9 @@
         <input id="opacidad-historica" type="range" min="0" max="100" value="100">
       </label>
       <div class="grupo-capas">Lo tuyo y lo ya buscado</div>
-      <label class="casilla"><input id="capa-sitios" type="checkbox" checked> <i class="punto" style="background:#e5007d"></i> Sitios abandonados</label>
-      <label class="casilla"><input id="capa-camaras" type="checkbox" checked> <i class="punto" style="background:#fff;border-color:#ff2d2d"></i> Cámaras (OpenStreetMap)</label>
-      <label class="casilla"><input id="capa-marcadores" type="checkbox" checked> <i class="punto rombo" style="background:#2fbf71"></i> Mis marcadores</label>
+      <label class="casilla"><input id="capa-sitios" type="checkbox" checked> <span data-icono="sitio" data-fondo="#e5007d" data-forma="cuadrado"></span> Sitios abandonados</label>
+      <label class="casilla"><input id="capa-camaras" type="checkbox" checked> <span data-icono="camaras" data-fondo="#d90429"></span> Cámaras (OpenStreetMap)</label>
+      <label class="casilla"><input id="capa-marcadores" type="checkbox" checked> <span data-icono="spray" data-fondo="#2fbf71"></span> Mis marcadores</label>
       <label class="casilla"><input id="capa-huellas" type="checkbox" checked> Contornos al acercar</label>
       <div id="capas-datos"></div>
       <div class="grupo-capas">Terreno y accesos</div>
@@ -424,6 +519,7 @@
         integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin=""></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"
         integrity="sha384-eXVCORTRlv4FUUgS/xmOyr66XBVraen8ATNLMESp92FKXLAMiKkerixTiBvXriZr" crossorigin=""></script>
+<script src="iconos.js"></script>
 <!--DATOS_INCRUSTADOS-->
 <script>
 "use strict";
@@ -571,7 +667,8 @@ function crearAlmacen(nombre, normalizar, esVacio) {
 const normalizarMarca = (m) => (m && typeof m === "object" && !Array.isArray(m) ? { estado: String(m.estado || ""), nota: String(m.nota || "") } : null);
 /* Tipos de marcador propio. «spot» y «camera» se llaman igual que en GraffMap,
    para que sus copias de seguridad se puedan abrir aquí tal cual. */
-const TIPOS_MARCADOR = { spot: ["Sitio", "#2fbf71"], camera: ["Cámara", "#ff2d2d"], acceso: ["Acceso", "#5ee6ff"], aviso: ["Aviso", "#f2c200"], nota: ["Nota", "#ffffff"] };
+const TIPOS_MARCADOR = { spot: ["Sitio", "#2fbf71"], camera: ["Cámara", "#d90429"], acceso: ["Acceso", "#5ee6ff"], aviso: ["Aviso", "#f2c200"], nota: ["Nota", "#ffffff"] };
+const ICONO_MARCADOR = { spot: "spray", camera: "camaras", acceso: "acceso", aviso: "aviso", nota: "nota" };
 function normalizarMarcador(m) {
   if (!m || typeof m !== "object" || Array.isArray(m)) return null;
   const lat = Number(m.lat), lng = Number(m.lng);
@@ -624,11 +721,17 @@ const capaCatastro = L.tileLayer.wms("https://ovc.catastro.meh.es/Cartografia/WM
 });
 mapa.createPane("historico").style.zIndex = 250;      // por encima del fondo, por debajo de los puntos
 
+/* Los fondos que son un mapa dibujado y no una foto: en modo oscuro se invierten. */
+const FONDOS_DIBUJADOS = new Set(["mtn", "osm", "base"]);
 $("capa-fondo").addEventListener("change", (e) => {
   mapa.removeLayer(fondoActual);
   fondoActual = fondos[e.target.value].addTo(mapa);
   fondoActual.bringToBack();
+  $("mapa").classList.toggle("fondo-dibujado", FONDOS_DIBUJADOS.has(e.target.value));
 });
+ponerSimbolos();
+ponerTema(temaActual(), false);
+$("tema").addEventListener("click", () => ponerTema(temaActual() === "oscuro" ? "claro" : "oscuro", true));
 $("capa-catastro").addEventListener("change", (e) => { e.target.checked ? capaCatastro.addTo(mapa) : mapa.removeLayer(capaCatastro); });
 
 /* Comparación con una ortofoto antigua: con cortina (mitad y mitad) o con opacidad. */
@@ -723,12 +826,10 @@ const grupo = L.markerClusterGroup({
   },
 }).addTo(mapa);
 
+/* Un sitio abandonado es un cuadrado con una casa tachada; el color es su nota. */
 function estiloMarcador(c) {
   const nota = c.p.puntuacion || 0, elegido = c === seleccion;
-  return {
-    radius: (nota >= 60 ? 9 : nota >= 50 ? 8 : 7) + (elegido ? 4 : 0), color: elegido ? "#ffffff" : "#17242e",
-    weight: elegido ? 3.5 : 1.5, fillColor: colorNota(nota), fillOpacity: 0.95,
-  };
+  return { forma: "cuadrado", icono: "sitio", fondo: colorNota(nota), tamano: nota >= 60 ? 1.08 : nota >= 50 ? 1 : 0.92, realce: elegido ? "#ffffff" : null };
 }
 
 function cargar(geojson) {
@@ -739,7 +840,8 @@ function cargar(geojson) {
       busca: sinAcentos(`${f.properties.nombre || ""} ${f.properties.municipio || ""}`) }))
     .filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lon));
   for (const c of candidatos) {
-    c.marcador = L.circleMarker([c.lat, c.lon], estiloMarcador(c));
+    c.marcador = simbolo([c.lat, c.lon], estiloMarcador(c));
+    c.marcador.bindTooltip(() => el("span", { textContent: `${tituloDe(c)} · nota ${Math.round(c.p.puntuacion || 0)}` }), { direction: "top", offset: [0, -8] });
     // stopPropagation: el clic en un punto no debe contar además como clic en la parcela de debajo.
     c.marcador.on("click", (e) => { L.DomEvent.stopPropagation(e); abrirFicha(c, false); });
   }
@@ -1318,6 +1420,7 @@ function pintarAcceso() {
   pintarLeyenda();
 }
 
+let leyendaPlegada = leerLocal("osintmaps.leyenda.v1", false) === true;
 function pintarLeyenda() {
   const caja = $("leyenda"), filas = [];
   const clave = (estilo, texto) => { const i = el("i"); i.style.cssText = estilo; return el("div", { className: "clave" }, i, el("span", { textContent: texto })); };
@@ -1335,7 +1438,10 @@ function pintarLeyenda() {
   if (!filas.length) { caja.hidden = true; return; }
   if (estadoAcceso) filas.push(el("div", { className: "estado", textContent: estadoAcceso }));
   if ($("capa-parcelas").checked) filas.push(el("div", { className: "aviso", textContent: "Catastro no publica quién es el dueño. Toca una parcela para ver su uso. Que no haya valla dibujada no significa que no exista." }));
-  caja.replaceChildren(...filas);
+  const plegar = el("button", { type: "button", className: "plegar-leyenda", textContent: leyendaPlegada ? "Leyenda" : "Ocultar leyenda" });
+  plegar.setAttribute("aria-expanded", String(!leyendaPlegada));
+  plegar.addEventListener("click", () => { leyendaPlegada = !leyendaPlegada; guardarLocal("osintmaps.leyenda.v1", leyendaPlegada); pintarLeyenda(); });
+  caja.replaceChildren(plegar, ...(leyendaPlegada ? (estadoAcceso ? [el("div", { className: "estado", textContent: estadoAcceso })] : []) : filas));
   caja.hidden = false;
 }
 
@@ -1384,6 +1490,7 @@ function abrirParcela(p, latlng) {
     .catch(() => { detalle.textContent = "No se pudo consultar el detalle en Catastro."; });
 }
 mapa.on("click", (e) => {
+  if (midiendo) return;
   if (colocando) { dejarDeColocar(); nuevoMarcador(e.latlng); return; }
   if (!$("capa-parcelas").checked || mapa.getZoom() < ZOOM_PARCELAS) return;
   const p = parcelaEn(e.latlng.lat, e.latlng.lng);
@@ -1462,7 +1569,8 @@ function pintarCamaras() {
   grupoCamaras.clearLayers();
   const puntos = [];
   for (const c of camaras.values()) {
-    const m = L.circleMarker([c.lat, c.lon], { radius: 6, color: "#ff2d2d", weight: 2.5, fillColor: "#ffffff", fillOpacity: 0.85 });
+    const m = simbolo([c.lat, c.lon], { icono: "camaras", fondo: "#d90429" });
+    m.bindTooltip(() => el("span", { textContent: filasCamara(c)[0][1] }), { direction: "top", offset: [0, -8] });
     m.on("click", (e) => { L.DomEvent.stopPropagation(e); abrirCamara(c); });
     puntos.push(m);
   }
@@ -1496,6 +1604,7 @@ mapa.on("moveend", pintarConos);
 const capaMarcadores = L.layerGroup().addTo(mapa);
 const pinesMarcadores = new Map();     // id -> marcador de Leaflet
 let marcadorAbierto = null, colocando = false;
+let midiendo = false;      // se está midiendo una distancia: los clics en el mapa son puntos de la medida (herramientas.js)
 /* Ficha de un elemento de cualquier otra capa (la pinta capas.js). */
 let elementoAbierto = null;
 function soltarElemento() {
@@ -1509,9 +1618,10 @@ const panelOcupado = () => marcadorAbierto !== null || elementoAbierto !== null;
 let ultimoTipo = leerLocal("osintmaps.ultimo-tipo.v1", "spot");
 if (!TIPOS_MARCADOR[ultimoTipo]) ultimoTipo = "spot";
 
+/* Tus marcadores son chinchetas: la punta señala el sitio exacto. */
 function iconoMarcador(tipo, abierto) {
-  return L.divIcon({ className: "", iconSize: [18, 18], iconAnchor: [9, 9],
-    html: `<div class="mio${abierto ? " abierto" : ""}" style="background:${TIPOS_MARCADOR[tipo][1]}"></div>` });
+  return L.divIcon({ className: "", iconSize: [32, 42], iconAnchor: [16, 41], tooltipAnchor: [0, -38],
+    html: chinchetaHTML(ICONO_MARCADOR[tipo], TIPOS_MARCADOR[tipo][1], abierto) });
 }
 function pintarMarcadores() {
   capaMarcadores.clearLayers(); pinesMarcadores.clear();
@@ -1558,8 +1668,7 @@ function abrirMarcador(id) {
   volver.addEventListener("click", cerrarMarcador);
   const tipos = el("div", { className: "tipos", role: "group", ariaLabel: "Tipo de marcador" });
   for (const [tipo, [nombre, color]] of Object.entries(TIPOS_MARCADOR)) {
-    const muestra = el("i"); muestra.style.background = color;
-    const b = el("button", { type: "button" }, muestra, nombre);
+    const b = el("button", { type: "button" }, simboloSVG(ICONO_MARCADOR[tipo], color, "circulo", 20), nombre);
     b.setAttribute("aria-pressed", String(m.type === tipo));
     b.addEventListener("click", () => {
       marcadores[id] = normalizarMarcador(Object.assign({}, marcadores[id], { type: tipo }));
@@ -1778,5 +1887,6 @@ if (window.OSINT_DATOS) {
 }
 </script>
 <script src="capas.js"></script>
+<script src="herramientas.js"></script>
 </body>
 </html>
