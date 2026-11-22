@@ -333,6 +333,32 @@ $("memoria-vaciar").addEventListener("click", () => {
   });
 });
 
+/* --- Ajustar la foto: brillo, contraste, color y enfoque ---
+   Son filtros del navegador sobre las teselas ya descargadas: no se pide nada nuevo. Sirven para
+   ver dentro de las sombras (más brillo), separar cosas de tono parecido (más contraste) o
+   remarcar bordes en una foto blanda (enfocar). */
+{
+  const DEFECTO = { brillo: 100, contraste: 100, color: 100, enfoque: false };
+  const ajustes = Object.assign({}, DEFECTO, leerLocal("osintmaps.ajustes.v1", {}) || {});
+  const aplicar = () => {
+    const neutro = ajustes.brillo === 100 && ajustes.contraste === 100 && ajustes.color === 100;
+    document.documentElement.style.setProperty("--ajuste-foto", neutro ? "none" : `brightness(${ajustes.brillo}%) contrast(${ajustes.contraste}%) saturate(${ajustes.color}%)`);
+    document.documentElement.classList.toggle("enfocar", !!ajustes.enfoque);
+    for (const clave of ["brillo", "contraste", "color"]) { $(`aj-${clave}`).value = ajustes[clave]; $(`aj-${clave}-valor`).textContent = `${ajustes[clave]} %`; }
+    $("aj-enfoque").checked = !!ajustes.enfoque;
+    $("ajustes-foto").querySelector("summary").textContent = neutro && !ajustes.enfoque ? "Ajustar la foto" : "Ajustar la foto (retocada)";
+    guardarLocal("osintmaps.ajustes.v1", ajustes);
+  };
+  for (const clave of ["brillo", "contraste", "color"]) $(`aj-${clave}`).addEventListener("input", () => { ajustes[clave] = +$(`aj-${clave}`).value; aplicar(); });
+  $("aj-enfoque").addEventListener("change", () => { ajustes.enfoque = $("aj-enfoque").checked; aplicar(); });
+  $("aj-restablecer").addEventListener("click", () => { Object.assign(ajustes, DEFECTO); aplicar(); });
+  aplicar();
+  // Doble detalle: solo tiene sentido (y solo se ofrece) en pantallas densas. Cambiarlo rehace las capas: se recarga.
+  $("fila-nitidez").hidden = (window.devicePixelRatio || 1) <= 1.25;
+  $("aj-nitidez").checked = DENSIDAD === 2;
+  $("aj-nitidez").addEventListener("change", () => { guardarLocal("osintmaps.nitidez.v1", $("aj-nitidez").checked); location.reload(); });
+}
+
 /* --- Atajo: «/» lleva al buscador --- */
 document.addEventListener("keydown", (ev) => {
   if (ev.key !== "/" || ev.ctrlKey || ev.metaKey || ev.altKey) return;

@@ -15,36 +15,40 @@ const wmts = (base, capa, formato) =>
   `${base}?layer=${capa}&style=default&tilematrixset=GoogleMapsCompatible&Service=WMTS&Request=GetTile&Version=1.0.0` +
   `&Format=image/${formato}&TileMatrix={z}&TileCol={x}&TileRow={y}`;
 
+const PROVINCIA = [[VALENCIA_PROVINCIA.s, VALENCIA_PROVINCIA.o], [VALENCIA_PROVINCIA.n, VALENCIA_PROVINCIA.e]];
 const FONDOS_NUEVOS = {
+  // Más fotos aéreas (el tercer dato las coloca arriba en la lista, junto a las otras fotos).
+  icv: ["Provincia de València, primavera de 2025 (ICV, 15 cm)", wmsFoto(WMS_ICV, "2025PVAL0015_RGB", { bounds: PROVINCIA, attribution: "ICV CC BY 4.0" }), "foto"],
+  icv_ir: ["Infrarrojo de 2025 (ICV): la vegetación sale en rojo", wmsFoto(WMS_ICV, "2025PVAL0015_IRG", { bounds: PROVINCIA, attribution: "ICV CC BY 4.0" }), "foto"],
+  google: ["Satélite de Google (otra fecha, no oficial)", teselasFoto("https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", 21, { subdomains: "0123", attribution: "Imágenes © Google" }), "foto"],
+  esri: ["Satélite de Esri (otra fecha)", teselasFoto("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", 19, { attribution: "Esri, Maxar, Earthstar Geographics" }), "foto"],
   // Mapas sobrios para que lo que resalte sean los símbolos. (Los de CARTO se probaron y ahora piden clave.)
   gris_oscuro: ["Mapa oscuro (Esri)", L.featureGroup(["Base", "Reference"].map((parte) => L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_${parte}/MapServer/tile/{z}/{y}/{x}`,
-    { maxZoom: 20, maxNativeZoom: 16, attribution: "Esri, HERE, Garmin, OpenStreetMap" })))],
+    { maxZoom: ZOOM_MAX, maxNativeZoom: 16, attribution: "Esri, HERE, Garmin, OpenStreetMap" })))],
   gris_claro: ["Mapa claro (Esri)", L.featureGroup(["Base", "Reference"].map((parte) => L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_${parte}/MapServer/tile/{z}/{y}/{x}`,
-    { maxZoom: 20, maxNativeZoom: 16, attribution: "Esri, HERE, Garmin, OpenStreetMap" })))],
+    { maxZoom: ZOOM_MAX, maxNativeZoom: 16, attribution: "Esri, HERE, Garmin, OpenStreetMap" })))],
   noche: ["Luces de noche desde satélite (2016)", L.tileLayer("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png",
-    { maxZoom: 20, maxNativeZoom: 8, attribution: "NASA Black Marble" })],
-  esri: ["Satélite (Esri, otra fecha)", L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    { maxZoom: 20, maxNativeZoom: 19, attribution: "Esri, Maxar, Earthstar Geographics" })],
+    { maxZoom: ZOOM_MAX, maxNativeZoom: 8, attribution: "NASA Black Marble" })],
   s2: ["Satélite Sentinel-2 sin nubes (2023, 10 m)", L.tileLayer("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2023_3857/default/g/{z}/{y}/{x}.jpg",
-    { maxZoom: 20, maxNativeZoom: 14, attribution: "Sentinel-2 cloudless 2023, EOX (datos Copernicus)" })],
-  base: ["Callejero (IGN)", L.tileLayer(wmts("https://www.ign.es/wmts/ign-base", "IGNBaseTodo", "jpeg"), { maxZoom: 20, maxNativeZoom: 18, attribution: "IGN CC BY 4.0 ign.es" })],
-  lidar: ["Relieve LiDAR: edificios y arbolado", L.tileLayer(wmts("https://wmts-mapa-lidar.idee.es/lidar", "EL.GridCoverageDSM", "png"), { maxZoom: 20, maxNativeZoom: 17, attribution: "LiDAR-PNOA CC BY 4.0 scne.es" })],
-  relieve: ["Relieve del terreno", L.tileLayer(wmts("https://servicios.idee.es/wmts/mdt", "Relieve", "jpeg"), { maxZoom: 20, maxNativeZoom: 15, attribution: "IGN CC BY 4.0 ign.es" })],
-  mtn50: ["Mapa de 1915-1960 (MTN50, 1.ª edición)", L.tileLayer(wmts("https://www.ign.es/wmts/primera-edicion-mtn", "mtn50-edicion1", "jpeg"), { maxZoom: 20, maxNativeZoom: 15, attribution: "IGN CC BY 4.0 ign.es" })],
-  catastrones: ["Minutas de 1870-1950 (catastrones)", L.tileLayer(wmts("https://www.ign.es/wmts/primera-edicion-mtn", "catastrones", "jpeg"), { maxZoom: 20, maxNativeZoom: 15, attribution: "IGN CC BY 4.0 ign.es" })],
+    { maxZoom: ZOOM_MAX, maxNativeZoom: 14, attribution: "Sentinel-2 cloudless 2023, EOX (datos Copernicus)" })],
+  base: ["Callejero (IGN)", L.tileLayer(wmts("https://www.ign.es/wmts/ign-base", "IGNBaseTodo", "jpeg"), { maxZoom: ZOOM_MAX, maxNativeZoom: 18, attribution: "IGN CC BY 4.0 ign.es" })],
+  lidar: ["Relieve LiDAR: edificios y arbolado", L.tileLayer(wmts("https://wmts-mapa-lidar.idee.es/lidar", "EL.GridCoverageDSM", "png"), { maxZoom: ZOOM_MAX, maxNativeZoom: 17, attribution: "LiDAR-PNOA CC BY 4.0 scne.es" })],
+  relieve: ["Relieve del terreno", L.tileLayer(wmts("https://servicios.idee.es/wmts/mdt", "Relieve", "jpeg"), { maxZoom: ZOOM_MAX, maxNativeZoom: 15, attribution: "IGN CC BY 4.0 ign.es" })],
+  mtn50: ["Mapa de 1915-1960 (MTN50, 1.ª edición)", L.tileLayer(wmts("https://www.ign.es/wmts/primera-edicion-mtn", "mtn50-edicion1", "jpeg"), { maxZoom: ZOOM_MAX, maxNativeZoom: 15, attribution: "IGN CC BY 4.0 ign.es" })],
+  catastrones: ["Minutas de 1870-1950 (catastrones)", L.tileLayer(wmts("https://www.ign.es/wmts/primera-edicion-mtn", "catastrones", "jpeg"), { maxZoom: ZOOM_MAX, maxNativeZoom: 15, attribution: "IGN CC BY 4.0 ign.es" })],
 };
-for (const [id, [nombre, capa]] of Object.entries(FONDOS_NUEVOS)) {
+for (const [id, [nombre, capa, foto]] of Object.entries(FONDOS_NUEVOS)) {
   fondos[id] = capa;
-  $("capa-fondo").append(el("option", { value: id, textContent: nombre }));
+  $("capa-fondo").insertBefore(el("option", { value: id, textContent: nombre }), foto ? $("capa-fondo").querySelector("[value=mtn]") : null);
 }
 
 mapa.createPane("superpuesto").style.zIndex = 260;
 mapa.getPane("superpuesto").style.pointerEvents = "none";
 const SUPERPUESTAS = {
-  rotulos: ["Calles y nombres sobre la foto", L.tileLayer(wmts("https://www.ign.es/wmts/ign-base", "IGNBaseOrto", "png"), { pane: "superpuesto", maxZoom: 20, maxNativeZoom: 18, crossOrigin: "anonymous" })],
-  tren: ["Red ferroviaria (OpenRailwayMap)", L.tileLayer("https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png", { pane: "superpuesto", maxZoom: 20, maxNativeZoom: 19, attribution: "OpenRailwayMap CC BY-SA" })],
-  antiguo: ["Mapa de 1915-1960, translúcido", L.tileLayer(wmts("https://www.ign.es/wmts/primera-edicion-mtn", "mtn50-edicion1", "jpeg"), { pane: "superpuesto", opacity: 0.6, maxZoom: 20, maxNativeZoom: 15 })],
-  sombras: ["Relieve LiDAR, translúcido", L.tileLayer(wmts("https://wmts-mapa-lidar.idee.es/lidar", "EL.GridCoverageDSM", "png"), { pane: "superpuesto", opacity: 0.55, maxZoom: 20, maxNativeZoom: 17 })],
+  rotulos: ["Calles y nombres sobre la foto", L.tileLayer(wmts("https://www.ign.es/wmts/ign-base", "IGNBaseOrto", "png"), { pane: "superpuesto", maxZoom: ZOOM_MAX, maxNativeZoom: 18, crossOrigin: "anonymous" })],
+  tren: ["Red ferroviaria (OpenRailwayMap)", L.tileLayer("https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png", { pane: "superpuesto", maxZoom: ZOOM_MAX, maxNativeZoom: 19, attribution: "OpenRailwayMap CC BY-SA" })],
+  antiguo: ["Mapa de 1915-1960, translúcido", L.tileLayer(wmts("https://www.ign.es/wmts/primera-edicion-mtn", "mtn50-edicion1", "jpeg"), { pane: "superpuesto", opacity: 0.6, maxZoom: ZOOM_MAX, maxNativeZoom: 15 })],
+  sombras: ["Relieve LiDAR, translúcido", L.tileLayer(wmts("https://wmts-mapa-lidar.idee.es/lidar", "EL.GridCoverageDSM", "png"), { pane: "superpuesto", opacity: 0.55, maxZoom: ZOOM_MAX, maxNativeZoom: 17 })],
 };
 /* Lluvia: la última imagen del radar. La dirección de las teselas cambia cada diez minutos,
    así que se pregunta cuál es la vigente al encender la capa y luego cada cinco minutos. */
@@ -55,7 +59,7 @@ const SUPERPUESTAS = {
     const ultima = ((j.radar || {}).past || []).slice(-1)[0];
     if (!ultima || !mapa.hasLayer(lluvia)) return;
     lluvia.clearLayers();
-    L.tileLayer(`${j.host}${ultima.path}/256/{z}/{x}/{y}/2/1_1.png`, { pane: "superpuesto", opacity: 0.7, maxZoom: 20, maxNativeZoom: 7, attribution: "RainViewer" }).addTo(lluvia);
+    L.tileLayer(`${j.host}${ultima.path}/256/{z}/{x}/{y}/2/1_1.png`, { pane: "superpuesto", opacity: 0.7, maxZoom: ZOOM_MAX, maxNativeZoom: 7, attribution: "RainViewer" }).addTo(lluvia);
   }).catch(() => { /* sin radar: la capa se queda vacía */ });
   lluvia.on("add", () => { actualizar(); clearInterval(reloj); reloj = setInterval(actualizar, 300000); });
   lluvia.on("remove", () => { clearInterval(reloj); lluvia.clearLayers(); });
@@ -72,9 +76,11 @@ SUPERPUESTAS.rotulos[1].on("tileload", (ev) => { if (esImagenLisa(ev.tile)) ev.t
     if (casilla.checked) capa.addTo(mapa);
     $("capas-superponer").append(el("label", { className: "casilla" }, casilla, " " + nombre));
   }
-  const fondoGuardado = leerLocal("osintmaps.fondo.v1", "pnoa");
-  if (fondos[fondoGuardado] && fondoGuardado !== "pnoa") { $("capa-fondo").value = fondoGuardado; $("capa-fondo").dispatchEvent(new Event("change")); }
-  $("capa-fondo").addEventListener("change", (e) => guardarLocal("osintmaps.fondo.v1", e.target.value));
+  // El fondo de la última vez (index.html ya puso el suyo si era uno de los que define él).
+  const elegido = fondos[fondoGuardado] ? fondoGuardado : "auto";
+  $("capa-fondo").value = elegido;
+  if (fondoActual !== fondos[elegido]) $("capa-fondo").dispatchEvent(new Event("change"));
+  $("capa-fondo").addEventListener("change", (e) => guardarLocal("osintmaps.fondo.v2", e.target.value));
 }
 
 /* ====================== 2. Capas de datos ====================== */
@@ -305,12 +311,14 @@ function fotoCommons(p) {
   const i = (p.imageinfo || [])[0];
   if (!i || !/^image\//.test(i.mime || "image/")) return null;
   const m = i.extmetadata || {}, c = (p.coordinates || [])[0];
-  return { id: `commons/${p.pageid}`, lat: c && c.lat, lon: c && c.lon, nombre: p.title.replace(/^File:/, "").replace(/\.[a-z]+$/i, ""), imagen: i.thumburl || i.url,
+  // Al acercar en el visor se pide una versión mayor: el original, o la miniatura de 3840 px si el original es enorme.
+  const grande = i.thumburl && i.width > 3840 ? i.thumburl.replace(/\/\d+px-/, "/3840px-") : i.url;
+  return { id: `commons/${p.pageid}`, lat: c && c.lat, lon: c && c.lon, nombre: p.title.replace(/^File:/, "").replace(/\.[a-z]+$/i, ""), imagen: i.thumburl || i.url, grande,
     original: i.url, url: i.descriptionurl, autor: limpio((m.Artist || {}).value).slice(0, 80), licencia: limpio((m.LicenseShortName || {}).value),
     fecha: limpio((m.DateTimeOriginal || {}).value).slice(0, 10) };
 }
 // Wikimedia solo sirve las miniaturas en unos anchos fijos (250, 500, 960, 1280, 1920...).
-const PEDIDO_COMMONS = { generator: "geosearch", ggsnamespace: "6", prop: "imageinfo|coordinates", iiprop: "url|extmetadata|mime", colimit: "max",
+const PEDIDO_COMMONS = { generator: "geosearch", ggsnamespace: "6", prop: "imageinfo|coordinates", iiprop: "url|extmetadata|mime|size", colimit: "max",
   iiurlwidth: "1280", iiextmetadatafilter: "Artist|LicenseShortName|DateTimeOriginal" };
 function pedirCommons(caja) {
   return consultaWiki("commons.wikimedia.org", Object.assign({ ggsbbox: `${caja.n}|${caja.o}|${caja.s}|${caja.e}`, ggslimit: "200" }, PEDIDO_COMMONS))
@@ -734,13 +742,6 @@ function marcarSeleccion(e) { marcaSeleccion.setLatLng([e.lat, e.lon]).addTo(map
 function alSoltarElemento() { mapa.removeLayer(marcaSeleccion); }
 function cerrarElemento() { soltarElemento(); mostrarLista(); if (candidatos.length) filtrar(); }
 
-/* Ortofoto del IGN centrada en un punto: `lado` son los metros que abarca. */
-function urlOrto(lat, lon, lado, vueloNombre, px) {
-  const dLat = lado / 2 / 111320, dLon = lado / 2 / (111320 * Math.cos((lat * Math.PI) / 180));
-  const q = new URLSearchParams({ SERVICE: "WMS", VERSION: "1.1.1", REQUEST: "GetMap", LAYERS: vueloNombre || "OI.OrthoimageCoverage", STYLES: "", FORMAT: "image/jpeg",
-    SRS: "EPSG:4326", WIDTH: px, HEIGHT: px, BBOX: [lon - dLon, lat - dLat, lon + dLon, lat + dLat].map((v) => v.toFixed(6)).join(",") });
-  return `${vueloNombre ? WMS_HISTORICO : WMS_ACTUAL}?${q}`;
-}
 const conReloj = (url) => url + (url.includes("?") ? "&" : "?") + "t=" + Math.floor(Date.now() / 30000);
 const posicion = (e) => `${e.lat.toFixed(6)},${e.lon.toFixed(6)}`;
 function enlacesFuera(e) {
@@ -861,9 +862,12 @@ function abrirElemento(e, mover) {
   // Portada: la imagen propia del elemento si la tiene; si no, la ortofoto de hoy.
   const lado = Math.min(700, Math.max(160, 4 * Math.sqrt(e.superficie || 1600)));
   const portada = el("button", { type: "button", className: "portada", title: "Abrir en grande" });
-  const imagen = el("img", { alt: "", loading: "lazy", referrerPolicy: "no-referrer" });
-  imagen.src = e.imagen ? (e.enDirecto ? conReloj(e.imagen) : e.imagen) : urlOrto(e.lat, e.lon, lado, null, 800);
-  imagen.addEventListener("error", () => { if (e.imagen && !imagen.dataset.respaldo) { imagen.dataset.respaldo = "1"; imagen.src = urlOrto(e.lat, e.lon, lado, null, 800); rotulo.textContent = "Ortofoto de hoy"; } });
+  const imagen = el("img", { alt: "", referrerPolicy: "no-referrer" });
+  const aerea = () => ponerFotoAerea(imagen, fotosAereas(e.lat, e.lon, lado, pxDePantalla(400, 1400)));
+  if (e.imagen) {
+    imagen.addEventListener("error", () => { if (!imagen.dataset.respaldo) { imagen.dataset.respaldo = "1"; aerea(); rotulo.textContent = "Ortofoto de hoy"; } }, { once: true });
+    imagen.src = e.enDirecto ? conReloj(e.imagen) : e.imagen;
+  } else aerea();
   const rotulo = el("span", { textContent: e.imagen ? (e.enDirecto ? "Imagen en directo" : "Foto") : e.marco ? "Pulsa para ver la cámara en directo" : "Ortofoto de hoy" });
   portada.append(imagen, rotulo);
   portada.addEventListener("click", () => abrirVisor(e, e.imagen || e.marco ? "imagen" : "ortofoto"));
@@ -931,10 +935,62 @@ function abrirElemento(e, mover) {
 
 /* ====================== 4. Visor a pantalla completa ====================== */
 let visor = null;
+/* Deja acercar y mover una foto del visor: rueda o pellizco para acercar, arrastrar para moverla y
+   doble clic para ir y volver. Si existe una versión mayor de la foto (`grande`), se carga al acercar. */
+function hacerAmpliable(img, grande) {
+  let k = 1, x = 0, y = 0, pedida = false, pellizco = null;
+  const dedos = new Map();
+  const centro = () => { const m = img.offsetParent.getBoundingClientRect(); return { x: m.left + img.offsetLeft + img.offsetWidth / 2, y: m.top + img.offsetTop + img.offsetHeight / 2, ancho: m.width, alto: m.height }; };
+  const poner = () => {
+    const c = centro(), limX = Math.max(0, (img.offsetWidth * k - c.ancho) / 2), limY = Math.max(0, (img.offsetHeight * k - c.alto) / 2);
+    x = Math.min(limX, Math.max(-limX, x)); y = Math.min(limY, Math.max(-limY, y));
+    img.style.transform = k === 1 ? "" : `translate(${x}px, ${y}px) scale(${k})`;
+    img.style.cursor = k === 1 ? "zoom-in" : "grab";
+    if (k >= 1.5 && grande && !pedida && grande !== img.src) {
+      pedida = true;
+      const mayor = new Image();
+      mayor.referrerPolicy = "no-referrer";
+      mayor.onload = () => { if (document.contains(img)) img.src = grande; };
+      mayor.src = grande;
+    }
+  };
+  /* Cambia el aumento dejando quieto el punto de la foto que está bajo (px, py). */
+  const acercar = (k2, px, py) => {
+    const c = centro(), ux = (px - c.x - x) / k, uy = (py - c.y - y) / k;
+    k = Math.min(16, Math.max(1, k2));
+    x = px - c.x - ux * k; y = py - c.y - uy * k;
+    if (k === 1) x = y = 0;
+    poner();
+  };
+  img.draggable = false;
+  img.style.touchAction = "none";
+  img.style.cursor = "zoom-in";
+  img.addEventListener("wheel", (ev) => { ev.preventDefault(); acercar(k * Math.exp(-ev.deltaY * 0.0016), ev.clientX, ev.clientY); }, { passive: false });
+  img.addEventListener("dblclick", (ev) => acercar(k > 1 ? 1 : 3, ev.clientX, ev.clientY));
+  img.addEventListener("pointerdown", (ev) => {
+    img.setPointerCapture(ev.pointerId);
+    dedos.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (dedos.size === 2) { const [a, b] = [...dedos.values()]; pellizco = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, k }; }
+  });
+  img.addEventListener("pointermove", (ev) => {
+    const antes = dedos.get(ev.pointerId);
+    if (!antes) return;
+    dedos.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (dedos.size === 2 && pellizco) {
+      const [a, b] = [...dedos.values()];
+      acercar(pellizco.k * Math.hypot(a.x - b.x, a.y - b.y) / pellizco.d, (a.x + b.x) / 2, (a.y + b.y) / 2);
+    } else if (dedos.size === 1 && k > 1) { x += ev.clientX - antes.x; y += ev.clientY - antes.y; poner(); }
+  });
+  const soltar = (ev) => { dedos.delete(ev.pointerId); if (dedos.size < 2) pellizco = null; };
+  img.addEventListener("pointerup", soltar);
+  img.addEventListener("pointercancel", soltar);
+}
 function cerrarVisor() {
   if (!visor) return;
   const antes = visor.antes;
-  clearInterval(visor.reloj); visor.nodo.remove(); visor = null;
+  clearInterval(visor.reloj);
+  if (visor.mapa) visor.mapa.remove();
+  visor.nodo.remove(); visor = null;
   if (antes && antes.focus && document.contains(antes)) antes.focus({ preventScroll: true });      // el foco vuelve a donde estaba
 }
 function abrirVisor(e, pestana) {
@@ -957,13 +1013,18 @@ function abrirVisor(e, pestana) {
     grupo.append(b);
     return b;
   };
-  const limpiar = () => { clearInterval(visor.reloj); lienzo.replaceChildren(); opciones.replaceChildren(); tira.replaceChildren(); pie.replaceChildren(); };
+  const limpiar = () => {
+    clearInterval(visor.reloj);
+    if (visor.mapa) { visor.mapa.remove(); visor.mapa = null; }
+    lienzo.replaceChildren(); opciones.replaceChildren(); tira.replaceChildren(); pie.replaceChildren();
+  };
   const mensaje = (texto) => lienzo.replaceChildren(el("p", { textContent: texto }));
-  const foto = (url, textoPie, enlace) => {
+  const foto = (url, textoPie, enlace, grande) => {
     const img = el("img", { alt: "", referrerPolicy: "no-referrer" });
     img.addEventListener("error", () => mensaje("No se ha podido cargar la imagen."));
     img.src = url;
     lienzo.replaceChildren(img);
+    hacerAmpliable(img, grande);
     pie.replaceChildren(textoPie || "", enlace && urlSegura(enlace) ? " · " : "", enlace && urlSegura(enlace) ? el("a", { href: enlace, target: "_blank", rel: "noopener noreferrer", textContent: "abrir el original" }) : "");
   };
 
@@ -983,19 +1044,41 @@ function abrirVisor(e, pestana) {
       if (e.enDirecto) visor.reloj = setInterval(poner, 30000);
     },
     ortofoto() {
-      let vueloActual = null, lado = Math.min(600, Math.max(120, 3 * Math.sqrt(e.superficie || 1600)));
-      const pintar = () => {
-        const img = el("img", { alt: "", crossOrigin: "anonymous" });
-        img.addEventListener("load", () => { if (esImagenLisa(img)) mensaje("Ese vuelo no cubre esta zona."); });
-        img.addEventListener("error", () => mensaje("El IGN no ha devuelto la imagen. Prueba otro año."));
-        img.src = urlOrto(e.lat, e.lon, lado, vueloActual, 1800);
-        lienzo.replaceChildren(img, el("div", { className: "cruz" }));
-        pie.textContent = `${vueloActual ? vuelo(vueloActual).rotulo : "Vuelo más reciente"} · ${Math.round(lado)} m de lado · ${(lado / 18).toFixed(0)} cm por píxel pedidos (el original tiene 15 a 50 cm) · PNOA, IGN`;
+      // Un mapa de verdad dentro del visor: se acerca y se mueve como el grande, y cada trozo llega
+      // con todo el detalle que tenga la foto, en vez de una imagen fija estirada.
+      const caja = el("div", { className: "mapa-visor" });
+      lienzo.replaceChildren(caja);
+      const lado0 = Math.min(600, Math.max(120, 3 * Math.sqrt(e.superficie || 1600)));
+      // El zoom va siempre en niveles enteros: a medio nivel el navegador estira las teselas y se ven blandas.
+      const zoomDe = (metros0) => Math.min(ZOOM_MAX, Math.round(Math.log2((156543.03 * Math.cos((e.lat * Math.PI) / 180) * Math.max(200, Math.min(caja.clientWidth, caja.clientHeight))) / metros0)));
+      const mini = L.map(caja, { maxZoom: ZOOM_MAX }).setView([e.lat, e.lon], zoomDe(lado0));
+      visor.mapa = mini;
+      L.control.scale({ imperial: false }).addTo(mini);
+      L.circleMarker([e.lat, e.lon], { radius: 13, color: "#e5007d", weight: 2, fill: false, interactive: false }).addTo(mini);
+      let capa = null, elegida = "";
+      const describir = (aviso) => {
+        const cm = (15654303 * Math.cos((mini.getCenter().lat * Math.PI) / 180)) / 2 ** mini.getZoom() / (window.devicePixelRatio || 1);
+        pie.textContent = aviso || `${elegida ? rotuloAntigua(elegida) : "La foto más nítida que hay de este sitio"} · ${cm < 10 ? cm.toFixed(1).replace(".", ",") : Math.round(cm)} cm por punto de pantalla · rueda, pellizco o doble clic para acercar`;
       };
-      const hoy = chip("Hoy", () => { vueloActual = null; pintar(); }, opciones); hoy.dataset.fila = "anio"; hoy.setAttribute("aria-pressed", "true");
-      for (const v of [...vuelos].sort((a, b) => b.anio - a.anio)) chip(v.rotulo, () => { vueloActual = v.nombre; pintar(); }, opciones).dataset.fila = "anio";
-      for (const [texto, metros0] of [["Muy cerca", 80], ["Cerca", 180], ["Entorno", 450], ["Zona", 1200]]) chip(texto, () => { lado = metros0; pintar(); }, tira).dataset.fila = "lado";
-      pintar();
+      const poner = (nombre) => {
+        if (capa) mini.removeLayer(capa);
+        elegida = nombre;
+        capa = (nombre ? capaAntigua(nombre, { crossOrigin: "anonymous" }) : mejorFoto()).addTo(mini);
+        // Un vuelo que no cubre la zona devuelve todas las teselas lisas (o ninguna).
+        let total = 0, lisas = 0, fallos = 0;
+        const propia = capa;
+        capa.on("tileload", (ev) => { total++; if (nombre && esImagenLisa(ev.tile)) lisas++; });
+        capa.on("tileerror", () => { fallos++; });
+        capa.on("load", () => { if (propia === capa && nombre && (total ? lisas === total : fallos > 0)) describir("Ese vuelo no cubre esta zona. Prueba otro año."); });
+        describir();
+      };
+      mini.on("zoomend moveend", () => describir());
+      const hoy = chip("Hoy", () => poner(""), opciones); hoy.dataset.fila = "anio"; hoy.setAttribute("aria-pressed", "true");
+      // En València ciudad hay además fotos y planos municipales, más antiguos y con más detalle.
+      const series = [...vuelos, ...(enCaja(VALENCIA_CIUDAD, e.lat, e.lon) ? SERIE_CIUDAD : [])].sort((a, b) => b.anio - a.anio);
+      for (const v of series) chip(deLaCiudad(v.nombre) && !/^Plano/.test(v.rotulo) ? `${v.rotulo} ciudad` : v.rotulo, () => poner(v.nombre), opciones).dataset.fila = "anio";
+      for (const [texto, metros0] of [["Muy cerca", 40], ["Cerca", 120], ["Entorno", 400], ["Zona", 1200]]) chip(texto, () => mini.setView([e.lat, e.lon], zoomDe(metros0)), tira).dataset.fila = "lado";
+      poner("");
     },
     calle() {
       const google = () => {
@@ -1016,6 +1099,12 @@ function abrirVisor(e, pestana) {
             if (!k) b.click();
           });
         }, opciones);
+        // El visor de Panoramax, incrustado: deja girar las fotos de 360° y pasar de una a otra.
+        chip("Panoramax en 360°", () => {
+          tira.replaceChildren();
+          lienzo.replaceChildren(el("iframe", { src: fotos[0].url, title: "Visor de Panoramax", allowFullscreen: true, referrerPolicy: "no-referrer" }));
+          pie.textContent = "Visor de Panoramax: fotos libres a pie de calle. Las de 360° se giran arrastrando.";
+        }, opciones);
       }).catch(() => { /* sin fotos libres aquí */ });
     },
     fotos() {
@@ -1026,7 +1115,7 @@ function abrirVisor(e, pestana) {
         const fotos = paginas.map(fotoCommons).filter(Boolean).sort((a, b) => (a.lat != null ? metros(e, a) : 1e9) - (b.lat != null ? metros(e, b) : 1e9));
         if (!fotos.length) { mensaje("No hay fotos libres de este sitio en Wikimedia Commons."); return; }
         fotos.forEach((f, k) => {
-          const b = chip("", () => foto(f.imagen, [f.nombre, f.autor, f.fecha, f.licencia, f.lat != null && `a ${Math.round(metros(e, f))} m`].filter(Boolean).join(" · "), f.url), tira);
+          const b = chip("", () => foto(f.imagen, [f.nombre, f.autor, f.fecha, f.licencia, f.lat != null && `a ${Math.round(metros(e, f))} m`].filter(Boolean).join(" · "), f.url, f.grande), tira);
           b.append(el("img", { src: f.imagen.replace(/\/\d+px-/, "/250px-"), alt: "", loading: "lazy" }));
           if (!k) b.click();
         });

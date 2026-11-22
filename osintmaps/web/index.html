@@ -309,6 +309,20 @@ if (/^https?:$/.test(location.protocol)) {
                 opacity: .7; animation: latido 1.1s ease-in-out infinite alternate; }
   @keyframes latido { to { opacity: .3; } }
 
+  /* Ajustes de la foto (brillo, contraste, color, enfoque): valen para el fondo, la foto antigua y el mapa del visor,
+     pero no para los mapas dibujados, que en modo oscuro llevan su propio filtro. */
+  #mapa:not(.fondo-dibujado) .leaflet-tile-pane, .leaflet-historico-pane, .mapa-visor .leaflet-tile-pane { filter: var(--ajuste-foto, none); }
+  html.enfocar #mapa:not(.fondo-dibujado) .leaflet-tile-pane img.leaflet-tile, html.enfocar .leaflet-historico-pane img.leaflet-tile,
+  html.enfocar .mapa-visor img.leaflet-tile { filter: url(#enfocar); }
+  #ajustes-foto summary { cursor: pointer; color: var(--tinta-suave); }
+  #ajustes-foto[open] summary { margin-bottom: 8px; }
+  #ajustes-foto label:not(.casilla) { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; font-size: 13.5px; margin-bottom: 6px; }
+  #ajustes-foto label:not(.casilla) input { grid-column: 1 / -1; }
+  #ajustes-foto output { color: var(--tinta-suave); font-variant-numeric: tabular-nums; }
+  #ajustes-foto .casilla { margin-bottom: 8px; }
+  #visor .lienzo img { transform-origin: 50% 50%; will-change: transform; user-select: none; }
+  .mapa-visor.leaflet-container { background: #0c1217; font: inherit; }
+
   /* Panel de capas: buscador y datos guardados */
   #buscar-capa { width: 100%; padding: 6px 10px; border: 1px solid var(--linea); border-radius: 16px; background: var(--blanco); }
   #capas .nota-capas { margin: 0; font-size: 13px; color: var(--tinta-suave); }
@@ -563,6 +577,10 @@ if (/^https?:$/.test(location.protocol)) {
   </div>
 </aside>
 
+<!-- Filtro para «enfocar» las fotos: cada punto se compara con sus vecinos y se exagera la diferencia. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <filter id="enfocar" color-interpolation-filters="sRGB"><feConvolveMatrix order="3" kernelMatrix="0 -0.55 0 -0.55 3.2 -0.55 0 -0.55 0" preserveAlpha="true"/></filter>
+</svg>
 <div id="mapa-zona">
   <div id="mapa"></div>
   <div id="cortina" role="slider" aria-label="Posición de la cortina" tabindex="0" hidden></div>
@@ -580,10 +598,20 @@ if (/^https?:$/.test(location.protocol)) {
       <input id="buscar-capa" type="search" placeholder="Buscar una capa" aria-label="Buscar una capa por su nombre" autocomplete="off">
       <div class="grupo-capas primero">Mapa de fondo</div>
       <select id="capa-fondo" aria-label="Mapa de fondo">
-        <option value="pnoa">Ortofoto actual (PNOA, 25 cm)</option>
+        <option value="auto">La foto más nítida de cada sitio (automático)</option>
+        <option value="pnoa">Ortofoto de toda España (PNOA, 25 cm)</option>
         <option value="mtn">Mapa topográfico (IGN)</option>
         <option value="osm">OpenStreetMap</option>
       </select>
+      <details id="ajustes-foto">
+        <summary>Ajustar la foto</summary>
+        <label>Brillo <output id="aj-brillo-valor"></output><input id="aj-brillo" type="range" min="50" max="200" step="5" value="100"></label>
+        <label>Contraste <output id="aj-contraste-valor"></output><input id="aj-contraste" type="range" min="50" max="200" step="5" value="100"></label>
+        <label>Color <output id="aj-color-valor"></output><input id="aj-color" type="range" min="0" max="200" step="5" value="100"></label>
+        <label class="casilla"><input id="aj-enfoque" type="checkbox"> Enfocar: remarca los bordes</label>
+        <label class="casilla" id="fila-nitidez"><input id="aj-nitidez" type="checkbox" checked> Doble detalle para esta pantalla</label>
+        <button id="aj-restablecer" type="button" class="accion">Dejarla como viene</button>
+      </details>
       <div id="capas-superponer"></div>
       <label>Comparar con la ortofoto de
         <select id="capa-historica"><option value="">Ninguna</option></select>
@@ -862,9 +890,11 @@ const vista = leerLocal("osintmaps.vista.v1", {}) || {};
    trae, manda sobre el encuadre guardado y sobre el de los datos, para que un enlace
    copiado lleve siempre al mismo sitio. Vale una vez: al arrancar. */
 const enLaURL = /^#mapa=(\d{1,2})\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)$/.exec(location.hash);
+/* Hasta dónde se puede acercar el mapa. Más allá de lo que da cada foto, se amplía lo que hay. */
+const ZOOM_MAX = 22;
 let vistaDeLaURL = enLaURL && Math.abs(+enLaURL[2]) <= 90 && Math.abs(+enLaURL[3]) <= 180
-  ? { centro: [+enLaURL[2], +enLaURL[3]], zoom: Math.min(20, +enLaURL[1]) } : null;
-const mapa = L.map("mapa", { preferCanvas: true, renderer: L.canvas({ tolerance: 8 }), zoomControl: false })
+  ? { centro: [+enLaURL[2], +enLaURL[3]], zoom: Math.min(ZOOM_MAX, +enLaURL[1]) } : null;
+const mapa = L.map("mapa", { preferCanvas: true, renderer: L.canvas({ tolerance: 8 }), zoomControl: false, maxZoom: ZOOM_MAX })
   .setView(vistaDeLaURL ? vistaDeLaURL.centro : [40.2, -3.6], vistaDeLaURL ? vistaDeLaURL.zoom : 6);
 L.control.zoom({ position: "bottomright" }).addTo(mapa);
 L.control.scale({ imperial: false, position: "topleft" }).addTo(mapa);
@@ -872,15 +902,115 @@ L.control.scale({ imperial: false, position: "topleft" }).addTo(mapa);
 const wmtsIGN = (servicio, capa) =>
   `https://www.ign.es/wmts/${servicio}?layer=${capa}&style=default&tilematrixset=GoogleMapsCompatible` +
   `&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image/jpeg&TileMatrix={z}&TileCol={x}&TileRow={y}`;
+
+/* ---------- Fotos aéreas: la más nítida que haya en cada sitio ----------
+   Tres fuentes públicas, de más a menos detalle:
+   - Ajuntament de València, vuelo de 2025: unos 6 cm por píxel. Solo el término municipal.
+   - Institut Cartogràfic Valencià, vuelo de 2025: 15 cm. La provincia de València.
+   - PNOA del IGN, «máxima actualidad»: 25 cm. Toda España.
+   El fondo «automático» pide para cada trozo de mapa la mejor de las tres que lo cubra.
+
+   Pantallas densas. Una tesela mide 256 píxeles. En un móvil o en un portátil moderno cada
+   «píxel» de la página son en realidad 2 o 3 puntos de pantalla, así que esa tesela se
+   estira y se ve blanda. Con DENSIDAD = 2 se pide la del nivel de zoom siguiente (el doble
+   de detalle) y se enseña a mitad de tamaño: son cuatro veces más teselas, pero cada punto
+   de la pantalla recibe un punto de foto. */
+const DENSIDAD = (window.devicePixelRatio || 1) > 1.25 && leerLocal("osintmaps.nitidez.v1", true) !== false ? 2 : 1;
+const VALENCIA_CIUDAD = { s: 39.4171, o: -0.4354, n: 39.509, e: -0.2827 };
+const VALENCIA_PROVINCIA = { s: 38.6653, o: -1.5636, n: 40.2303, e: 0.0193 };      // el rectángulo que la contiene
+const enCaja = (c, lat, lon) => lat >= c.s && lat <= c.n && lon >= c.o && lon <= c.e;
+const WMS_ICV = "https://terramapas.icv.gva.es/0202_2025PVAL0015";
+const FOTO_VLC = "https://geoportal.valencia.es/server/rest/services/FotoAerea_2025/MapServer";
+const URL_PNOA = wmtsIGN("pnoa-ma", "OI.OrthoimageCoverage");
+/* Teselas corrientes (z/x/y) de una foto, cuyo nivel más detallado es `nativo`. */
+const teselasFoto = (url, nativo, opciones) => L.tileLayer(url, Object.assign({ maxZoom: ZOOM_MAX },
+  DENSIDAD === 2 ? { tileSize: 128, zoomOffset: 1, maxNativeZoom: nativo - 1 } : { maxNativeZoom: nativo }, opciones));
+/* Lo mismo para un servicio WMS, que da la imagen del tamaño que se le pida. */
+const wmsFoto = (url, capa, opciones) => L.tileLayer.wms(url, Object.assign({ layers: capa, format: "image/jpeg", version: "1.1.1", maxZoom: ZOOM_MAX, detectRetina: DENSIDAD === 2 }, opciones));
+/* El rectángulo de una tesela z/x/y, en metros de la proyección del mapa (para pedirlo por WMS). */
+const MEDIO_MUNDO = 20037508.342789244;
+function wmsDeTesela(base, capa, formato, z, x, y) {
+  const lado = (2 * MEDIO_MUNDO) / 2 ** z;
+  const caja = [-MEDIO_MUNDO + x * lado, MEDIO_MUNDO - (y + 1) * lado, -MEDIO_MUNDO + (x + 1) * lado, MEDIO_MUNDO - y * lado];
+  return `${base}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${capa}&STYLES=&FORMAT=${formato}&TRANSPARENT=TRUE&SRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX=${caja.join(",")}`;
+}
+/* ¿Le falta algún trozo a la imagen? (Fuera de su zona, el ICV la devuelve transparente.) */
+const lienzoDePrueba = Object.assign(document.createElement("canvas"), { width: 4, height: 4 });
+function tieneHuecos(img) {
+  try {
+    const ctx = lienzoDePrueba.getContext("2d", { willReadFrequently: true });
+    ctx.clearRect(0, 0, 4, 4);
+    ctx.drawImage(img, 0, 0, 4, 4);
+    const d = ctx.getImageData(0, 0, 4, 4).data;
+    for (let k = 3; k < d.length; k += 4) if (d[k] < 250) return true;
+    return false;
+  } catch { return false; }
+}
+/* Capa de teselas que prueba las fuentes de mejor a peor: si una no tiene ese trozo (da error,
+   o lo trae con huecos), se pasa a la siguiente. De lejos se usa solo el PNOA, que es un
+   mosaico uniforme; el detalle de las otras no se aprecia hasta acercarse. */
+const MejorFoto = L.TileLayer.extend({
+  candidatas(coords) {
+    const z = coords.z + this.options.zoomOffset, b = this._tileCoordsToBounds(coords), lista = [];
+    const toca = (c) => b.getSouth() <= c.n && b.getNorth() >= c.s && b.getWest() <= c.e && b.getEast() >= c.o;
+    if (z >= 14) {
+      if (z <= 21 && toca(VALENCIA_CIUDAD)) lista.push({ url: `${FOTO_VLC}/tile/${z}/${coords.y}/${coords.x}` });
+      if (toca(VALENCIA_PROVINCIA)) lista.push({ url: wmsDeTesela(WMS_ICV, "2025PVAL0015_RGB", "image/vnd.jpeg-png", z, coords.x, coords.y), entera: true });
+    }
+    lista.push({ url: z <= 20 ? L.Util.template(URL_PNOA, { z, x: coords.x, y: coords.y }) : wmsDeTesela(WMS_ACTUAL, "OI.OrthoimageCoverage", "image/jpeg", z, coords.x, coords.y) });
+    return lista;
+  },
+  createTile(coords, hecho) {
+    const tesela = document.createElement("img"), lista = this.candidatas(coords);
+    let k = 0;
+    tesela.alt = "";
+    tesela.crossOrigin = "anonymous";      // hace falta para poder mirar si la imagen trae huecos
+    const probar = () => { if (k < lista.length) tesela.src = lista[k].url; else hecho(new Error("sin foto"), tesela); };
+    tesela.onload = () => { if (lista[k] && lista[k].entera && tieneHuecos(tesela)) { k++; probar(); } else hecho(null, tesela); };
+    tesela.onerror = () => { k++; probar(); };
+    probar();
+    return tesela;
+  },
+});
+const mejorFoto = (opciones) => new MejorFoto("", Object.assign({ maxZoom: ZOOM_MAX, attribution: "Ajuntament de València · ICV CC BY 4.0 · PNOA CC BY 4.0 scne.es" },
+  DENSIDAD === 2 ? { tileSize: 128, zoomOffset: 1, maxNativeZoom: 20 } : { maxNativeZoom: 21 }, opciones));
+
+/* Una foto suelta (no teselas) de un cuadrado de `lado` metros alrededor de un punto: las
+   direcciones de las fuentes que lo cubren, de mejor a peor. */
+function fotosAereas(lat, lon, lado, px) {
+  const dLat = lado / 2 / 111320, dLon = dLat / Math.cos((lat * Math.PI) / 180);
+  const caja = [lon - dLon, lat - dLat, lon + dLon, lat + dLat].map((v) => v.toFixed(6)).join(",");
+  const wms = (base, capa) => `${base}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${capa}&STYLES=&FORMAT=image/jpeg&SRS=EPSG:4326&WIDTH=${px}&HEIGHT=${px}&BBOX=${caja}`;
+  const lista = [];
+  if (enCaja(VALENCIA_CIUDAD, lat, lon)) lista.push(`${FOTO_VLC}/export?bbox=${caja}&bboxSR=4326&imageSR=4326&size=${px},${px}&format=jpg&f=image`);
+  if (enCaja(VALENCIA_PROVINCIA, lat, lon)) lista.push(wms(WMS_ICV, "2025PVAL0015_RGB"));
+  lista.push(wms(WMS_ACTUAL, "OI.OrthoimageCoverage"));
+  return lista;
+}
+/* Pone en una imagen la primera de esas direcciones que traiga una foto de verdad: ni un
+   error ni un rectángulo liso, que es lo que devuelve una fuente fuera de su zona. */
+function ponerFotoAerea(img, direcciones) {
+  let k = 0;
+  img.crossOrigin = "anonymous";
+  img.onload = () => { if (k < direcciones.length - 1 && esImagenLisa(img)) img.src = direcciones[++k]; };
+  img.onerror = () => { if (k < direcciones.length - 1) img.src = direcciones[++k]; };
+  img.src = direcciones[0];
+}
+/* Píxeles que conviene pedir para una imagen que se va a ver a `ancho` píxeles de página. */
+const pxDePantalla = (ancho, tope = 2000) => Math.min(tope, Math.round(ancho * Math.min(3, window.devicePixelRatio || 1)));
+
 const fondos = {
-  pnoa: L.tileLayer(wmtsIGN("pnoa-ma", "OI.OrthoimageCoverage"), { maxZoom: 20, maxNativeZoom: 19, attribution: "PNOA CC BY 4.0 scne.es" }),
-  mtn: L.tileLayer(wmtsIGN("mapa-raster", "MTN"), { maxZoom: 20, maxNativeZoom: 17, attribution: "IGN CC BY 4.0 ign.es" }),
-  osm: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 20, maxNativeZoom: 19, attribution: "© colaboradores de OpenStreetMap" }),
+  auto: mejorFoto(),
+  pnoa: teselasFoto(URL_PNOA, 20, { attribution: "PNOA CC BY 4.0 scne.es" }),
+  mtn: L.tileLayer(wmtsIGN("mapa-raster", "MTN"), { maxZoom: ZOOM_MAX, maxNativeZoom: 17, attribution: "IGN CC BY 4.0 ign.es" }),
+  osm: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: ZOOM_MAX, maxNativeZoom: 19, attribution: "© colaboradores de OpenStreetMap" }),
 };
-let fondoActual = fondos.pnoa.addTo(mapa);
+// El fondo elegido la última vez. Los que no están aquí se definen en capas.js, que pone el suyo al cargarse.
+const fondoGuardado = leerLocal("osintmaps.fondo.v2", "auto");
+let fondoActual = (fondos[fondoGuardado] || L.layerGroup()).addTo(mapa);
 let capaHistorica = null;
 const capaCatastro = L.tileLayer.wms("https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx", {
-  layers: "Catastro", format: "image/png", transparent: true, version: "1.1.1", maxZoom: 20, minZoom: 15,
+  layers: "Catastro", format: "image/png", transparent: true, version: "1.1.1", maxZoom: ZOOM_MAX, minZoom: 15,
   attribution: "D. G. del Catastro",
 });
 mapa.createPane("historico").style.zIndex = 250;      // por encima del fondo, por debajo de los puntos
@@ -893,22 +1023,37 @@ $("capa-fondo").addEventListener("change", (e) => {
   fondoActual.bringToBack();
   $("mapa").classList.toggle("fondo-dibujado", FONDOS_DIBUJADOS.has(e.target.value));
 });
+if (fondos[fondoGuardado]) { $("capa-fondo").value = fondoGuardado; $("mapa").classList.toggle("fondo-dibujado", FONDOS_DIBUJADOS.has(fondoGuardado)); }
 ponerSimbolos();
 ponerTema(temaActual(), false);
 $("tema").addEventListener("click", () => ponerTema(temaActual() === "oscuro" ? "claro" : "oscuro", true));
 $("capa-catastro").addEventListener("change", (e) => { e.target.checked ? capaCatastro.addTo(mapa) : mapa.removeLayer(capaCatastro); });
+
+/* Fotos aéreas y planos antiguos que publica el Ajuntament de València: solo cubren la ciudad,
+   pero llegan mucho más atrás y con más detalle que los vuelos nacionales. El segundo número
+   es el nivel de zoom más detallado que tiene cada uno. */
+const SERIE_CIUDAD = [[2018, 21], [2012, 19], [2010, 19], [2008, 19], [2007, 19], [2006, 19], [2005, 19], [2004, 19], [2002, 19], [2001, 19], [1992, 19], [1980, 19], [1956, 19],
+  [1929, 20, "plano"], [1910, 21, "plano"], [1860, 21, "plano"], [1828, 21, "plano"], [1738, 21, "plano"]]
+  .map(([anio, nativo, plano]) => ({ nombre: `ciudad-${anio}`, anio, nativo, rotulo: plano ? `Plano de ${anio}` : String(anio),
+    url: `https://geoportal.valencia.es/server/rest/services/FotoAerea/FotoAerea_${anio}/MapServer/tile/{z}/{y}/{x}` }));
+const deLaCiudad = (nombre) => SERIE_CIUDAD.find((v) => v.nombre === nombre);
+/* La capa de una foto antigua (un vuelo nacional o una de las de la ciudad), para el mapa o para el visor. */
+function capaAntigua(nombre, opciones) {
+  const c = deLaCiudad(nombre);
+  return c ? teselasFoto(c.url, c.nativo, Object.assign({ attribution: "Ajuntament de València", bounds: [[VALENCIA_CIUDAD.s, VALENCIA_CIUDAD.o], [VALENCIA_CIUDAD.n, VALENCIA_CIUDAD.e]] }, opciones))
+    : wmsFoto(WMS_HISTORICO, nombre, Object.assign({ attribution: "PNOA CC BY 4.0 scne.es" }, opciones));
+}
+function rotuloAntigua(nombre) {
+  const c = deLaCiudad(nombre), v = c || vuelo(nombre);
+  return !v ? "" : c ? `${c.rotulo} (València)` : v.rotulo;
+}
 
 /* Comparación con una ortofoto antigua: con cortina (mitad y mitad) o con opacidad. */
 let cortinaX = 0.5;
 function ponerHistorica(nombre) {
   if (capaHistorica) mapa.removeLayer(capaHistorica);
   capaHistorica = null;
-  if (nombre) {
-    capaHistorica = L.tileLayer.wms(WMS_HISTORICO, {
-      layers: nombre, format: "image/jpeg", version: "1.1.1", maxZoom: 20, pane: "historico",
-      attribution: "PNOA CC BY 4.0 scne.es",
-    }).addTo(mapa);
-  }
+  if (nombre) capaHistorica = capaAntigua(nombre, { pane: "historico" }).addTo(mapa);
   if ($("capa-historica").value !== nombre) $("capa-historica").value = nombre;
   actualizarComparacion();
 }
@@ -925,8 +1070,7 @@ function actualizarComparacion() {
   panel.style.clipPath = `polygon(${a.x}px ${a.y}px, ${b.x}px ${a.y}px, ${b.x}px ${b.y}px, ${a.x}px ${b.y}px)`;
   $("cortina").style.left = $("cortina-etiqueta").style.left = `${x}px`;
   $("cortina").setAttribute("aria-valuenow", Math.round(cortinaX * 100));
-  const v = vuelo($("capa-historica").value);
-  $("cortina-etiqueta").textContent = v ? v.rotulo : "";
+  $("cortina-etiqueta").textContent = rotuloAntigua($("capa-historica").value);
 }
 mapa.on("move zoom zoomend viewreset resize", actualizarComparacion);
 $("capa-historica").addEventListener("change", (e) => ponerHistorica(e.target.value));
@@ -948,8 +1092,9 @@ $("cortina").addEventListener("keydown", (e) => {
 function pintarVuelos() {
   const actual = $("capa-historica").value;
   $("capa-historica").replaceChildren(el("option", { value: "", textContent: "Ninguna" }),
-    ...vuelos.map((v) => el("option", { value: v.nombre, textContent: v.rotulo })));
-  $("capa-historica").value = vuelos.some((v) => v.nombre === actual) ? actual : "";
+    ...vuelos.map((v) => el("option", { value: v.nombre, textContent: v.rotulo })),
+    el("optgroup", { label: "Solo la ciudad de València" }, ...SERIE_CIUDAD.map((v) => el("option", { value: v.nombre, textContent: v.rotulo }))));
+  $("capa-historica").value = vuelos.some((v) => v.nombre === actual) || deLaCiudad(actual) ? actual : "";
 }
 pintarVuelos();
 /* La lista real de vuelos se pregunta al servicio del IGN; si no contesta, vale la de reserva. */
@@ -1187,9 +1332,10 @@ function volverALista() {
 }
 
 /* ---------- Ficha ---------- */
+/* Encuadre cuadrado, en metros, adaptado al tamaño del sitio. */
+const ladoAereo = (c) => Math.min(900, Math.max(220, 4 * Math.sqrt(c.p.superficie_m2 || 2500)));
 function urlAerea(c, capa, px) {
-  // Encuadre cuadrado en metros, adaptado al tamaño del sitio.
-  const lado = Math.min(900, Math.max(220, 4 * Math.sqrt(c.p.superficie_m2 || 2500)));
+  const lado = ladoAereo(c);
   const dLat = lado / 2 / 111320, dLon = lado / 2 / (111320 * Math.cos((c.lat * Math.PI) / 180));
   const actual = capa === "actual";
   const q = new URLSearchParams({
@@ -1255,7 +1401,9 @@ function abrirFicha(c, mover) {
     for (const b of tira.children) b.setAttribute("aria-pressed", String(b === boton));
     capaElegida = v.nombre;
     rotulo.textContent = v.rotulo;
-    img.src = urlAerea(c, v.nombre, 640);
+    const px = pxDePantalla(400, 1400);
+    if (v.nombre === "actual") ponerFotoAerea(img, fotosAereas(c.lat, c.lon, ladoAereo(c), px));
+    else { img.onload = img.onerror = null; img.src = urlAerea(c, v.nombre, px); }
     comparar.disabled = v.nombre === "actual";
     comparar.textContent = v.nombre === "actual" ? "Elige un año para compararlo en el mapa" : `Comparar ${v.rotulo} con hoy en el mapa`;
   };
@@ -1417,8 +1565,8 @@ for (const [nombre, z] of [["publico", 300], ["acceso", 340]]) {
 }
 const lienzoAcceso = L.canvas({ padding: 0.3, pane: "acceso" });
 const capaParcelas = L.layerGroup().addTo(mapa), capaVallas = L.layerGroup().addTo(mapa);
-const capaPecuarias = L.tileLayer.wms(WMS_FORESTAL, { layers: "34,23,24,25", format: "image/png", transparent: true, version: "1.1.1", pane: "publico", minZoom: 12, maxZoom: 20, attribution: "Institut Cartogràfic Valencià" });
-const capaMontes = L.tileLayer.wms(WMS_FORESTAL, { layers: "11,13", format: "image/png", transparent: true, version: "1.1.1", pane: "publico", opacity: 0.55, minZoom: 10, maxZoom: 20, attribution: "Institut Cartogràfic Valencià" });
+const capaPecuarias = L.tileLayer.wms(WMS_FORESTAL, { layers: "34,23,24,25", format: "image/png", transparent: true, version: "1.1.1", pane: "publico", minZoom: 12, maxZoom: ZOOM_MAX, attribution: "Institut Cartogràfic Valencià" });
+const capaMontes = L.tileLayer.wms(WMS_FORESTAL, { layers: "11,13", format: "image/png", transparent: true, version: "1.1.1", pane: "publico", opacity: 0.55, minZoom: 10, maxZoom: ZOOM_MAX, attribution: "Institut Cartogràfic Valencià" });
 
 const teselasParcelas = new Map();   // clave -> { estado: "cargando" | "lista" | "fallo", parcelas: [] }
 const teselasVallas = new Map();
