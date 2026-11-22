@@ -110,9 +110,11 @@ if (/^https?:$/.test(location.protocol)) {
            border-right: 1px solid var(--linea); z-index: 2; }
   #cabecera { display: flex; align-items: baseline; gap: 10px; padding: 14px 16px 10px; }
   #cabecera h1 { font: 600 26px/1 "Barlow Condensed", sans-serif; margin: 0; letter-spacing: .01em; white-space: nowrap; }
-  #recuento { white-space: nowrap; }
-  #recuento { color: var(--tinta-suave); font-size: 14px; }
-  #plegar { display: none; border: 0; background: none; padding: 4px 8px; font-weight: 600; }
+  #recuento { white-space: nowrap; color: var(--tinta-suave); font-size: 14px; }
+  /* (el recuento es de los sitios de la lista: con una ficha abierta o buscando otra cosa, despista) */
+  #panel:has(#contenido > article:not([hidden])) #recuento, #panel.con-resultados #recuento { visibility: hidden; }
+  #asa-hoja { display: none; flex: none; width: 100%; height: 20px; border: 0; background: none; padding: 0; touch-action: none; cursor: grab; }
+  #asa-hoja::before { content: ""; display: block; width: 40px; height: 4px; border-radius: 2px; background: var(--gris); margin: 8px auto; }
 
   #filtros { padding: 0 16px 12px; border-bottom: 1px solid var(--linea); display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
   #filtros-mas summary { font-weight: 600; cursor: pointer; padding: 2px 0; }
@@ -227,8 +229,19 @@ if (/^https?:$/.test(location.protocol)) {
   #anadir { position: absolute; right: 10px; bottom: 140px; z-index: 800; border: 1px solid var(--linea); background: var(--papel);
             border-radius: 8px; padding: 8px 12px; font-weight: 600; }
   #anadir[aria-pressed=true] { background: var(--jalon); border-color: var(--jalon); color: #fff; }
-  #anadir, #cerca { display: inline-flex; align-items: center; gap: 7px; box-shadow: 0 1px 3px rgba(23,36,46,.28); }
-  #anadir [data-icono], #cerca [data-icono] { display: inline-flex; flex: none; }
+  #boton-3d { position: absolute; right: 10px; bottom: 184px; z-index: 800; border: 1px solid var(--linea); background: var(--papel); border-radius: 8px; padding: 8px 12px; font-weight: 600; }
+  #boton-3d[aria-pressed=true], #cerca[aria-pressed=true] { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+  #anadir, #cerca, #boton-3d { display: inline-flex; align-items: center; gap: 7px; box-shadow: 0 1px 3px rgba(23,36,46,.28); }
+  #anadir [data-icono], #cerca [data-icono], #boton-3d [data-icono] { display: inline-flex; flex: none; }
+  /* Vista en 3D: ocupa el sitio del mapa; los botones y el buscador siguen encima. */
+  #vista3d { position: absolute; inset: 0; z-index: 750; background: #0d1216; }
+  #mapa-zona.en-3d #mapa { visibility: hidden; }
+  #mapa-zona.en-3d :is(#anadir, #cortina, #cortina-etiqueta, #leyenda) { display: none; }
+  #vista3d .maplibregl-ctrl-top-left { top: 44px; }
+  #aviso-3d { position: absolute; left: 50%; top: 58px; transform: translateX(-50%); z-index: 760; background: rgba(23,36,46,.86); color: #fff; padding: 6px 12px; border-radius: 8px;
+    font-size: 13.5px; max-width: calc(100% - 24px); text-align: center; pointer-events: none; transition: opacity .6s; }
+  #aviso-3d.ido { opacity: 0; }
+  .yo-precision { pointer-events: none; }
   #mapa.colocando { cursor: crosshair; }
   #ficha-marcador { padding: 0 16px 28px; }
   #ficha-marcador h2 { font: 600 24px/1.1 "Barlow Condensed", sans-serif; margin: 4px 0 2px; }
@@ -250,8 +263,10 @@ if (/^https?:$/.test(location.protocol)) {
   #buscador { padding: 0 16px 10px; }
   #buscar-texto { width: 100%; padding: 10px 14px; border: 1px solid var(--linea); border-radius: 22px; background: var(--blanco);
                   box-shadow: 0 1px 3px rgba(23,36,46,.12); }
-  #resultados-extra { list-style: none; margin: 0 0 6px; padding: 0 8px; }
-  #contenido:has(> article:not([hidden])) #resultados-extra { display: none; }
+  /* Mientras hay resultados de búsqueda, ocupan el panel; al abrir una ficha se apartan y al volver siguen ahí. */
+  #resultados-extra { list-style: none; margin: 0; padding: 0 8px 10px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  #panel:has(#contenido > article:not([hidden])) #resultados-extra { display: none; }
+  #panel.con-resultados:not(:has(#contenido > article:not([hidden]))) :is(#pestanas, #filtros, #contenido) { display: none; }
   #resultados-extra li { border-bottom: 1px solid var(--linea); }
   #resultados-extra button { display: grid; grid-template-columns: 22px minmax(0,1fr); gap: 2px 10px; align-items: baseline; width: 100%; text-align: left;
                              border: 0; background: none; padding: 8px; border-radius: 6px; }
@@ -260,6 +275,93 @@ if (/^https?:$/.test(location.protocol)) {
   #resultados-extra b { font-weight: 600; overflow-wrap: anywhere; }
   #resultados-extra small { grid-column: 2; color: var(--tinta-suave); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #resultados-extra .rotulo { padding: 8px 8px 2px; font-size: 13px; font-weight: 600; color: var(--tinta-suave); border: 0; }
+  #resultados-extra .rotulo.aviso { font-weight: 400; padding-bottom: 8px; }
+  #resultados-extra button { grid-template-columns: 22px minmax(0,1fr) auto; }
+  #resultados-extra button > svg { grid-row: span 2; align-self: center; color: var(--tinta-suave); }
+  #resultados-extra em { font-style: normal; font-size: 13px; color: var(--tinta-suave); white-space: nowrap; }
+  #resultados-extra small { grid-column: 2 / 4; }
+  #resultados-extra button.abierto small::first-line, .abierto { color: #15803d; }
+  #resultados-extra button.cerrado small, .cerrado { color: #b91c1c; }
+  [data-tema=oscuro] .abierto { color: #4ade80; } [data-tema=oscuro] .cerrado, [data-tema=oscuro] #resultados-extra button.cerrado small { color: #f87171; }
+  #resultados-extra .categorias { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px 4px 8px; }
+  #resultados-extra .categorias button { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 4px; padding: 8px 2px; border: 0; background: none;
+    border-radius: 8px; font-size: 12.5px; line-height: 1.15; text-align: center; }
+  #resultados-extra .categorias button span { overflow-wrap: anywhere; }
+  #resultados-extra .acciones { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 8px 8px; }
+  #resultados-extra .acciones button { display: inline-block; width: auto; border: 1px solid var(--linea); border-radius: 999px; padding: 4px 12px; font-size: 13px; background: var(--blanco); }
+  #resultados-extra .acciones button:disabled { opacity: .6; cursor: default; }
+  #panel.con-resultados #sin-coincidencias { display: none; }
+  /* Ficha de un negocio: horario, dirección, teléfono y web */
+  .negocio { margin: 0 0 10px; display: grid; gap: 4px; font-size: 14.5px; }
+  .negocio p { margin: 0; display: flex; align-items: baseline; gap: 6px; overflow-wrap: anywhere; }
+  .negocio p svg, .negocio summary svg { flex: none; align-self: center; color: var(--tinta-suave); }
+  .negocio a { color: inherit; }
+  .negocio .horario summary { cursor: pointer; }
+  .negocio .horario dl { margin: 6px 0 2px 22px; font-size: 14px; }
+  .negocio .ayuda { margin: 4px 0 0 22px; }
+  .acciones-ficha { margin: 8px 0 2px; }
+  .como-llegar { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; border: 0; border-radius: 8px; padding: 10px 12px; margin-bottom: 6px;
+    background: #1a73e8; color: #fff; font-weight: 600; font-size: 15px; }
+  .como-llegar:hover { background: #1765cc; }
+  .acciones-ficha .vistas { margin: 0; }
+  /* Próximos pasos por una parada y distintivos de línea */
+  .linea { display: inline-block; min-width: 26px; padding: 1px 7px; border-radius: 5px; font: 600 14px/1.35 "Barlow Condensed", "Barlow", sans-serif; text-align: center; white-space: nowrap; }
+  .salidas { list-style: none; margin: 0; padding: 0; }
+  .salidas li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--linea); }
+  .salidas .destino { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .salidas b { font: 600 17px/1.1 "Barlow Condensed", sans-serif; text-align: right; }
+  .salidas small { grid-column: 2 / 4; text-align: right; color: var(--tinta-suave); font-size: 12px; }
+  .salidas + .enlaces { margin-top: 8px; }
+  /* ---------- Cómo llegar ---------- */
+  #ficha-ruta { padding: 0 16px 28px; }
+  #ficha-ruta h2 { margin: 2px 0 10px; }
+  #ficha-ruta .navegacion button:last-child { margin-left: auto; }
+  .extremos-ruta { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 6px 6px; align-items: center; }
+  .extremos-ruta label { grid-column: 1; display: flex; align-items: center; gap: 8px; border: 1px solid var(--linea); border-radius: 8px; background: var(--blanco); padding: 0 10px; }
+  .extremos-ruta label:focus-within { border-color: var(--tinta); }
+  .extremos-ruta input { flex: 1; min-width: 0; border: 0; background: none; padding: 9px 0; outline: none; font-size: 15px; }
+  .punto-ruta { flex: none; width: 12px; height: 12px; border-radius: 50%; border: 3px solid #17242e; background: #fff; }
+  .punto-ruta.llegada { border-color: #d93025; background: #d93025; }
+  [data-tema=oscuro] .punto-ruta.salida { border-color: #e7edf0; background: none; }
+  .extremos-ruta .invertir { grid-column: 2; grid-row: 1 / 3; align-self: center; width: 38px; height: 38px; border: 1px solid var(--linea); border-radius: 50%; background: var(--blanco); padding: 0; display: grid; place-items: center; }
+  .sugerencias-ruta { grid-column: 1 / 3; list-style: none; margin: 0; padding: 4px 0; border: 1px solid var(--linea); border-radius: 8px; background: var(--blanco); max-height: 44vh; overflow-y: auto; }
+  .sugerencias-ruta button { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 10px; width: 100%; text-align: left; border: 0; background: none; padding: 7px 10px; }
+  .sugerencias-ruta button:hover, .sugerencias-ruta button:focus-visible { background: var(--papel); }
+  .sugerencias-ruta svg { grid-row: span 2; align-self: center; color: var(--tinta-suave); }
+  .sugerencias-ruta b { font-weight: 600; overflow-wrap: anywhere; }
+  .sugerencias-ruta small { grid-column: 2; color: var(--tinta-suave); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sugerencias-ruta small:empty { display: none; }
+  .modos-ruta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 12px 0 10px; }
+  .modos-ruta button { display: grid; justify-items: center; gap: 1px; border: 1px solid var(--linea); border-radius: 8px; background: var(--blanco); padding: 7px 2px 5px; font-size: 13px; }
+  .modos-ruta button small { font: 600 15px/1.1 "Barlow Condensed", sans-serif; min-height: 17px; color: var(--tinta-suave); }
+  .modos-ruta button[aria-selected=true] { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+  .modos-ruta button[aria-selected=true] small { color: #fff; }
+  .cuando-ruta { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .cuando-ruta select, .cuando-ruta input { border: 1px solid var(--linea); border-radius: 6px; background: var(--blanco); padding: 6px 8px; min-width: 0; }
+  .aviso-ruta { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--naranja) 16%, var(--papel)); }
+  .opcion-ruta { border: 1px solid var(--linea); border-radius: 10px; background: var(--blanco); margin-bottom: 8px; overflow: hidden; }
+  .opcion-ruta.elegida { border-color: #1a73e8; box-shadow: 0 0 0 1px #1a73e8; }
+  .opcion-ruta .cabeza { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; width: 100%; text-align: left; border: 0; background: none; padding: 10px 12px; }
+  .opcion-ruta .cabeza b { font: 600 20px/1.15 "Barlow Condensed", sans-serif; }
+  .opcion-ruta .cabeza em { font-style: normal; color: var(--tinta-suave); align-self: center; white-space: nowrap; }
+  .opcion-ruta .cabeza small { grid-column: 1 / 3; color: var(--tinta-suave); font-size: 13.5px; }
+  .opcion-ruta .tramos { grid-column: 1 / 3; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; margin: 3px 0 2px; }
+  .opcion-ruta .tramos i { font-style: normal; color: var(--tinta-suave); }
+  .a-pie { display: inline-flex; align-items: center; color: var(--tinta-suave); font-size: 13px; }
+  .pasos-ruta { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--linea); }
+  .pasos-ruta > li { border-bottom: 1px solid var(--linea); }
+  .pasos-ruta > li:last-child { border-bottom: 0; }
+  .pasos-ruta button { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 1px 8px; align-items: center; width: 100%; text-align: left; border: 0; background: none; padding: 8px 12px 8px 8px; }
+  .pasos-ruta button:hover { background: var(--papel); }
+  .pasos-ruta button > svg, .pasos-ruta button > .linea { justify-self: center; }
+  .pasos-ruta button > svg { color: var(--tinta-suave); }
+  .pasos-ruta em { font-style: normal; color: var(--tinta-suave); font-size: 13px; white-space: nowrap; }
+  .pasos-ruta small { grid-column: 2 / 4; color: var(--tinta-suave); font-size: 13px; }
+  .pasos-ruta details { padding: 0 12px 8px 50px; font-size: 13.5px; color: var(--tinta-suave); }
+  .pasos-ruta details ul { list-style: none; margin: 4px 0 0; padding: 0; }
+  #ruta-cuerpo .pendiente { display: flex; align-items: center; gap: 8px; }
+  .chincheta-lugar { background: none; border: 0; }
+  .chincheta-lugar svg { filter: drop-shadow(0 2px 3px rgba(23,36,46,.45)); }
 
   /* Panel de capas */
   #capas { width: 300px; max-height: calc(100% - 20px); overflow-y: auto; }
@@ -347,12 +449,10 @@ if (/^https?:$/.test(location.protocol)) {
   .portada { position: relative; width: 100%; aspect-ratio: 16 / 10; background: #17242e; border-radius: 8px; overflow: hidden; border: 0; padding: 0; display: block; }
   .portada img, .portada iframe { width: 100%; height: 100%; object-fit: cover; display: block; border: 0; }
   .portada span { position: absolute; left: 8px; bottom: 8px; background: rgba(23,36,46,.78); color: #fff; border-radius: 5px; padding: 2px 8px; font-size: 13px; }
-  .vistas { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin: 8px 0 2px; }
+  .vistas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 8px 0 2px; }
   .vistas button { border: 1px solid var(--linea); background: var(--blanco); border-radius: 8px; padding: 8px 2px 6px; font-size: 13px;
                    display: grid; justify-items: center; gap: 3px; }
   .vistas button:hover { border-color: var(--tinta); }
-  .vistas button:last-child { border-color: #1a73e8; color: #1a73e8; }
-  [data-tema=oscuro] .vistas button:last-child { border-color: #8ab4f8; color: #8ab4f8; }
   .descripcion { margin: 10px 0 0; }
   .portada.fachada { margin-top: 10px; aspect-ratio: 16 / 9; }
 
@@ -459,59 +559,87 @@ if (/^https?:$/.test(location.protocol)) {
   #cortina-etiqueta { position: absolute; top: 10px; z-index: 700; margin-left: 12px; padding: 2px 8px; border-radius: 4px; pointer-events: none;
                       color: #fff; background: rgba(23,36,46,.82); font: 600 16px "Barlow Condensed", sans-serif; }
 
-  /* ---------- Móvil: el panel pasa a ser una hoja inferior ---------- */
+  /* ---------- Móvil: el mapa arriba con el buscador encima, y el panel como hoja que sube desde abajo ---------- */
   @media (max-width: 760px) {
     body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
     #mapa-zona { grid-row: 1; }
-    #panel { grid-row: 2; border-right: 0; border-top: 1px solid var(--linea); height: 54vh; height: 54dvh;
-             padding-bottom: env(safe-area-inset-bottom); }
+    /* La hoja tiene tres alturas: recogida (solo la cabecera), media y alta. Se cambia arrastrando el asa. */
+    #panel { grid-row: 2; border-right: 0; border-top: 0; border-radius: 14px 14px 0 0; margin-top: -12px; box-shadow: 0 -2px 10px rgba(23,36,46,.2); z-index: 900;
+             height: 46vh; height: 46dvh; padding-bottom: env(safe-area-inset-bottom); transition: height .18s ease; }
+    #panel.alta { height: calc(100vh - 58px); height: calc(100dvh - 58px); }
     #panel.plegado { height: auto; }
-    #panel.plegado #filtros, #panel.plegado #contenido { display: none; }
-    #plegar { display: block; }
+    #panel.arrastrando { transition: none; }
+    #panel.plegado :is(#filtros, #contenido, #pestanas, #resultados-extra) { display: none !important; }
+    #asa-hoja { display: block; }
+    #cabecera { padding: 0 14px 8px; align-items: center; touch-action: none; }
+    #cabecera h1 { font-size: 20px; }
     #categorias { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
     #categorias .chip { flex: 0 0 auto; }
-    #capas { width: min(280px, calc(100% - 20px)); }
     #asa-panel { display: none; }
-    /* En el móvil el mapa es pequeño: la tira no va encima de él sino en el panel, bajo el buscador
-       (herramientas.js la cambia de sitio), en una fila que se desliza con el dedo. */
-    #tira-capas { position: static; padding: 0 12px 8px; flex-wrap: nowrap; overflow-x: auto; pointer-events: auto; scrollbar-width: none; }
+    .leaflet-bottom { bottom: 12px; }
+    .leaflet-top.leaflet-left { top: 100px; }
+    /* El crédito de las imágenes, en una sola línea que se corta: en una pantalla pequeña taparía los botones. */
+    .leaflet-control-attribution { font-size: 10px; max-width: 100vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Con la hoja en alto apenas queda una franja de mapa, la del buscador: lo demás que flota se aparta. */
+    #panel.alta ~ #mapa-zona :is(.leaflet-bottom, .leaflet-top, #tira-capas, #anadir, #cerca, #boton-3d, #tarjeta-mapa, #aviso-capas, #leyenda, #aviso-3d, .maplibregl-control-container) { display: none !important; }
+    /* Con la ficha de la ruta a la vista en la hoja, sobra la tarjeta del mapa: dice lo mismo. */
+    #panel:not(.plegado):has(#ficha-ruta:not([hidden])) ~ #mapa-zona #tarjeta-mapa { display: none; }
+    #ficha-ruta h2 { display: none; }
+    #ficha-ruta, #ficha, #ficha-elemento, #ficha-marcador { padding-left: 12px; padding-right: 12px; }
+    /* El buscador flota sobre el mapa (herramientas.js lo cambia de sitio); a su derecha, el botón de capas. */
+    #mapa-zona > #buscador { position: absolute; top: 8px; left: 8px; right: 60px; z-index: 810; padding: 0; }
+    #mapa-zona > #buscador #buscar-texto { border-radius: 24px; padding: 11px 16px; border-color: transparent; box-shadow: 0 1px 5px rgba(23,36,46,.4); font-size: 16px; }
+    #panel > #buscador { display: none; }      /* hasta que se cambia de sitio */
+    #capas { right: 8px; top: 8px; }
+    #capas:not([open]) { width: 44px; height: 44px; border-radius: 22px; padding: 0; overflow: hidden; box-shadow: 0 1px 5px rgba(23,36,46,.4); }
+    #capas:not([open]) summary { width: 44px; height: 44px; display: grid; place-items: center; font-size: 0; list-style: none; }
+    #capas:not([open]) summary::-webkit-details-marker { display: none; }
+    #capas[open] { width: min(310px, calc(100% - 16px)); max-height: calc(100% - 16px); z-index: 820; }
+    /* La tira de capas encendidas va en una fila bajo el buscador, que se desliza con el dedo. */
+    #tira-capas, #mapa-zona:has(#capas[open]) #tira-capas { top: 60px; left: 8px; right: 8px; flex-wrap: nowrap; overflow-x: auto; pointer-events: auto; scrollbar-width: none; padding-bottom: 3px; }
     #tira-capas::-webkit-scrollbar { display: none; }
-    #tira-capas button { flex: none; padding: 4px 10px 4px 4px; box-shadow: none; }
-    #panel:has(#contenido > article:not([hidden])) #tira-capas { display: none; }
-    #mapa-zona > #tira-capas { display: none; }      /* hasta que se cambia de sitio, que no descoloque el mapa */
-    /* Abajo están los botones y la leyenda: en el móvil el aviso va arriba. */
-    #aviso-capas, #mapa-zona:has(#tarjeta-mapa:not([hidden])) #aviso-capas { top: 60px; bottom: auto; max-width: calc(100% - 20px); }
-    #mapa-zona:has(#aviso-capas:not([hidden])) #tarjeta-mapa { top: 100px; }
-    #buscador { padding: 0 12px 8px; }
+    #tira-capas button { flex: none; }
+    #aviso-capas, #mapa-zona:has(#tarjeta-mapa:not([hidden])) #aviso-capas { top: 100px; bottom: auto; max-width: calc(100% - 20px); }
     #pestanas { padding: 0 12px; }
-    /* En el móvil la tarjeta va arriba: abajo están los botones y el panel. */
-    #tarjeta-mapa { top: 58px; bottom: auto; left: 10px; right: 10px; transform: none; max-width: none; }
+    /* Abajo a la derecha, los botones redondos; abajo a la izquierda, la tarjeta de la ruta o de la medida. */
+    #tarjeta-mapa { top: auto; bottom: 34px; left: 8px; right: 62px; transform: none; max-width: none; padding: 8px 10px; }
+    #tarjeta-mapa b { font-size: 18px; }
     .vistas button { font-size: 12.5px; }
     #pie .atajos { display: none; }
-    #cerca { right: auto; left: 10px; bottom: 34px; }
-    #anadir { right: auto; left: 10px; bottom: 84px; }
-    #anadir, #cerca { padding: 11px; border-radius: 22px; }
+    #cerca { right: 8px; bottom: 36px; }
+    #anadir { right: 8px; bottom: 88px; }
+    #boton-3d { right: 8px; bottom: 140px; }
+    #anadir, #cerca, #boton-3d { padding: 11px; border-radius: 23px; min-width: 46px; justify-content: center; }
     #anadir:not(.avisa) .rotulo, #cerca:not(.avisa) .rotulo { display: none; }
-    #leyenda { left: auto; right: 10px; bottom: 34px; max-width: 200px; font-size: 12px; }
+    #boton-3d [data-icono] { display: none; }
+    #leyenda { left: 8px; right: auto; bottom: 34px; max-width: 200px; font-size: 12px; }
+    #mapa-zona:has(#tarjeta-mapa:not([hidden])) #leyenda { display: none; }
     #leyenda .aviso { display: none; }
     .leaflet-control-zoom { display: none; }   /* en táctil se amplía con dos dedos */
+    #aviso-3d { top: 104px; }
+    #vista3d .maplibregl-ctrl-top-left { top: 96px; }
+    #vista3d .maplibregl-ctrl-bottom-left { bottom: 12px; }
+    #mapa-zona.en-3d #tarjeta-mapa { bottom: 50px; }
+    #resultados-extra .categorias { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 </head>
 <body>
 
-<aside id="panel" class="arrancando" aria-label="Candidatos">
+<aside id="panel" class="arrancando" aria-label="Búsqueda, listas y fichas">
+  <button id="asa-hoja" type="button" aria-label="Subir o bajar el panel" title="Arrastra para subir o bajar el panel"></button>
   <header id="cabecera">
     <h1>OSINT Maps</h1>
     <span id="recuento"></span>
     <button id="tema" type="button" aria-pressed="false" title="Cambiar a modo oscuro"></button>
-    <button id="plegar" type="button" aria-expanded="true">Ocultar</button>
   </header>
 
   <div id="buscador">
-    <input id="buscar-texto" type="search" placeholder="Buscar sitios, calles, coordenadas, referencia catastral" aria-label="Buscar sitios, calles, coordenadas o una referencia catastral" autocomplete="off">
+    <input id="buscar-texto" type="search" placeholder="Buscar un sitio, un negocio o una dirección" aria-label="Buscar un negocio, una dirección, un sitio abandonado, unas coordenadas o una referencia catastral" autocomplete="off" enterkeyhint="search">
   </div>
+
+  <ul id="resultados-extra" aria-label="Resultados de la búsqueda" hidden></ul>
 
   <nav id="pestanas" role="tablist" aria-label="Qué se lista"></nav>
 
@@ -564,7 +692,6 @@ if (/^https?:$/.test(location.protocol)) {
       <p>También puedes abrir aquí un <code>candidatos.geojson</code> que ya tengas.</p>
       <label class="cargar">Abrir candidatos.geojson<input id="fichero" type="file" accept=".geojson,.json,application/geo+json" hidden></label>
     </div>
-    <ul id="resultados-extra" aria-label="Lugares y otras capas" hidden></ul>
     <ul id="lista" hidden></ul>
     <ul id="lista-capas" class="lista-simple" aria-label="Elementos de las capas encendidas"></ul>
     <ul id="lista-marcadores" class="lista-simple" aria-label="Mis marcadores"></ul>
@@ -573,6 +700,7 @@ if (/^https?:$/.test(location.protocol)) {
     <article id="ficha" hidden></article>
     <article id="ficha-marcador" hidden></article>
     <article id="ficha-elemento" hidden></article>
+    <article id="ficha-ruta" hidden></article>
     <footer id="pie" hidden>
       <button id="exportar-marcas" type="button">Guardar copia de marcas y marcadores</button>
       <label>Recuperar una copia<input id="importar-marcas" type="file" accept=".json" hidden></label>
@@ -595,7 +723,9 @@ if (/^https?:$/.test(location.protocol)) {
   <div id="tira-capas" role="group" aria-label="Capas encendidas: pulsa una para ocultarla o volver a mostrarla"></div>
   <button id="asa-panel" type="button" aria-expanded="true" aria-controls="panel" title="Ocultar el panel"></button>
   <button id="anadir" type="button" aria-pressed="false" data-nombre="Añadir marcador" title="Añadir marcador"><span data-icono="marcador_nuevo"></span><span class="rotulo">Añadir marcador</span></button>
-  <button id="cerca" type="button" data-nombre="Cerca de mí" title="Cerca de mí"><span data-icono="centrar"></span><span class="rotulo">Cerca de mí</span></button>
+  <button id="cerca" type="button" aria-pressed="false" data-nombre="Mi posición" title="Mi posición"><span data-icono="mi_posicion"></span><span class="rotulo">Mi posición</span></button>
+  <button id="boton-3d" type="button" aria-pressed="false" title="Ver en 3D: relieve, foto aérea y edificios"><span data-icono="tres_d"></span><span class="rotulo">3D</span></button>
+  <div id="vista3d" hidden></div>
   <div id="leyenda" hidden></div>
   <div id="aviso-capas" role="status" hidden></div>
   <div id="tarjeta-mapa" role="status" hidden></div>
@@ -1158,7 +1288,7 @@ const grupo = L.markerClusterGroup({
 const rotuloSitio = L.tooltip({ direction: "top", offset: [0, -8] });
 grupo.on("click", (e) => {
   const c = e.layer && e.layer.sitio;
-  if (!c) return;
+  if (!c || midiendo || (typeof ruta === "object" && ruta.eligiendo)) return;      // (midiendo o eligiendo un extremo de ruta, el toque es para eso)
   L.DomEvent.stopPropagation(e);      // el clic en un punto no debe contar además como clic en la parcela de debajo
   abrirFicha(c, false);
 });
@@ -1329,7 +1459,7 @@ function pintarMas() {
 }
 
 function mostrarLista() {
-  soltarMarcador(); soltarElemento();
+  soltarMarcador(); soltarElemento(); ocultarFichaRuta();
   const anterior = seleccion;
   seleccion = null;
   if (anterior) anterior.marcador.setStyle(estiloMarcador(anterior));
@@ -1388,7 +1518,7 @@ function irA(desplazamiento) {
 }
 
 function abrirFicha(c, mover) {
-  soltarMarcador(); soltarElemento();
+  soltarMarcador(); soltarElemento(); ocultarFichaRuta();
   const anterior = seleccion;
   seleccion = c;
   if (anterior && anterior !== c) anterior.marcador.setStyle(estiloMarcador(anterior));
@@ -2126,7 +2256,13 @@ function soltarElemento() {
   $("ficha-elemento").hidden = true;
   if (typeof alSoltarElemento === "function") alSoltarElemento(anterior);
 }
-const panelOcupado = () => marcadorAbierto !== null || elementoAbierto !== null;
+const panelOcupado = () => marcadorAbierto !== null || elementoAbierto !== null || !$("ficha-ruta").hidden;
+/* La ficha de «cómo llegar» (rutas.js) se aparta cuando se abre cualquier otra cosa; la ruta sigue dibujada. */
+function ocultarFichaRuta() {
+  if ($("ficha-ruta").hidden) return;
+  $("ficha-ruta").hidden = true;
+  if (typeof pintarTarjetaRuta === "function") pintarTarjetaRuta();
+}
 let ultimoTipo = leerLocal("osintmaps.ultimo-tipo.v1", "spot");
 if (!TIPOS_MARCADOR[ultimoTipo]) ultimoTipo = "spot";
 
@@ -2172,7 +2308,7 @@ function abrirMarcador(id) {
   const m = marcadores[id];
   if (!m || m.deleted) return;
   if (seleccion) mostrarLista();
-  soltarElemento();
+  soltarElemento(); ocultarFichaRuta();
   marcadorAbierto = id;
   desplegarPanel();
 
@@ -2279,22 +2415,17 @@ if (vista.orden && vista.orden !== "cercania") $("f-orden").value = vista.orden;
 $("f-multi").checked = !!vista.multi;
 
 $("f-nota").addEventListener("input", filtrar);
-/* Al buscar, la lista se filtra al momento y, cuando se deja de escribir, el mapa
-   se mueve para enseñar los resultados. Con Intro se mueve sin esperar. */
+/* Al buscar, la lista de sitios se filtra al momento. El mapa no se mueve solo: lo que se busca
+   suele estar cerca de lo que se mira. `encuadrarResultados` lo lleva a los sitios que quedan. */
 let temporizadorBusqueda = null;
 function encuadrarResultados() {
   clearTimeout(temporizadorBusqueda);
   if (!$("buscar-texto").value.trim() || !visibles.length) return;
   mapa.fitBounds(L.latLngBounds(visibles.map((c) => [c.lat, c.lon])).pad(0.15), { maxZoom: 16 });
 }
-$("buscar-texto").addEventListener("input", () => {
-  filtrar();
-  clearTimeout(temporizadorBusqueda);
-  temporizadorBusqueda = setTimeout(encuadrarResultados, 500);
-});
-$("buscar-texto").addEventListener("keydown", (e) => { if (e.key === "Enter") encuadrarResultados(); });
+$("buscar-texto").addEventListener("input", filtrar);      // (el resto del buscador, lugares y direcciones, está en capas.js)
 for (const id of ["f-sup", "f-marca", "f-multi", "f-vista"]) $(id).addEventListener("change", filtrar);
-$("f-orden").addEventListener("change", () => { if ($("f-orden").value === "cercania" && !miPosicion) localizar(); else filtrar(); });
+$("f-orden").addEventListener("change", () => { if ($("f-orden").value === "cercania" && !miPosicion) localizar(); else filtrar(); });      // (localizar() ordena al tener la posición)
 $("ver-mas").addEventListener("click", pintarMas);
 /* Los dos botones del mapa llevan icono y texto. En el móvil, para no comerse el mapa, solo se
    ve el icono, salvo cuando el texto avisa de algo («Buscando tu posición»). */
@@ -2303,42 +2434,64 @@ function rotular(boton, texto) {
   boton.classList.toggle("avisa", texto !== boton.dataset.nombre);
   boton.title = texto;
 }
-/* Enseña el panel si estaba recogido (en el móvil, plegado; en el ordenador, escondido con el asa). */
+/* Enseña el panel si estaba recogido: en el móvil lo deja a media altura (herramientas.js lleva la
+   hoja); en el ordenador lo saca si estaba escondido con el asa. */
 function desplegarPanel() {
-  $("panel").classList.remove("plegado"); $("plegar").textContent = "Ocultar"; $("plegar").setAttribute("aria-expanded", "true");
+  if (typeof alDesplegarHoja === "function") alDesplegarHoja();
   if (document.body.classList.contains("sin-panel") && typeof ponerPanel === "function") ponerPanel(true);
 }
-$("plegar").addEventListener("click", () => {
-  const plegado = $("panel").classList.toggle("plegado");
-  $("plegar").textContent = plegado ? "Mostrar" : "Ocultar";
-  $("plegar").setAttribute("aria-expanded", String(!plegado));
-  setTimeout(() => mapa.invalidateSize(), 50);
-});
 mapa.on("moveend", () => {
   if (!candidatos.length) return;
   if (!seleccion && !panelOcupado() && ($("f-vista").checked || $("f-orden").value === "vista")) filtrar();
   else { pintarHuellas(); guardarVista(); }
 });
 
-function localizar() {
+/* La posición del aparato. La primera vez que se pulsa el botón se empieza a seguirla: el punto
+   azul se mueve con el aparato y el mapa lo acompaña hasta que se arrastra a mano; volver a pulsar
+   centra otra vez. `discreto`: solo poner el punto, sin mover el mapa (lo usa «cómo llegar»).
+   Con la página en segundo plano se deja de preguntar, para no gastar batería. */
+let vigilancia = null, siguiendo = false, circuloYo = null, quiereSeguir = false;
+function dejarDeVigilar() { if (vigilancia !== null) { navigator.geolocation.clearWatch(vigilancia); vigilancia = null; } }
+function localizar(discreto) {
   if (!navigator.geolocation) { rotular($("cerca"), "Este navegador no da la posición"); return; }
-  rotular($("cerca"), "Buscando tu posición");
-  navigator.geolocation.getCurrentPosition((pos) => {
-    miPosicion = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-    if (marcadorYo) mapa.removeLayer(marcadorYo);
-    marcadorYo = L.marker([miPosicion.lat, miPosicion.lon], { icon: L.divIcon({ className: "yo", iconSize: [16, 16] }), interactive: false }).addTo(mapa);
-    rotular($("cerca"), "Cerca de mí");
-    $("f-orden").value = "cercania";
-    if (seleccion) mostrarLista();
-    mapa.setView([miPosicion.lat, miPosicion.lon], Math.max(mapa.getZoom(), 12));
-    filtrar();
+  if (discreto !== true) { siguiendo = true; $("cerca").setAttribute("aria-pressed", "true"); }
+  quiereSeguir = true;
+  if (vigilancia !== null) {      // ya se está siguiendo: el botón vuelve a centrar
+    if (discreto !== true && miPosicion) mapa.setView([miPosicion.lat, miPosicion.lon], Math.max(mapa.getZoom(), 16));
+    return;
+  }
+  let primera = !miPosicion;
+  if (primera && discreto !== true) rotular($("cerca"), "Buscando tu posición");
+  vigilancia = navigator.geolocation.watchPosition((pos) => {
+    miPosicion = { lat: pos.coords.latitude, lon: pos.coords.longitude, precision: pos.coords.accuracy || 0, hora: Date.now() };
+    const ll = [miPosicion.lat, miPosicion.lon];
+    if (!marcadorYo) {
+      circuloYo = L.circle(ll, { radius: 1, color: "#1a73e8", weight: 1, opacity: 0.5, fillColor: "#1a73e8", fillOpacity: 0.12, interactive: false, className: "yo-precision" }).addTo(mapa);
+      marcadorYo = L.marker(ll, { icon: L.divIcon({ className: "yo", iconSize: [16, 16] }), interactive: false, zIndexOffset: 900 }).addTo(mapa);
+    } else { marcadorYo.setLatLng(ll); circuloYo.setLatLng(ll); }
+    circuloYo.setRadius(Math.min(miPosicion.precision, 3000));
+    if (primera) {
+      primera = false;
+      rotular($("cerca"), $("cerca").dataset.nombre);
+      if (discreto !== true) {
+        mapa.setView(ll, Math.max(mapa.getZoom(), 15));
+        // Con la lista de sitios a la vista, se ordena de más cerca a más lejos.
+        if (!seleccion && !panelOcupado() && candidatos.length) { $("f-orden").value = "cercania"; filtrar(); }
+      }
+    } else if (siguiendo) mapa.panTo(ll);
+    if (typeof alMoverme === "function") alMoverme(miPosicion);
   }, () => {
+    if (!primera) return;      // un fallo suelto con la posición ya conocida no importa
     // Los navegadores solo dan la posición en páginas https o abiertas en el propio equipo.
     rotular($("cerca"), "Posición no disponible");
+    siguiendo = false; quiereSeguir = false; $("cerca").setAttribute("aria-pressed", "false");
+    dejarDeVigilar();
     if ($("f-orden").value === "cercania") { $("f-orden").value = "nota"; filtrar(); }
-  }, { enableHighAccuracy: true, timeout: 15000 });
+  }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 });
 }
-$("cerca").addEventListener("click", localizar);
+$("cerca").addEventListener("click", () => localizar());
+mapa.on("dragstart", () => { if (siguiendo) { siguiendo = false; $("cerca").setAttribute("aria-pressed", "false"); } });
+document.addEventListener("visibilitychange", () => { if (document.hidden) dejarDeVigilar(); else if (quiereSeguir && vigilancia === null) localizar(true); });
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && colocando) { dejarDeColocar(); return; }
@@ -2428,5 +2581,7 @@ if (window.OSINT_DATOS) {
 </script>
 <script src="capas.js"></script>
 <script src="herramientas.js"></script>
+<script src="rutas.js"></script>
+<script src="tresd.js"></script>
 </body>
 </html>

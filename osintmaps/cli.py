@@ -714,7 +714,7 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
     if hay and "<!--/PRONTO-->" in resto:
         pagina = antes + resto.split("<!--/PRONTO-->", 1)[1]
     # El resto del programa del visor va en un fichero aparte: dentro también.
-    for fichero in ("iconos.js", "capas.js", "herramientas.js"):
+    for fichero in ("iconos.js", "capas.js", "herramientas.js", "rutas.js", "tresd.js"):
         etiqueta = f'<script src="{fichero}"></script>'
         if etiqueta in pagina:
             codigo = (CARPETA_WEB / fichero).read_text(encoding="utf-8").replace("</script", "<\\/script")

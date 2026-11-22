@@ -502,7 +502,7 @@ def test_sitio_estatico(tmp_path, capsys):
     # Por defecto, los resultados sí y las notas personales no.
     sitio = tmp_path / "sitio"
     assert cli.main(["sitio", "--salida", str(sitio), "--datos", str(datos)]) == 0
-    assert {f.name for f in sitio.iterdir()} >= {"index.html", "capas.js", "iconos.js", "herramientas.js", "sw.js", "manifest.webmanifest", "icono-192.png", ".nojekyll", "datos"}
+    assert {f.name for f in sitio.iterdir()} >= {"index.html", "capas.js", "iconos.js", "herramientas.js", "rutas.js", "tresd.js", "sw.js", "manifest.webmanifest", "icono-192.png", ".nojekyll", "datos"}
     assert sorted(f.name for f in (sitio / "datos").iterdir()) == ["camaras.geojson", "candidatos.geojson", "capa-dgt.geojson", "huellas.geojson"]
     assert json.loads((sitio / "manifest.webmanifest").read_text(encoding="utf-8"))["start_url"] == "."      # relativo: vale en una subcarpeta
     assert "ninguno" not in capsys.readouterr().out
@@ -556,7 +556,10 @@ def test_paquete_autonomo(red_simulada, tmp_path, capsys):
     # El resto del programa del visor también va dentro: no queda ningún fichero suelto por cargar.
     assert '<script src="capas.js">' not in html and "function abrirElemento" in html
     assert '<script src="iconos.js">' not in html and "const Simbolo = L.CircleMarker.extend" in html
-    assert '<script src="herramientas.js">' not in html and "function calcularRuta" in html
+    assert '<script src="herramientas.js">' not in html and "function medirDesde" in html
+    assert '<script src="rutas.js">' not in html and "function calcularRuta" in html            # cómo llegar
+    assert '<script src="tresd.js">' not in html and "function entrar3D" in html               # la vista en 3D
+    assert html.index("function medirDesde") < html.index("function calcularRuta") < html.index("function entrar3D")      # en el orden en que se necesitan
     assert html.index("const Simbolo") < html.index("function abrirElemento")      # los iconos, antes que quien los usa
     assert len(json.loads(incrustadas.replace("<\\/", "</"))["features"]) == 2
     assert "</script><script>alert(1)" not in html

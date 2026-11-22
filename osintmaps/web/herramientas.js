@@ -2,7 +2,7 @@
 /* OSINT Maps: herramientas sobre el mapa. Se carga la última y usa lo de los otros ficheros.
 
    1. Pestañas del panel: los sitios, lo que hay en el mapa de las capas encendidas y tus marcadores.
-   2. Ruta entre dos puntos y medición de distancias, con una tarjeta sobre el mapa.
+   2. La tarjeta sobre el mapa y la medición de distancias (las rutas están en rutas.js).
    3. Lo que se añade a las fichas: la foto y el resumen de las de Hispania Nostra. */
 
 const distanciaLegible = (m) => (m < 950 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toLocaleString("es-ES", { maximumFractionDigits: m < 10000 ? 1 : 0 })} km`);
@@ -115,7 +115,7 @@ $("capa-camaras").addEventListener("change", programarListas);
 }
 ponerPestana(leerLocal("osintmaps.pestana.v1", "sitios"));
 
-/* ====================== 2. Ruta y medición ====================== */
+/* ====================== 2. Tarjeta del mapa y medición ====================== */
 const tarjeta = $("tarjeta-mapa");
 function ponerTarjeta(...nodos) { tarjeta.replaceChildren(...nodos); tarjeta.hidden = !nodos.length; }
 const botonTarjeta = (texto, hacer, pulsado) => {
@@ -129,48 +129,7 @@ const extremo = (ll, relleno) => L.circleMarker(ll, { radius: 7, color: "#ffffff
 const trazo = (puntos, color, discontinuo) => [L.polyline(puntos, { color: "#17242e", weight: 8, opacity: 0.55, interactive: false }),
   L.polyline(puntos, { color, weight: 4.5, opacity: 1, interactive: false, dashArray: discontinuo || null })];
 
-/* --- Ruta: el camino lo calcula el servidor público de OpenStreetMap (OSRM), a pie o en coche. --- */
-const RUTAS = { pie: ["A pie", "https://routing.openstreetmap.de/routed-foot/route/v1/foot/"], coche: ["En coche", "https://routing.openstreetmap.de/routed-car/route/v1/driving/"] };
-const ruta = { origen: null, destino: null, modo: RUTAS[leerLocal("osintmaps.modo-ruta.v1", "pie")] ? leerLocal("osintmaps.modo-ruta.v1", "pie") : "pie", turno: 0, capa: L.layerGroup().addTo(mapa) };
-function quitarRuta() { ruta.turno++; ruta.origen = ruta.destino = null; ruta.capa.clearLayers(); ponerTarjeta(); }
-function posicionDelAparato() {
-  return new Promise((ok, no) => (navigator.geolocation ? navigator.geolocation.getCurrentPosition((p) => ok(L.latLng(p.coords.latitude, p.coords.longitude)), no, { enableHighAccuracy: true, timeout: 8000 }) : no(new Error("sin geolocalización"))));
-}
-function rutaDesde(ll) { terminarMedida(true); ruta.origen = ll; calcularRuta(); }
-function rutaHasta(ll, nombre) {
-  terminarMedida(true);
-  ruta.destino = ll; ruta.nombre = nombre || "";
-  if (ruta.origen) { calcularRuta(); return; }
-  // Sin origen elegido se prueba con la posición del aparato; si no la da, se pide que se marque en el mapa.
-  calcularRuta();
-  posicionDelAparato().then((p) => { if (!ruta.origen && ruta.destino === ll) { ruta.origen = p; calcularRuta(); } }).catch(() => { /* se queda pidiendo el origen */ });
-}
-function calcularRuta() {
-  const turno = ++ruta.turno, quitar = botonTarjeta("Quitar", quitarRuta);
-  ruta.capa.clearLayers();
-  if (ruta.origen) extremo(ruta.origen, "#17242e").addTo(ruta.capa);
-  if (ruta.destino) extremo(ruta.destino, AZUL).addTo(ruta.capa);
-  if (!ruta.origen || !ruta.destino) {
-    ponerTarjeta(el("span", { textContent: ruta.origen ? "Ahora elige el destino: botón derecho en el mapa, «Ruta hasta aquí», o el botón «Ruta» de una ficha." : "Elige el origen: botón derecho en el mapa y «Ruta desde aquí»." }), quitar);
-    return;
-  }
-  const modos = el("span", { className: "grupo-botones" }, ...Object.entries(RUTAS).map(([id, [nombre]]) => botonTarjeta(nombre, () => { ruta.modo = id; guardarLocal("osintmaps.modo-ruta.v1", id); calcularRuta(); }, ruta.modo === id)));
-  const invertir = botonTarjeta("Invertir", () => { [ruta.origen, ruta.destino] = [ruta.destino, ruta.origen]; calcularRuta(); });
-  ponerTarjeta(el("span", { textContent: "Calculando la ruta…" }), modos, quitar);
-  const o = ruta.origen, d = ruta.destino;
-  pedirJ(`${RUTAS[ruta.modo][1]}${o.lng.toFixed(6)},${o.lat.toFixed(6)};${d.lng.toFixed(6)},${d.lat.toFixed(6)}?overview=full&geometries=geojson`, null, 25000).then((j) => {
-    if (turno !== ruta.turno) return;
-    const r = (j.routes || [])[0];
-    if (j.code !== "Ok" || !r) throw new Error("sin ruta");
-    const puntos = r.geometry.coordinates.map(([lon, lat]) => [lat, lon]);
-    // El tramo calculado va por calles y caminos; lo que falta hasta cada extremo, en discontinuo.
-    for (const capa of [...trazo(puntos, AZUL), ...trazo([[o.lat, o.lng], puntos[0]], AZUL, "2 9"), ...trazo([puntos[puntos.length - 1], [d.lat, d.lng]], AZUL, "2 9")]) capa.addTo(ruta.capa);
-    extremo(o, "#17242e").addTo(ruta.capa); extremo(d, AZUL).addTo(ruta.capa);
-    if (!mapa.getBounds().contains(L.latLngBounds(puntos))) mapa.fitBounds(L.latLngBounds(puntos).pad(0.15));
-    ponerTarjeta(el("b", { textContent: `${distanciaLegible(r.distance)} · ${duracionLegible(r.duration)}` }),
-      el("span", { textContent: ruta.nombre ? `hasta ${ruta.nombre.slice(0, 40)}` : "" }), modos, invertir, quitar);
-  }).catch(() => { if (turno === ruta.turno) ponerTarjeta(el("span", { textContent: "No se ha podido calcular la ruta entre esos dos puntos." }), modos, quitar); });
-}
+/* (Las rutas, «cómo llegar», están en rutas.js, que usa esta tarjeta y estos trazos.) */
 
 /* --- Medir: cada clic añade un punto; la tarjeta lleva la cuenta. --- */
 const medida = { puntos: [], capa: L.layerGroup().addTo(mapa) };
@@ -187,7 +146,7 @@ function pintarMedida() {
     el("span", { textContent: midiendo ? (medida.puntos.length < 2 ? "Toca el mapa para añadir puntos." : `${medida.puntos.length - 1} ${medida.puntos.length === 2 ? "tramo" : "tramos"}, en línea recta.`) : "en línea recta" }), ...botones);
 }
 function medirDesde(ll) {
-  quitarRuta();
+  if (hayRuta()) quitarRuta();
   midiendo = true;
   medida.puntos = [ll];
   $("mapa").classList.add("colocando");
@@ -269,12 +228,78 @@ function pintarTira() {
   }
 }
 pintarTira();
+/* --- El móvil: buscador sobre el mapa y panel como hoja ---
+   En pantallas estrechas el buscador flota arriba, sobre el mapa, y el panel es una hoja que sube
+   desde abajo. La hoja tiene tres alturas: recogida («plegado»: solo la cabecera), media y alta.
+   Se cambia arrastrando el asa (o la cabecera) o tocando el asa. */
+const pantallaEstrecha = matchMedia("(max-width: 760px)");
+const esMovil = () => pantallaEstrecha.matches;
+const hojaActual = () => ($("panel").classList.contains("plegado") ? "minima" : $("panel").classList.contains("alta") ? "alta" : "media");
+function ponerHoja(altura) {
+  const panel = $("panel");
+  if (hojaActual() === altura) return;
+  panel.classList.toggle("plegado", altura === "minima");
+  panel.classList.toggle("alta", altura === "alta");
+  panel.style.height = "";
+  // El mapa cambia de alto con la hoja: se le avisa cuando acaba el movimiento (y un poco antes, por si no hay
+  // transición). Leaflet mantiene en el centro lo que estaba en el centro: lo que se miraba no queda tapado por la hoja.
+  setTimeout(() => mapa.invalidateSize({ animate: false }), 60);
+  setTimeout(() => mapa.invalidateSize({ animate: false }), 260);
+}
+/* Lo que llama desplegarPanel(): al abrir una ficha, que se vean a la vez el mapa y la ficha. */
+function alDesplegarHoja() { if (esMovil() && hojaActual() !== "media" && document.activeElement !== $("buscar-texto")) ponerHoja("media"); }
 {
-  // Sobre el mapa en el ordenador; en el móvil, donde el mapa es pequeño, dentro del panel bajo el buscador.
-  const movil = matchMedia("(max-width: 760px)");
-  const colocar = () => { if (movil.matches) $("buscador").after($("tira-capas")); else $("mapa-zona").insertBefore($("tira-capas"), $("asa-panel")); };
-  movil.addEventListener("change", colocar);
+  const panel = $("panel"), colocar = () => {
+    if (esMovil()) $("mapa-zona").append($("buscador")); else { $("cabecera").after($("buscador")); panel.classList.remove("plegado", "alta"); panel.style.height = ""; }
+    mapa.invalidateSize({ pan: false });
+  };
+  pantallaEstrecha.addEventListener("change", colocar);
   colocar();
+  // Escribir en el buscador sube la hoja (los resultados salen en ella); al salir del campo sin texto, vuelve a media altura.
+  $("buscar-texto").addEventListener("focus", () => { if (esMovil()) ponerHoja("alta"); });
+  $("buscar-texto").addEventListener("blur", () => setTimeout(() => {
+    if (!esMovil() || hojaActual() !== "alta" || document.activeElement === $("buscar-texto") || $("resultados-extra").contains(document.activeElement)) return;
+    if (!$("buscar-texto").value.trim() && $("resultados-extra").hidden) ponerHoja("media");
+  }, 1100));
+  // Arrastre del asa o de la cabecera.
+  let arrastre = null;
+  const empezar = (ev) => {
+    if (!esMovil() || ev.target.closest("#tema")) return;
+    arrastre = { y: ev.clientY, alto: panel.getBoundingClientRect().height, movido: false, id: ev.pointerId };
+    ev.currentTarget.setPointerCapture(ev.pointerId);
+  };
+  const mover = (ev) => {
+    if (!arrastre || ev.pointerId !== arrastre.id) return;
+    const dy = ev.clientY - arrastre.y;
+    if (!arrastre.movido && Math.abs(dy) < 6) return;
+    if (!arrastre.movido) { arrastre.movido = true; panel.classList.add("arrastrando"); panel.classList.remove("plegado", "alta"); }
+    panel.style.height = `${Math.max(64, Math.min(innerHeight - 58, arrastre.alto - dy))}px`;
+    if (!arrastre.cuadro) arrastre.cuadro = requestAnimationFrame(() => { if (arrastre) arrastre.cuadro = 0; mapa.invalidateSize({ animate: false }); });
+  };
+  const soltar = (ev) => {
+    if (!arrastre || ev.pointerId !== arrastre.id) return;
+    const { movido, y } = arrastre, alto = panel.getBoundingClientRect().height, dy = ev.clientY - y;
+    arrastre = null;
+    panel.classList.remove("arrastrando");
+    if (!movido) {      // un toque: el asa alterna entre media y la otra que toque
+      if (ev.currentTarget.id === "asa-hoja") ponerHoja(hojaActual() === "media" ? "minima" : "media");
+      return;
+    }
+    panel.style.height = "";
+    const destino = alto < innerHeight * 0.24 ? "minima" : alto > innerHeight * 0.66 ? "alta" : Math.abs(dy) > 60 && alto > innerHeight * 0.56 ? "alta" : Math.abs(dy) > 60 && alto < innerHeight * 0.34 ? "minima" : "media";
+    panel.classList.toggle("plegado", destino === "minima");
+    panel.classList.toggle("alta", destino === "alta");
+    setTimeout(() => mapa.invalidateSize({ animate: false }), 60);
+    setTimeout(() => mapa.invalidateSize({ animate: false }), 260);
+  };
+  for (const asa of [$("asa-hoja"), $("cabecera")]) {
+    asa.addEventListener("pointerdown", empezar);
+    asa.addEventListener("pointermove", mover);
+    asa.addEventListener("pointerup", soltar);
+    asa.addEventListener("pointercancel", soltar);
+  }
+  // Tocar el mapa con la hoja en alto la baja a media: lo que se quiere entonces es ver el mapa.
+  mapa.on("click", () => { if (esMovil() && hojaActual() === "alta") ponerHoja("media"); });
 }
 
 /* --- Asa para esconder el panel (ordenador) --- */
