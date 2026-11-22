@@ -583,7 +583,7 @@ def cmd_paquete(args: argparse.Namespace) -> int:
 def crear_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="osintmaps",
-        description="Buscador de lugares abandonados a partir de datos abiertos.",
+        description="Mapa OSINT: sitios abandonados, cámaras y más capas de datos abiertos, en un visor web.",
     )
     parser.add_argument("--version", action="version", version=f"osintmaps {__version__}")
     sub = parser.add_subparsers(dest="orden", required=True)
