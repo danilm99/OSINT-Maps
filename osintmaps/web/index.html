@@ -1398,7 +1398,10 @@ function marcarDesdeFicha(estado) {
    Nada de esto dice si un sitio está ocupado, vigilado o en venta. */
 const WFS_PARCELAS = "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx";
 const DATOS_PARCELA = "https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/COVCCallejero.svc/json/Consulta_DNPRC";
-const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
+// Servidores públicos de Overpass (la base de datos de OpenStreetMap), todos con los mismos datos.
+// Cualquiera de ellos pasa ratos caído o saturado: por eso hay varios.
+const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
 const WMS_FORESTAL = "https://carto.icv.gva.es/arcgis/services/tm_medio_ambiente/forestal/MapServer/WMSServer";
 const COLOR = { publico: "#2fbf71", rustica: "#f2c200", urbana: "#ff7a59", valla: "#ff2d2d", camino: "#5ee6ff" };
 const ZOOM_PARCELAS = 16, ZOOM_VALLAS = 15, MAX_TESELAS = 24;
@@ -1511,7 +1514,13 @@ const enVista = (s, o, n, e, margen = 0.3) => mapa.getBounds().pad(margen).inter
    al que respondió bien la última vez; si a los 8 segundos sigue callado se pregunta además al
    siguiente, y vale la primera respuesta buena (a los demás se les cuelga).
    `sigue`, si se da, dice si la consulta aún hace falta cuando le llega el turno. */
+// El servidor que funcionó se recuerda una hora, también de una recarga a la siguiente: si el
+// principal está caído no hay que tropezar con él cada vez que se abre la página.
 let servidorOSM = 0;
+{
+  const recordado = leerLocal("osintmaps.overpass.v1", null);
+  if (recordado && recordado.url && Date.now() - recordado.t < 3600000 && OVERPASS.includes(recordado.url)) servidorOSM = OVERPASS.indexOf(recordado.url);
+}
 function overpass(consulta, sigue) {
   const preguntar = () => new Promise((resolver, rechazar) => {
     const cortes = [];
@@ -1532,7 +1541,8 @@ function overpass(consulta, sigue) {
         .then((j) => {
           vivos--;
           if (hecho) return;
-          hecho = true; servidorOSM = k; clearTimeout(reloj);
+          hecho = true; clearTimeout(reloj);
+          if (servidorOSM !== k) { servidorOSM = k; guardarLocal("osintmaps.overpass.v1", { url: OVERPASS[k], t: Date.now() }); }
           for (const c of cortes) if (c !== corte) c.abort();
           resolver(j);
         }, (err) => {
