@@ -346,6 +346,8 @@ def test_paquete_autonomo(red_simulada, tmp_path, capsys):
     assert set(capas) == {"listaroja", "dgt", "subastas"}
     # El resto del programa del visor también va dentro: no queda ningún fichero suelto por cargar.
     assert '<script src="capas.js">' not in html and "function abrirElemento" in html
+    assert '<script src="iconos.js">' not in html and "const Simbolo = L.CircleMarker.extend" in html
+    assert html.index("const Simbolo") < html.index("function abrirElemento")      # los iconos, antes que quien los usa
     assert len(json.loads(incrustadas.replace("<\\/", "</"))["features"]) == 2
     assert "</script><script>alert(1)" not in html
     incrustado = html.split("window.OSINT_DATOS=")[1].split(";window.OSINT_HUELLAS=")[0]

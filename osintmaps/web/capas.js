@@ -109,69 +109,69 @@ const tituloOSM = (t, ...claves) => { for (const c of claves) if (t[c]) return v
    - tipo "fija": se lee entera de datos/capa-<id>.geojson (la descarga «osintmaps capas»). */
 const CAPAS = [
   // --- Vigilancia ---
-  { id: "camaras", oculta: true, nombre: "Cámaras (OpenStreetMap)", color: "#ff2d2d", zoom: 13, tipo: "osm", ql: ['nwr["man_made"="surveillance"]'],
+  { id: "camaras", oculta: true, nombre: "Cámaras (OpenStreetMap)", color: "#d90429", zoom: 13, tipo: "osm", ql: ['nwr["man_made"="surveillance"]'],
     es: (t) => t.man_made === "surveillance", activa: () => $("capa-camaras").checked },
-  { id: "dgt", grupo: "Vigilancia", nombre: "Cámaras de tráfico (DGT)", color: "#ff7a00", zoom: 0, tipo: "fija",
+  { id: "dgt", grupo: "Vigilancia", nombre: "Cámaras de tráfico (DGT)", color: "#9d0208", zoom: 0, tipo: "fija",
     filas: (e) => [["Carretera", e.p.carretera], ["Punto kilométrico", e.p.pk], ["Provincia", e.p.provincia], ["Sentido", e.p.destino]], vivo: true },
-  { id: "camvlc", grupo: "Vigilancia", nombre: "Cámaras de tráfico (València)", color: "#ffb000", zoom: 12, tipo: "api", pedir: arcgis([`${VALENCIA}/Trafico/MapServer/190`]) },
-  { id: "policia", grupo: "Vigilancia", nombre: "Policía y seguridad", color: "#1f5fd1", zoom: 12, tipo: "osm",
+  { id: "camvlc", grupo: "Vigilancia", nombre: "Cámaras de tráfico (València)", color: "#ff5a5f", zoom: 12, tipo: "api", pedir: arcgis([`${VALENCIA}/Trafico/MapServer/190`]) },
+  { id: "policia", grupo: "Vigilancia", nombre: "Policía y seguridad", color: "#1d4ed8", zoom: 12, tipo: "osm",
     ql: ['nwr["amenity"="police"]', 'nwr["office"="security"]'], es: (t) => t.amenity === "police" || t.office === "security", titulo: () => "Policía" },
   // --- Abandono y patrimonio ---
-  { id: "listaroja", grupo: "Abandono y patrimonio", nombre: "Lista Roja del Patrimonio", color: "#b3001b", zoom: 0, tipo: "fija",
+  { id: "listaroja", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Lista Roja del Patrimonio", color: "#b3001b", zoom: 0, tipo: "fija",
     color_de: (p) => ({ verde: "#2f9e44", negra: "#111111" }[p.lista] || "#b3001b"),
     filas: (e) => [["Lista", { roja: "Roja: en riesgo de perderse", verde: "Verde: estaba en la Roja y se ha recuperado", negra: "Negra: se ha perdido" }[e.p.lista]], ["Resumen", e.p.resumen]] },
-  { id: "subastas", grupo: "Abandono y patrimonio", nombre: "Inmuebles en subasta (BOE)", color: "#7b2ff7", zoom: 0, tipo: "fija",
+  { id: "subastas", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Inmuebles en subasta (BOE)", color: "#7b2ff7", zoom: 0, tipo: "fija",
     filas: (e) => [["Dirección", e.p.direccion], ["Localidad", e.p.localidad], ["Termina", e.p.fin], ["Valor de subasta", e.p.valor_subasta], ["Tasación", e.p.tasacion],
       ["Puja mínima", e.p.puja_minima], ["Depósito", e.p.deposito], ["Situación posesoria", e.p.situacion_posesoria], ["Visitable", e.p.visitable],
       ["Vivienda habitual", e.p.vivienda_habitual], ["Referencia catastral", e.p.refcat], ["Descripción", e.p.descripcion], ["Cargas", e.p.cargas],
       ["Situado por", { parcela: "la parcela catastral (exacto)", portal: "el portal (bastante exacto)", calle: "la calle (aproximado)" }[e.p.situado_por]], ["Subasta", e.p.subasta]] },
-  { id: "abandonado", grupo: "Abandono y patrimonio", nombre: "Abandonado o en ruinas (OSM, al momento)", color: "#e5007d", zoom: 13, tipo: "osm",
+  { id: "abandonado", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Abandonado o en ruinas (OSM, al momento)", color: "#c026d3", zoom: 13, tipo: "osm",
     ql: ['nwr["abandoned"="yes"]', 'nwr["disused"="yes"]', 'nwr["ruins"="yes"]', 'nwr["building"="ruins"]', 'nwr["historic"="ruins"]', 'nwr[~"^abandoned:"~"."]'],
     es: (t) => t.abandoned === "yes" || t.disused === "yes" || t.ruins === "yes" || t.building === "ruins" || t.historic === "ruins" || Object.keys(t).some((k) => k.startsWith("abandoned:")),
     titulo: (t) => tituloOSM(t, "historic", "building", "man_made", "amenity") || "Abandonado" },
-  { id: "solares", grupo: "Abandono y patrimonio", nombre: "Solares y edificios a rehabilitar (València)", color: "#c2410c", zoom: 13, tipo: "api",
+  { id: "solares", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Solares y edificios a rehabilitar (València)", color: "#a16207", zoom: 13, tipo: "api",
     pedir: arcgis([`${VALENCIA}/UrbanismoEInfraestructuras/MapServer/286`, `${VALENCIA}/UrbanismoEInfraestructuras/MapServer/294`]) },
-  { id: "bic", grupo: "Abandono y patrimonio", nombre: "Patrimonio protegido BIC y BRL (València)", color: "#8a6d1c", zoom: 13, tipo: "api",
+  { id: "bic", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Patrimonio protegido BIC y BRL (València)", color: "#6d28d9", zoom: 13, tipo: "api",
     pedir: arcgis([`${VALENCIA}/UrbanismoEInfraestructuras/MapServer/277`, `${VALENCIA}/UrbanismoEInfraestructuras/MapServer/278`]) },
-  { id: "refugios", grupo: "Abandono y patrimonio", nombre: "Refugios antiaéreos y patrimonio industrial (València)", color: "#5b4636", zoom: 12, tipo: "api",
+  { id: "refugios", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Refugios antiaéreos y patrimonio industrial (València)", color: "#5b4636", zoom: 12, tipo: "api",
     pedir: arcgis([`${VALENCIA}/Turismo/MapServer/229`, `${VALENCIA}/Turismo/MapServer/218`]) },
-  { id: "militar", grupo: "Abandono y patrimonio", nombre: "Militar y búnkeres", color: "#4d5d2a", zoom: 12, tipo: "osm",
+  { id: "militar", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Militar y búnkeres", color: "#4d5d2a", zoom: 12, tipo: "osm",
     ql: ['nwr["military"]', 'nwr["building"="bunker"]', 'nwr["historic"~"^(fort|bunker|battlefield)$"]'],
     es: (t) => !!t.military || t.building === "bunker" || /^(fort|bunker|battlefield)$/.test(t.historic || ""), titulo: (t) => tituloOSM(t, "military", "historic", "building") },
-  { id: "historico", grupo: "Abandono y patrimonio", nombre: "Lugares históricos (OSM)", color: "#a97142", zoom: 14, tipo: "osm",
+  { id: "historico", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Lugares históricos (OSM)", color: "#a97142", zoom: 14, tipo: "osm",
     ql: ['nwr["historic"]'], es: (t) => !!t.historic, titulo: (t) => tituloOSM(t, "historic") },
   // --- Infraestructura ---
   { id: "tren", grupo: "Infraestructura", nombre: "Ferrocarril: vías, cocheras y estaciones", color: "#111827", zoom: 13, tipo: "osm", lineas: true,
     ql: ['way["railway"~"^(rail|disused|abandoned|razed|siding|yard|tram|light_rail|subway|narrow_gauge)$"]', 'nwr["railway"~"^(station|halt|depot|roundhouse|turntable|signal_box)$"]', 'nwr["landuse"="railway"]'],
     es: (t) => !!t.railway || t.landuse === "railway", titulo: (t) => tituloOSM(t, "railway") || "Terreno ferroviario",
-    color_de: (t) => (/^(disused|abandoned|razed)$/.test(t.railway || "") ? "#e5007d" : "#111827") },
+    color_de: (t) => (/^(disused|abandoned|razed)$/.test(t.railway || "") ? "#e5007d" : null), color_linea: "#f8fafc" },
   { id: "tuneles", grupo: "Infraestructura", nombre: "Túneles y puentes", color: "#0e7490", zoom: 15, tipo: "osm", lineas: true,
     ql: ['way["tunnel"~"^(yes|flooded|passage|building_passage)$"]', 'way["bridge"~"^(yes|viaduct|aqueduct|cantilever|movable|trestle)$"]', 'way["man_made"="bridge"]'],
     es: (t) => (!!t.tunnel && t.tunnel !== "no") || (!!t.bridge && t.bridge !== "no") || t.man_made === "bridge",
     titulo: (t) => (t.tunnel && t.tunnel !== "no" ? "Túnel" : "Puente") + (t.railway ? " ferroviario" : t.highway ? " de carretera" : ""),
     color_de: (t) => (t.tunnel && t.tunnel !== "no" ? "#0e7490" : "#7dd3fc") },
-  { id: "muros", grupo: "Infraestructura", nombre: "Muros y pantallas acústicas", color: "#f8fafc", zoom: 16, tipo: "osm", lineas: true,
+  { id: "muros", grupo: "Infraestructura", nombre: "Muros y pantallas acústicas", color: "#94a3b8", zoom: 16, tipo: "osm", lineas: true,
     ql: ['way["barrier"~"^(wall|retaining_wall|city_wall)$"]', 'way["wall"="noise_barrier"]', 'way["barrier"="noise_barrier"]'],
-    es: (t) => /^(wall|retaining_wall|city_wall|noise_barrier)$/.test(t.barrier || "") || t.wall === "noise_barrier", titulo: (t) => tituloOSM(t, "wall", "barrier") },
-  { id: "energia", grupo: "Infraestructura", nombre: "Energía: subestaciones, centrales y líneas", color: "#eab308", zoom: 13, tipo: "osm", lineas: true,
+    es: (t) => /^(wall|retaining_wall|city_wall|noise_barrier)$/.test(t.barrier || "") || t.wall === "noise_barrier", titulo: (t) => tituloOSM(t, "wall", "barrier"), color_linea: "#cbd5e1", trazo: "7 6" },
+  { id: "energia", grupo: "Infraestructura", nombre: "Energía: subestaciones, centrales y líneas", color: "#1e3a8a", zoom: 13, tipo: "osm", lineas: true,
     ql: ['nwr["power"~"^(substation|plant|generator|transformer)$"]', 'way["power"~"^(line|minor_line)$"]'],
-    es: (t) => /^(substation|plant|generator|transformer|line|minor_line)$/.test(t.power || ""), titulo: (t) => tituloOSM(t, "power") },
-  { id: "antenas", grupo: "Infraestructura", nombre: "Antenas, mástiles y torres", color: "#06b6d4", zoom: 13, tipo: "osm",
+    es: (t) => /^(substation|plant|generator|transformer|line|minor_line)$/.test(t.power || ""), titulo: (t) => tituloOSM(t, "power"), color_linea: "#fbbf24" },
+  { id: "antenas", grupo: "Infraestructura", nombre: "Antenas, mástiles y torres", color: "#0369a1", zoom: 13, tipo: "osm",
     ql: ['nwr["man_made"~"^(mast|tower|communications_tower|antenna)$"]', 'nwr["telecom"]'],
     es: (t) => /^(mast|tower|communications_tower|antenna)$/.test(t.man_made || "") || !!t.telecom, titulo: (t) => tituloOSM(t, "tower:type", "man_made", "telecom") },
-  { id: "industria", grupo: "Infraestructura", nombre: "Industria: fábricas, chimeneas, silos, depósitos", color: "#64748b", zoom: 14, tipo: "osm",
+  { id: "industria", grupo: "Infraestructura", nombre: "Industria: fábricas, chimeneas, silos, depósitos", color: "#475569", zoom: 14, tipo: "osm",
     ql: ['nwr["man_made"~"^(works|chimney|silo|storage_tank|water_tower|gasometer|kiln|crane|cooling_tower)$"]', 'nwr["landuse"="industrial"]["name"]', 'nwr["building"~"^(industrial|warehouse|hangar)$"]["name"]'],
     es: (t) => /^(works|chimney|silo|storage_tank|water_tower|gasometer|kiln|crane|cooling_tower)$/.test(t.man_made || "") || ((t.landuse === "industrial" || /^(industrial|warehouse|hangar)$/.test(t.building || "")) && !!t.name),
     titulo: (t) => tituloOSM(t, "man_made", "building", "landuse") },
-  { id: "canteras", grupo: "Infraestructura", nombre: "Canteras y minas", color: "#92400e", zoom: 12, tipo: "osm",
+  { id: "canteras", grupo: "Infraestructura", nombre: "Canteras y minas", color: "#78350f", zoom: 12, tipo: "osm",
     ql: ['nwr["landuse"="quarry"]', 'nwr["man_made"~"^(adit|mineshaft)$"]', 'nwr["historic"="mine"]'],
     es: (t) => t.landuse === "quarry" || /^(adit|mineshaft)$/.test(t.man_made || "") || t.historic === "mine", titulo: (t) => tituloOSM(t, "man_made", "historic", "landuse") },
-  { id: "farolas", grupo: "Infraestructura", nombre: "Farolas (qué está iluminado)", color: "#fde047", zoom: 17, tipo: "osm", radio: 3.5,
+  { id: "farolas", tamano: 0.62, grupo: "Infraestructura", nombre: "Farolas (qué está iluminado)", color: "#facc15", zoom: 17, tipo: "osm",
     ql: ['node["highway"="street_lamp"]'], es: (t) => t.highway === "street_lamp", titulo: () => "Farola" },
   // --- Fotos y artículos ---
   { id: "wikipedia", grupo: "Fotos y artículos", nombre: "Artículos de Wikipedia", color: "#f5f5f5", zoom: 13, tipo: "api", pedir: pedirWikipedia },
-  { id: "commons", grupo: "Fotos y artículos", nombre: "Fotos de Wikimedia Commons", color: "#22d3ee", zoom: 15, tipo: "api", pedir: pedirCommons, radio: 4.5 },
-  { id: "panoramax", grupo: "Fotos y artículos", nombre: "Fotos a pie de calle (Panoramax)", color: "#a78bfa", zoom: 16, tipo: "api", pedir: pedirPanoramax, radio: 4 },
+  { id: "commons", tamano: 0.8, grupo: "Fotos y artículos", nombre: "Fotos de Wikimedia Commons", color: "#0891b2", zoom: 15, tipo: "api", pedir: pedirCommons },
+  { id: "panoramax", tamano: 0.7, grupo: "Fotos y artículos", nombre: "Fotos a pie de calle (Panoramax)", color: "#0d9488", zoom: 16, tipo: "api", pedir: pedirPanoramax },
   // --- Catastro ---
   { id: "edificios", grupo: "Catastro", nombre: "Edificios: estado, año y uso", color: "#60a5fa", zoom: 18, tipo: "api", pedir: pedirEdificios, paso: 0.002, porTesela: true },
   // --- En vivo ---
@@ -179,6 +179,8 @@ const CAPAS = [
 ];
 const CAPA = Object.fromEntries(CAPAS.map((c) => [c.id, c]));
 const CAPA_PUNTO = { id: "punto", nombre: "Punto del mapa", color: "#17242e" };
+/* El símbolo de un elemento, como SVG: el mismo que lleva en el mapa. */
+const simboloDe = (capa, color, lado = 22) => simboloSVG(capa.icono || capa.id, color || capa.color, capa.forma, lado);
 const pasoDe = (z) => (z >= 17 ? 0.005 : z >= 16 ? 0.01 : z >= 15 ? 0.02 : z >= 14 ? 0.04 : z >= 13 ? 0.08 : 0.16);
 
 /* Estado de cada capa: qué trozos del mapa ya se han pedido y qué elementos tiene. */
@@ -360,17 +362,29 @@ function filasOSM(t) {
 /* --- Dibujo --- */
 function dibujar(capa, e) {
   const color = e.color || capa.color;
+  const ficha = () => simbolo([e.lat, e.lon], { icono: capa.icono || capa.id, fondo: color, forma: capa.forma, tamano: capa.tamano,
+    giro: capa.id === "aviones" && e.rumbo != null ? e.rumbo - 45 : 0 });      // el dibujo del avión mira al nordeste
   let d;
-  if (e.linea) d = L.polyline(e.linea, { color, weight: 4, opacity: 0.9 });
+  if (e.linea) {
+    // Una línea lleva debajo otra más ancha y oscura, para que se vea igual sobre una foto clara que sobre una oscura.
+    d = L.featureGroup([L.polyline(e.linea, { color: "#17242e", weight: 6.5, opacity: 0.6 }),
+      L.polyline(e.linea, { color: e.color || capa.color_linea || capa.color, weight: 3.2, opacity: 1, dashArray: capa.trazo || null })]);
+  }
   else if (e.anillos && capa.id === "edificios") d = L.polygon(e.anillos, { color: (ESTADO_EDIFICIO[e.estado_edificio] || [0, "#60a5fa"])[1], weight: 1.5, fillOpacity: e.estado_edificio === "functional" ? 0.12 : 0.45 });
-  else if (e.anillos && mapa.getZoom() >= 15) d = L.polygon(e.anillos, { color, weight: 2, fillOpacity: 0.25 });
-  else d = L.circleMarker([e.lat, e.lon], { radius: capa.radio || 6, color: "#ffffff", weight: 1.5, fillColor: color, fillOpacity: 1 });
+  else if (e.anillos && mapa.getZoom() >= 15) {
+    // De cerca, un área se ve con su contorno y con su símbolo en el centro.
+    const contorno = L.polygon(e.anillos, { color, weight: 2, fillOpacity: 0.22 });
+    d = L.featureGroup([contorno, ficha()]);
+    d.contorno = contorno;
+  } else d = ficha();
   d.on("click", (ev) => { L.DomEvent.stopPropagation(ev); abrirElemento(e); });
   // El nombre viene de fuera (OpenStreetMap, ayuntamientos...): Leaflet trata una cadena como
   // HTML, así que se le da un nodo de texto, que no puede traer código dentro.
-  if (e.nombre) d.bindTooltip(() => el("span", { textContent: e.nombre }), { direction: "top", offset: [0, -6] });
+  if (e.nombre) d.bindTooltip(() => el("span", { textContent: e.nombre }), { direction: "top", offset: [0, -8] });
   return d;
 }
+/* Las áreas van al fondo para no tapar los puntos; su símbolo, no. */
+function alFondo(d) { if (d.contorno) d.contorno.bringToBack(); else if (d instanceof L.Polygon) d.bringToBack(); }
 function incorporar(capa, elementos) {
   const est = estado[capa.id];
   if (capa.id === "camaras") {       // las cámaras tienen su propio dibujo, con el abanico de orientación
@@ -386,7 +400,7 @@ function incorporar(capa, elementos) {
     const d = dibujar(capa, e);
     est.dibujos.set(e.id, d);
     d.addTo(est.grupo);
-    if (e.anillos && d.bringToBack) d.bringToBack();
+    if (e.anillos) alFondo(d);
   }
 }
 function vaciar(capa) {
@@ -513,9 +527,7 @@ function conmutarCapa(capa, encendida) {
     if (capa.grupo !== grupoAnterior) { $("capas-datos").append(el("div", { className: "grupo-capas", textContent: capa.grupo })); grupoAnterior = capa.grupo; }
     const casilla = el("input", { id: `dato-${capa.id}`, type: "checkbox", checked: capasActivas.has(capa.id) });
     casilla.addEventListener("change", () => conmutarCapa(capa, casilla.checked));
-    const muestra = el("i", { className: `punto${capa.lineas ? " raya" : capa.id === "edificios" ? " area" : ""}` });
-    muestra.style.background = capa.color;
-    $("capas-datos").append(el("label", { className: "casilla" }, casilla, muestra, el("span", { textContent: capa.nombre }), el("small", { id: `estado-${capa.id}` })));
+    $("capas-datos").append(el("label", { className: "casilla" }, casilla, simboloDe(capa), el("span", { textContent: capa.nombre }), el("small", { id: `estado-${capa.id}` })));
   }
 }
 $("capa-camaras").addEventListener("change", programarCapas);
@@ -525,7 +537,7 @@ mapa.on("zoomend", () => {
   for (const capa of CAPAS) {
     const est = estado[capa.id];
     if (capa.id === "edificios" || !estaActiva(capa)) continue;
-    for (const [id, e] of est.elementos) if (e.anillos) { est.grupo.removeLayer(est.dibujos.get(id)); const d = dibujar(capa, e); est.dibujos.set(id, d); d.addTo(est.grupo); if (d.bringToBack) d.bringToBack(); }
+    for (const [id, e] of est.elementos) if (e.anillos) { est.grupo.removeLayer(est.dibujos.get(id)); const d = dibujar(capa, e); est.dibujos.set(id, d); d.addTo(est.grupo); alFondo(d); }
   }
 });
 
@@ -678,7 +690,7 @@ function abrirElemento(e, mover) {
 
   const volver = el("button", { type: "button", textContent: "Lista" });
   volver.addEventListener("click", cerrarElemento);
-  const muestra = el("i", { className: "punto" }); muestra.style.background = e.color || capa.color;
+  const muestra = simboloDe(capa, e.color, 22);
 
   // Portada: la imagen propia del elemento si la tiene; si no, la ortofoto de hoy.
   const lado = Math.min(700, Math.max(160, 4 * Math.sqrt(e.superficie || 1600)));
@@ -941,8 +953,7 @@ function pintarResultados(grupos) {
     if (!filas.length) continue;
     lista.append(el("li", { className: "rotulo", textContent: titulo }));
     for (const f of filas) {
-      const muestra = el("i", { className: "punto" }); muestra.style.background = f.color;
-      const b = el("button", { type: "button" }, muestra, el("b", { textContent: f.titulo }), el("small", { textContent: f.detalle || "" }));
+      const b = el("button", { type: "button" }, simboloSVG(f.icono || "punto", f.color, f.forma, 22), el("b", { textContent: f.titulo }), el("small", { textContent: f.detalle || "" }));
       b.addEventListener("click", () => { clearTimeout(temporizadorBusqueda); f.ir(); });
       lista.append(el("li", {}, b));
     }
@@ -960,7 +971,7 @@ function buscarTodo(texto, conCallejero) {
   }
   const refcat = /^[0-9A-Z]{14}(?:[0-9A-Z]{6})?$/.test(texto.trim().toUpperCase()) && /\d/.test(texto) && /[A-Za-z]/.test(texto) ? texto.trim().toUpperCase().slice(0, 14) : null;
   for (const [id, m] of Object.entries(marcadores)) {
-    if (!m.deleted && sinAcentos(m.note).includes(q)) enCapas.push({ color: TIPOS_MARCADOR[m.type][1], titulo: m.note.slice(0, 70), detalle: `Marcador: ${TIPOS_MARCADOR[m.type][0].toLowerCase()}`, ir: () => { mapa.setView([m.lat, m.lng], Math.max(mapa.getZoom(), 17)); abrirMarcador(id); } });
+    if (!m.deleted && sinAcentos(m.note).includes(q)) enCapas.push({ color: TIPOS_MARCADOR[m.type][1], icono: ICONO_MARCADOR[m.type], titulo: m.note.slice(0, 70), detalle: `Marcador: ${TIPOS_MARCADOR[m.type][0].toLowerCase()}`, ir: () => { mapa.setView([m.lat, m.lng], Math.max(mapa.getZoom(), 17)); abrirMarcador(id); } });
   }
   if ($("capa-camaras").checked) {
     // Las cámaras no tienen nombre: se buscan por lo que se sabe de ellas (tipo, zona, operador)
@@ -968,13 +979,13 @@ function buscarTodo(texto, conCallejero) {
     const centro = mapa.getCenter();
     [...camaras.values()].map((c) => [c, filasCamara(c).map((f) => f[1]).join(", ")]).filter(([, texto]) => sinAcentos(texto).includes(q))
       .sort((a, b) => mapa.distance(centro, [a[0].lat, a[0].lon]) - mapa.distance(centro, [b[0].lat, b[0].lon])).slice(0, 4)
-      .forEach(([c, texto]) => enCapas.push({ color: "#ff2d2d", titulo: texto, detalle: "Cámara de vigilancia (OpenStreetMap)", ir: () => abrirElemento(elementoDeCamara(c), true) }));
+      .forEach(([c, texto]) => enCapas.push({ color: CAPA.camaras.color, icono: "camaras", titulo: texto, detalle: "Cámara de vigilancia (OpenStreetMap)", ir: () => abrirElemento(elementoDeCamara(c), true) }));
   }
   for (const capa of CAPAS) {
     if (enCapas.length >= 12) break;
     for (const e of estado[capa.id].elementos.values()) {
       if (enCapas.length >= 12) break;
-      if (e.nombre && sinAcentos(e.nombre).includes(q)) enCapas.push({ color: e.color || capa.color, titulo: e.nombre, detalle: capa.nombre, ir: () => abrirElemento(e, true) });
+      if (e.nombre && sinAcentos(e.nombre).includes(q)) enCapas.push({ color: e.color || capa.color, icono: capa.icono || capa.id, forma: capa.forma, titulo: e.nombre, detalle: capa.nombre, ir: () => abrirElemento(e, true) });
     }
   }
   const grupos = [["Ir a", directos], ["En las capas cargadas", enCapas], ["Lugares y direcciones", []]];

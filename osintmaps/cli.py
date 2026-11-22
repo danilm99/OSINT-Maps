@@ -574,7 +574,7 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
                   f"window.OSINT_CAPAS={_json_para_script(capas)};</script>")
     pagina = pagina.replace(marca, incrustado, 1)
     # El resto del programa del visor va en un fichero aparte: dentro también.
-    for fichero in ("capas.js",):
+    for fichero in ("iconos.js", "capas.js"):
         etiqueta = f'<script src="{fichero}"></script>'
         if etiqueta in pagina:
             codigo = (CARPETA_WEB / fichero).read_text(encoding="utf-8").replace("</script", "<\\/script")

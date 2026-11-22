@@ -162,6 +162,27 @@ De las subastas sale lo único que hay abierto sobre si algo está en venta y
 ocupado: cada ficha trae el valor, la fecha de cierre y la «situación
 posesoria» cuando el juzgado la indica.
 
+### Cómo se lee el mapa
+
+Cada punto es una ficha con su icono, la misma que aparece junto al nombre de
+la capa en el panel *Capas*:
+
+| Forma | Qué es |
+|---|---|
+| Cuadrado | Sitio abandonado de la búsqueda; el color es su nota |
+| Rombo | Abandono y patrimonio: Lista Roja, subastas, solares, BIC, refugios, militar |
+| Círculo | Todo lo demás: rojo, vigilancia; azul y gris, infraestructura; verde azulado, fotos |
+| Chincheta | Tus marcadores |
+
+De lejos las fichas se quedan en un punto de color y el icono aparece al
+acercar. Las líneas (vías, túneles, muros, tendidos) llevan un borde oscuro
+para que se vean igual sobre una foto clara que sobre una oscura; la vía en
+desuso va en magenta.
+
+El botón de la luna, junto al título, cambia entre modo claro y oscuro. La
+primera vez se sigue el del sistema. En modo oscuro los mapas dibujados
+(callejero, topográfico, OpenStreetMap) se invierten; las fotos no se tocan.
+
 ### Ficha, visor y buscador
 
 - **Ficha**: al tocar cualquier elemento, o con botón derecho y *¿Qué hay
@@ -368,6 +389,7 @@ osintmaps/
     sentinel.py     vegetación con Sentinel-2 (experimental)
   exportar.py       GeoJSON, CSV, KML
   red.py, geo.py    utilidades de red y de coordenadas
+  web/iconos.js     iconos, símbolos del mapa y cambio de tema
   web/index.html    el mapa: sitios, fichas, marcas, marcadores y accesos
   web/capas.js      capas de datos, ficha general, visor, buscador y menú
 tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
@@ -382,6 +404,7 @@ tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
 - Mapas antiguos, relieve y callejero: IGN, CC BY 4.0. Satélite alternativo: Esri.
 - Cámaras de tráfico: DGT y Ajuntament de València. Solares y patrimonio de
   València: geoportal municipal. Subastas: Portal de Subastas del BOE.
+- Iconos: Material Design Icons (Pictogrammers), Apache 2.0.
 - Patrimonio en riesgo: Hispania Nostra. Fotos de calle: Panoramax. Aviones:
   adsb.lol. Tiempo y altitud: Open-Meteo. Direcciones: CartoCiudad y Nominatim.
 
