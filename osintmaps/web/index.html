@@ -13,6 +13,27 @@ try {
     : matchMedia("(prefers-color-scheme: dark)").matches ? "oscuro" : "claro";
 } catch { document.documentElement.dataset.tema = "claro"; }
 </script>
+<!--PRONTO-->
+<script>
+/* Los datos de la búsqueda se empiezan a pedir ya, sin esperar a que el navegador termine de
+   descargar el resto de la página: llegan unas décimas de segundo antes. (En el fichero
+   autónomo de «osintmaps paquete» los datos van dentro y este trozo se quita.) */
+if (/^https?:$/.test(location.protocol)) {
+  const base = new URLSearchParams(location.search).get("datos") || "datos/";
+  window.OSINT_PRONTO = {};
+  for (const nombre of ["candidatos", "huellas", "camaras"]) {
+    const p = fetch(`${base}${nombre}.geojson`, { cache: "no-cache" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))));
+    p.catch(() => { /* quien lo use decide qué hacer si falta */ });
+    window.OSINT_PRONTO[nombre] = p;
+  }
+}
+</script>
+<!--/PRONTO-->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2317242e'/%3E%3Cpath d='M16 6a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7z' fill='%23e5007d'/%3E%3Ccircle cx='16' cy='13' r='2.6' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://unpkg.com" crossorigin>
+<!-- De aquí salen las ortofotos y las parcelas: se va abriendo la conexión mientras carga la página. -->
+<link rel="preconnect" href="https://www.ign.es">
+<link rel="preconnect" href="https://ovc.catastro.meh.es" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&display=swap" rel="stylesheet">
@@ -198,7 +219,9 @@ try {
   .simbolo { flex: none; vertical-align: -4px; }
   #anadir { position: absolute; right: 10px; bottom: 140px; z-index: 800; border: 1px solid var(--linea); background: var(--papel);
             border-radius: 8px; padding: 8px 12px; font-weight: 600; }
-  #anadir[aria-pressed=true] { background: var(--jalon); border-color: var(--jalon); color: var(--blanco); }
+  #anadir[aria-pressed=true] { background: var(--jalon); border-color: var(--jalon); color: #fff; }
+  #anadir, #cerca { display: inline-flex; align-items: center; gap: 7px; box-shadow: 0 1px 3px rgba(23,36,46,.28); }
+  #anadir [data-icono], #cerca [data-icono] { display: inline-flex; flex: none; }
   #mapa.colocando { cursor: crosshair; }
   #ficha-marcador { padding: 0 16px 28px; }
   #ficha-marcador h2 { font: 600 24px/1.1 "Barlow Condensed", sans-serif; margin: 4px 0 2px; }
@@ -238,8 +261,61 @@ try {
   #capas-datos, #capas-superponer { display: grid; gap: 8px; }
   #capas .casilla small { color: var(--tinta-suave); margin-left: auto; font-size: 12.5px; white-space: nowrap; }
   #capas .casilla.lejos { opacity: .6; }
-  #aviso-capas { position: absolute; left: 50%; transform: translateX(-50%); top: 10px; z-index: 800; background: var(--tinta); color: var(--blanco);
-                 border-radius: 16px; padding: 6px 14px; font-size: 13.5px; max-width: min(70%, 520px); text-align: center; pointer-events: none; }
+  #aviso-capas { position: absolute; left: 50%; transform: translateX(-50%); bottom: 30px; z-index: 800; background: var(--tinta); color: var(--blanco);
+                 border-radius: 16px; padding: 6px 14px; font-size: 13.5px; max-width: min(70%, 520px); pointer-events: none; }
+  #mapa-zona:has(#tarjeta-mapa:not([hidden])) #aviso-capas { bottom: 88px; }
+
+  /* El aviso de carga dice qué se está pidiendo; si algo falla, deja reintentar. */
+  #aviso-capas { display: flex; align-items: center; gap: 8px; text-align: left; box-shadow: 0 2px 8px rgba(23,36,46,.3); }
+  #aviso-capas button { pointer-events: auto; border: 1px solid currentColor; background: none; color: inherit; border-radius: 12px; padding: 1px 10px; font-size: 13px; flex: none; }
+  .girando { flex: none; width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: giro .8s linear infinite; }
+  @keyframes giro { to { transform: rotate(360deg); } }
+
+  /* Tira de capas encendidas: hace de leyenda y deja ocultar o mostrar cada una de un toque. */
+  #tira-capas { position: absolute; top: 10px; left: 122px; right: 118px; z-index: 790; display: flex; flex-wrap: wrap; gap: 5px; pointer-events: none; }
+  #mapa-zona:has(#capas[open]) #tira-capas { right: 322px; }
+  #tira-capas button { pointer-events: auto; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--linea); background: var(--papel);
+                 border-radius: 999px; padding: 2px 9px 2px 3px; font-size: 13px; line-height: 1.25; white-space: nowrap; box-shadow: 0 1px 3px rgba(23,36,46,.28); }
+  #tira-capas button:hover { border-color: var(--tinta); }
+  #tira-capas button small { color: var(--tinta-suave); font-size: 12px; font-variant-numeric: tabular-nums; }
+  #tira-capas button[aria-pressed=false] { background: color-mix(in srgb, var(--papel) 72%, transparent); color: var(--tinta-suave); box-shadow: none; }
+  #tira-capas button[aria-pressed=false] .simbolo { filter: grayscale(1); opacity: .55; }
+  #tira-capas button[aria-pressed=false] span { text-decoration: line-through; }
+  #tira-capas button.falla small { color: #d90429; font-weight: 600; }
+  [data-tema=oscuro] #tira-capas button.falla small { color: #ff7a85; }
+  #tira-capas .girando { width: 10px; height: 10px; color: var(--tinta-suave); }
+
+  /* Asa para esconder el panel y dejar todo el ancho al mapa (en el móvil el panel ya se pliega con «Ocultar»). */
+  #asa-panel { position: absolute; left: 0; top: 50%; transform: translateY(-50%); z-index: 790; width: 20px; height: 58px; padding: 0; display: grid; place-items: center;
+               border: 1px solid var(--linea); border-left: 0; border-radius: 0 9px 9px 0; background: var(--papel); color: var(--tinta-suave); box-shadow: 2px 0 4px rgba(23,36,46,.18); }
+  #asa-panel:hover { color: var(--tinta); }
+  #asa-panel svg { transition: transform .15s; }
+  #asa-panel[aria-expanded=false] svg { transform: rotate(180deg); }
+  @media (min-width: 761px) {
+    body.sin-panel { grid-template-columns: minmax(0, 1fr); }
+    body.sin-panel #panel { display: none; }
+    /* Con el panel de capas abierto, que no tape los botones del mapa. */
+    #capas[open] { max-height: calc(100% - 196px); }
+  }
+
+  /* Mientras llegan los datos: el hueco de la lista, no la pantalla de «aún no hay resultados». */
+  #arranque { display: none; }
+  #panel.arrancando #vacio { display: none; }
+  #panel.arrancando #arranque { display: grid; }
+  #arranque i { display: block; height: 58px; border-bottom: 1px solid var(--linea);
+                background: linear-gradient(var(--linea), var(--linea)) 16px 50% / 46px 34px no-repeat,
+                            linear-gradient(var(--linea), var(--linea)) 72px 18px / 46% 11px no-repeat,
+                            linear-gradient(var(--linea), var(--linea)) 72px 37px / 30% 9px no-repeat;
+                opacity: .7; animation: latido 1.1s ease-in-out infinite alternate; }
+  @keyframes latido { to { opacity: .3; } }
+
+  /* Panel de capas: buscador y datos guardados */
+  #buscar-capa { width: 100%; padding: 6px 10px; border: 1px solid var(--linea); border-radius: 16px; background: var(--blanco); }
+  #capas .nota-capas { margin: 0; font-size: 13px; color: var(--tinta-suave); }
+  #capas .oculta-por-busqueda { display: none; }
+  /* Mientras se busca una capa solo quedan las casillas que coinciden. */
+  #capas.buscando .cuerpo > :not(#buscar-capa):not(.casilla):not(#capas-datos):not(#capas-superponer) { display: none; }
+  #filtros-mas summary small { font-weight: 400; color: var(--tinta-suave); margin-left: 6px; }
 
   /* Ficha de un elemento de cualquier capa */
   #ficha-elemento { padding: 0 16px 28px; }
@@ -374,6 +450,17 @@ try {
     #categorias { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
     #categorias .chip { flex: 0 0 auto; }
     #capas { width: min(280px, calc(100% - 20px)); }
+    #asa-panel { display: none; }
+    /* En el móvil el mapa es pequeño: la tira no va encima de él sino en el panel, bajo el buscador
+       (herramientas.js la cambia de sitio), en una fila que se desliza con el dedo. */
+    #tira-capas { position: static; padding: 0 12px 8px; flex-wrap: nowrap; overflow-x: auto; pointer-events: auto; scrollbar-width: none; }
+    #tira-capas::-webkit-scrollbar { display: none; }
+    #tira-capas button { flex: none; padding: 4px 10px 4px 4px; box-shadow: none; }
+    #panel:has(#contenido > article:not([hidden])) #tira-capas { display: none; }
+    #mapa-zona > #tira-capas { display: none; }      /* hasta que se cambia de sitio, que no descoloque el mapa */
+    /* Abajo están los botones y la leyenda: en el móvil el aviso va arriba. */
+    #aviso-capas, #mapa-zona:has(#tarjeta-mapa:not([hidden])) #aviso-capas { top: 60px; bottom: auto; max-width: calc(100% - 20px); }
+    #mapa-zona:has(#aviso-capas:not([hidden])) #tarjeta-mapa { top: 100px; }
     #buscador { padding: 0 12px 8px; }
     #pestanas { padding: 0 12px; }
     /* En el móvil la tarjeta va arriba: abajo están los botones y el panel. */
@@ -381,7 +468,9 @@ try {
     .vistas button { font-size: 12.5px; }
     #pie .atajos { display: none; }
     #cerca { right: auto; left: 10px; bottom: 34px; }
-    #anadir { right: auto; left: 10px; bottom: 78px; }
+    #anadir { right: auto; left: 10px; bottom: 84px; }
+    #anadir, #cerca { padding: 11px; border-radius: 22px; }
+    #anadir:not(.avisa) .rotulo, #cerca:not(.avisa) .rotulo { display: none; }
     #leyenda { left: auto; right: 10px; bottom: 34px; max-width: 200px; font-size: 12px; }
     #leyenda .aviso { display: none; }
     .leaflet-control-zoom { display: none; }   /* en táctil se amplía con dos dedos */
@@ -391,7 +480,7 @@ try {
 </head>
 <body>
 
-<aside id="panel" aria-label="Candidatos">
+<aside id="panel" class="arrancando" aria-label="Candidatos">
   <header id="cabecera">
     <h1>OSINT Maps</h1>
     <span id="recuento"></span>
@@ -407,7 +496,7 @@ try {
 
   <section id="filtros" aria-label="Filtros" hidden>
     <details id="filtros-mas">
-    <summary>Filtros y orden</summary>
+    <summary>Filtros y orden<small id="resumen-filtros"></small></summary>
     <div class="cuerpo">
     <div class="fila">
       <label for="f-nota">Nota mínima</label>
@@ -447,6 +536,7 @@ try {
   </section>
 
   <div id="contenido">
+    <div id="arranque" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
     <div id="vacio">
       <h2>Aún no hay resultados cargados</h2>
       <p>Genera los datos con <code>osintmaps buscar --provincia 46</code> y abre este mapa con <code>osintmaps servir</code>.</p>
@@ -467,7 +557,7 @@ try {
       <label>Recuperar una copia<input id="importar-marcas" type="file" accept=".json" hidden></label>
       <span id="estado-marcas"></span>
       <span class="atajos">Botón derecho sobre el mapa (o mantener pulsado en el móvil): qué hay ahí, marcador nuevo, vista de calle.</span>
-      <span class="atajos">Teclado, con una ficha abierta: <kbd>→</kbd> siguiente, <kbd>←</kbd> anterior, <kbd>F</kbd> favorito, <kbd>V</kbd> visitado, <kbd>X</kbd> descartar, <kbd>Esc</kbd> lista.</span>
+      <span class="atajos">Teclado: <kbd>/</kbd> buscar. Con una ficha abierta: <kbd>→</kbd> siguiente, <kbd>←</kbd> anterior, <kbd>F</kbd> favorito, <kbd>V</kbd> visitado, <kbd>X</kbd> descartar, <kbd>Esc</kbd> lista.</span>
       <span>Datos: Catastro, © OpenStreetMap, Wikidata. Ortofotos PNOA CC BY 4.0 scne.es</span>
     </footer>
   </div>
@@ -477,14 +567,17 @@ try {
   <div id="mapa"></div>
   <div id="cortina" role="slider" aria-label="Posición de la cortina" tabindex="0" hidden></div>
   <div id="cortina-etiqueta" hidden></div>
-  <button id="anadir" type="button" aria-pressed="false">Añadir marcador</button>
-  <button id="cerca" type="button">Cerca de mí</button>
+  <div id="tira-capas" role="group" aria-label="Capas encendidas: pulsa una para ocultarla o volver a mostrarla"></div>
+  <button id="asa-panel" type="button" aria-expanded="true" aria-controls="panel" title="Ocultar el panel"></button>
+  <button id="anadir" type="button" aria-pressed="false" data-nombre="Añadir marcador" title="Añadir marcador"><span data-icono="marcador_nuevo"></span><span class="rotulo">Añadir marcador</span></button>
+  <button id="cerca" type="button" data-nombre="Cerca de mí" title="Cerca de mí"><span data-icono="centrar"></span><span class="rotulo">Cerca de mí</span></button>
   <div id="leyenda" hidden></div>
   <div id="aviso-capas" role="status" hidden></div>
   <div id="tarjeta-mapa" role="status" hidden></div>
   <details id="capas">
     <summary><span data-icono="capas"></span> Capas</summary>
     <div class="cuerpo">
+      <input id="buscar-capa" type="search" placeholder="Buscar una capa" aria-label="Buscar una capa por su nombre" autocomplete="off">
       <div class="grupo-capas primero">Mapa de fondo</div>
       <select id="capa-fondo" aria-label="Mapa de fondo">
         <option value="pnoa">Ortofoto actual (PNOA, 25 cm)</option>
@@ -511,6 +604,9 @@ try {
       <label class="casilla"><input id="capa-pecuarias" type="checkbox"> Vías pecuarias y senderos</label>
       <label class="casilla"><input id="capa-montes" type="checkbox"> Montes y fincas públicas</label>
       <label class="casilla"><input id="capa-catastro" type="checkbox"> Plano catastral (imagen)</label>
+      <div class="grupo-capas">Datos guardados en este navegador</div>
+      <p id="memoria-estado" class="nota-capas"></p>
+      <button id="memoria-vaciar" type="button" class="accion">Vaciar y volver a pedirlos</button>
     </div>
   </details>
 </div>
@@ -584,9 +680,75 @@ function distanciaKm(a, b) {
 /* ---------- Almacenamiento ----------
    El navegador puede negarlo (modo privado, lleno): todo sigue funcionando
    mientras la página esté abierta. */
-const pedirJSON = (ruta) => fetch(ruta, { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))));
+/* «no-cache» no significa «sin guardar»: el navegador guarda el fichero y cada vez pregunta al
+   servidor si ha cambiado. Si no ha cambiado, el servidor contesta solo eso y no lo vuelve a
+   mandar: recargar la página no vuelve a bajar los megas de datos. */
+const pedirJSON = (ruta) => fetch(ruta, { cache: "no-cache" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))));
 const leerLocal = (clave, porDefecto) => { try { return JSON.parse(localStorage.getItem(clave)) ?? porDefecto; } catch { return porDefecto; } };
 const guardarLocal = (clave, valor) => { try { localStorage.setItem(clave, JSON.stringify(valor)); } catch { /* sin almacenamiento */ } };
+
+/* ---------- Memoria de lo descargado ----------
+   Los servicios de fuera son lentos: Catastro tarda entre 10 y 30 segundos por trozo de mapa y
+   OpenStreetMap puede tardar un minuto. Para no esperar dos veces por lo mismo, lo que llega se
+   guarda en el navegador, en IndexedDB: una base de datos que el navegador da a cada página y
+   que aguanta cientos de megas (localStorage, que es lo que se usa arriba, se queda en 5).
+   Cada trozo se guarda con su fecha: pasado su plazo ya no vale y se vuelve a pedir.
+   Si el navegador no la deja usar (modo privado), todo funciona igual, solo que sin memoria. */
+const DIA = 86400000, VERSION_MEMORIA = "v1";      // la versión cambia si cambia la forma de lo guardado
+const memoria = (() => {
+  let base = null;
+  const abrir = () => base || (base = new Promise((resolver) => {
+    try {
+      const p = indexedDB.open("osintmaps", 1);
+      p.onupgradeneeded = () => p.result.createObjectStore("trozos");
+      p.onsuccess = () => resolver(p.result);
+      p.onerror = p.onblocked = () => resolver(null);
+    } catch { resolver(null); }
+  }));
+  const almacen = (bd, modo) => bd.transaction("trozos", modo).objectStore("trozos");
+  return {
+    /* Varias claves de una vez. Devuelve, en el mismo orden, cada dato, o null si no está o ha caducado. */
+    leer: (claves, vida) => abrir().then((bd) => new Promise((resolver) => {
+      const salida = claves.map(() => null), ahora = Date.now();
+      if (!bd || !claves.length) { resolver(salida); return; }
+      try {
+        const a = almacen(bd, "readonly");
+        claves.forEach((clave, k) => { a.get(`${VERSION_MEMORIA}|${clave}`).onsuccess = (ev) => { const v = ev.target.result; if (v && ahora - v.t < vida) salida[k] = v.d; }; });
+        a.transaction.oncomplete = a.transaction.onerror = a.transaction.onabort = () => resolver(salida);
+      } catch { resolver(salida); }
+    })),
+    /* pares: [[clave, dato], ...] */
+    guardar: (pares) => abrir().then((bd) => {
+      if (!bd || !pares.length) return;
+      try {
+        const a = almacen(bd, "readwrite"), t = Date.now();
+        for (const [clave, d] of pares) try { a.put({ t, d }, `${VERSION_MEMORIA}|${clave}`); } catch { /* ese dato no se puede guardar: se pedirá otra vez */ }
+      } catch { /* disco lleno o base cerrada */ }
+    }),
+    vaciar: () => abrir().then((bd) => new Promise((resolver) => {
+      if (!bd) { resolver(); return; }
+      try { const a = almacen(bd, "readwrite"); a.clear(); a.transaction.oncomplete = a.transaction.onerror = () => resolver(); } catch { resolver(); }
+    })),
+    /* Borra lo que lleva guardado más de `edad` milisegundos (y lo de versiones anteriores). */
+    limpiar: (edad) => abrir().then((bd) => {
+      if (!bd) return;
+      try {
+        const corte = Date.now() - edad;
+        almacen(bd, "readwrite").openCursor().onsuccess = (ev) => {
+          const c = ev.target.result;
+          if (!c) return;
+          if (!(c.value && c.value.t > corte) || !String(c.key).startsWith(`${VERSION_MEMORIA}|`)) c.delete();
+          c.continue();
+        };
+      } catch { /* no pasa nada */ }
+    }),
+    cuantos: () => abrir().then((bd) => new Promise((resolver) => {
+      if (!bd) { resolver(0); return; }
+      try { const p = almacen(bd, "readonly").count(); p.onsuccess = () => resolver(p.result); p.onerror = () => resolver(0); } catch { resolver(0); }
+    })),
+  };
+})();
+setTimeout(() => memoria.limpiar(60 * DIA), 30000);
 
 /* ---------- Lo que el usuario anota ----------
    Dos almacenes con la misma mecánica:
@@ -804,7 +966,8 @@ fetch(`${WMS_HISTORICO}?SERVICE=WMS&REQUEST=GetCapabilities`)
 /* ---------- Datos ---------- */
 let candidatos = [];          // [{id, lat, lon, p: propiedades, marcador}]
 const huellas = new Map();    // id -> geometría GeoJSON
-let visibles = [];
+let visibles = [];            // los de la lista
+let enMapa = [];              // los que tienen su punto en el mapa: los que pasan los filtros
 let mostrados = 0;
 let seleccion = null;
 let miPosicion = null, marcadorYo = null;
@@ -826,6 +989,23 @@ const grupo = L.markerClusterGroup({
   },
 }).addTo(mapa);
 
+/* Son miles de puntos: en vez de darle a cada uno su rótulo y su manejador de clic, hay uno
+   solo de cada para todos. Leaflet avisa al grupo de lo que le pasa a cualquiera de sus puntos. */
+const rotuloSitio = L.tooltip({ direction: "top", offset: [0, -8] });
+grupo.on("click", (e) => {
+  const c = e.layer && e.layer.sitio;
+  if (!c) return;
+  L.DomEvent.stopPropagation(e);      // el clic en un punto no debe contar además como clic en la parcela de debajo
+  abrirFicha(c, false);
+});
+grupo.on("mouseover", (e) => {
+  const c = e.layer && e.layer.sitio;
+  if (!c) return;
+  rotuloSitio.setLatLng(e.layer.getLatLng()).setContent(el("span", { textContent: `${tituloDe(c)} · nota ${Math.round(c.p.puntuacion || 0)}` }));
+  mapa.openTooltip(rotuloSitio);
+});
+grupo.on("mouseout", () => mapa.closeTooltip(rotuloSitio));
+
 /* Un sitio abandonado es un cuadrado con una casa tachada; el color es su nota. */
 function estiloMarcador(c) {
   const nota = c.p.puntuacion || 0, elegido = c === seleccion;
@@ -839,12 +1019,9 @@ function cargar(geojson) {
     .map((f) => ({ id: String(f.properties.id), lon: +f.geometry.coordinates[0], lat: +f.geometry.coordinates[1], p: f.properties, km: null,
       busca: sinAcentos(`${f.properties.nombre || ""} ${f.properties.municipio || ""}`) }))
     .filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lon));
-  for (const c of candidatos) {
-    c.marcador = simbolo([c.lat, c.lon], estiloMarcador(c));
-    c.marcador.bindTooltip(() => el("span", { textContent: `${tituloDe(c)} · nota ${Math.round(c.p.puntuacion || 0)}` }), { direction: "top", offset: [0, -8] });
-    // stopPropagation: el clic en un punto no debe contar además como clic en la parcela de debajo.
-    c.marcador.on("click", (e) => { L.DomEvent.stopPropagation(e); abrirFicha(c, false); });
-  }
+  // Cada punto solo sabe de qué sitio es: el clic y el rótulo los atiende el grupo entero (abajo).
+  for (const c of candidatos) { c.marcador = simbolo([c.lat, c.lon], estiloMarcador(c)); c.marcador.sitio = c; }
+  enMapa = [];
   if (!candidatos.length) return;
 
   // Chips de categoría con su recuento.
@@ -908,7 +1085,9 @@ function filtrar() {
   // Una búsqueda por texto mira todo el conjunto, no solo lo que hay en pantalla.
   const caja = $("f-vista").checked && !texto ? mapa.getBounds() : null;
   $("f-nota-valor").textContent = notaMin;
-  visibles = candidatos.filter((c) => {
+  // Dos cosas distintas: qué sitios pasan los filtros (esos son los puntos del mapa) y, de
+  // ellos, cuáles van en la lista (con «solo lo que se ve», los que caen en pantalla).
+  const pasan = candidatos.filter((c) => {
     const p = c.p, m = (marcas[c.id] || {}).estado || "";
     if ((p.puntuacion || 0) < notaMin) return false;
     if (supMin && !(p.superficie_m2 >= supMin)) return false;
@@ -918,9 +1097,9 @@ function filtrar() {
     if (marca === "pendientes" && m) return false;
     if (["favorito", "visitado", "descartado"].includes(marca) && m !== marca) return false;
     if (texto && !c.busca.includes(texto)) return false;
-    if (caja && !caja.contains([c.lat, c.lon])) return false;
     return true;
   });
+  visibles = caja ? pasan.filter((c) => caja.contains([c.lat, c.lon])) : pasan.slice();
 
   // Orden de la lista (y de «siguiente» / «anterior» en la ficha).
   const orden = $("f-orden").value, centro = mapa.getCenter();
@@ -930,8 +1109,13 @@ function filtrar() {
   else if (orden === "superficie") visibles.sort((a, b) => (b.p.superficie_m2 || 0) - (a.p.superficie_m2 || 0));
   else visibles.sort((a, b) => (b.p.puntuacion || 0) - (a.p.puntuacion || 0));
 
-  grupo.clearLayers();
-  grupo.addLayers(visibles.map((c) => c.marcador));
+  // Los puntos del mapa solo se rehacen si ha cambiado qué sitios pasan los filtros. Mover el
+  // mapa o cerrar una ficha no lo cambia, y rehacer miles de puntos cada vez se notaba.
+  if (pasan.length !== enMapa.length || pasan.some((c, k) => c !== enMapa[k])) {
+    enMapa = pasan;
+    grupo.clearLayers();
+    grupo.addLayers(pasan.map((c) => c.marcador));
+  }
   $("recuento").textContent = `${miles(visibles.length)} de ${miles(candidatos.length)}`;
   mostrados = 0;
   $("lista").replaceChildren();
@@ -939,6 +1123,14 @@ function filtrar() {
   if (!seleccion && !panelOcupado()) mostrarLista();
   pintarHuellas();
   guardarVista();
+  // Con los filtros recogidos, que se siga viendo cuáles hay puestos.
+  const puestos = [`nota ≥ ${notaMin}`];
+  if (supMin) puestos.push(`más de ${miles(supMin)} m²`);
+  if (marca !== "activos") puestos.push($("f-marca").selectedOptions[0].textContent.toLowerCase());
+  if (soloMulti) puestos.push("varias fuentes");
+  if (categoriasActivas.size) puestos.push(categoriasActivas.size === 1 ? "1 categoría" : `${categoriasActivas.size} categorías`);
+  if ($("f-vista").checked) puestos.push("solo lo que se ve");
+  $("resumen-filtros").textContent = puestos.join(", ");
 }
 
 function tituloDe(c) {
@@ -1037,7 +1229,7 @@ function abrirFicha(c, mover) {
   if (anterior && anterior !== c) anterior.marcador.setStyle(estiloMarcador(anterior));
   c.marcador.setStyle(estiloMarcador(c));
   const p = c.p, ficha = $("ficha");
-  $("panel").classList.remove("plegado"); $("plegar").textContent = "Ocultar"; $("plegar").setAttribute("aria-expanded", "true");
+  desplegarPanel();
 
   // Navegación: lista, anterior y siguiente siguen el orden de la lista.
   const indice = visibles.indexOf(c);
@@ -1292,42 +1484,105 @@ function teselasDeLaVista(pasoLat, pasoLon) {
   return claves;
 }
 
-/* Cola de peticiones con un máximo de simultáneas: Catastro aguanta tres a la
-   vez; Overpass (OSM) es un servicio compartido y lento, así que de una en una. */
+/* Cola de peticiones con un máximo de simultáneas: Catastro aguanta tres a la vez;
+   a Overpass (OpenStreetMap), que es un servicio compartido, se le hacen dos.
+   Lo último que se pide se atiende primero, porque es lo que se está mirando ahora. Y si al
+   llegarle el turno a una petición ya no hace falta (el mapa se ha ido a otro sitio), se
+   tira sin hacerla: `sigue()` lo dice y `alDescartar()` avisa a quien la pidió. */
 function crearCola(maximo) {
   const pendientes = [];
   let enCurso = 0;
   const despachar = () => {
     while (enCurso < maximo && pendientes.length) {
+      const { tarea, sigue, alDescartar } = pendientes.pop();
+      if (sigue && !sigue()) { if (alDescartar) alDescartar(); continue; }
       enCurso++;
-      pendientes.shift()().finally(() => { enCurso--; despachar(); pintarAcceso(); });
+      tarea().finally(() => { enCurso--; despachar(); repintarAcceso(); });
     }
   };
-  return (tarea) => { pendientes.push(tarea); despachar(); };
+  return (tarea, opciones) => { pendientes.push(Object.assign({ tarea }, opciones)); despachar(); };
 }
-const encolarCatastro = crearCola(3), encolarOSM = crearCola(1);
-const PASO_OSM = 0.03, ESPERA_OSM = 45000;
+const encolarCatastro = crearCola(3), encolarOSM = crearCola(2);
+const PASO_OSM = 0.03, ESPERA_OSM = 45000, VENTAJA_OSM = 8000;
+const enVista = (s, o, n, e, margen = 0.3) => mapa.getBounds().pad(margen).intersects([[s, o], [n, e]]);
+
+/* Una consulta a OpenStreetMap. Se hace a través de Overpass, que son varios servidores públicos
+   y gratuitos: a ratos alguno está saturado y tarda un minuto o no contesta. Se pregunta primero
+   al que respondió bien la última vez; si a los 8 segundos sigue callado se pregunta además al
+   siguiente, y vale la primera respuesta buena (a los demás se les cuelga).
+   `sigue`, si se da, dice si la consulta aún hace falta cuando le llega el turno. */
+let servidorOSM = 0;
+function overpass(consulta, sigue) {
+  const preguntar = () => new Promise((resolver, rechazar) => {
+    const cortes = [];
+    let lanzados = 0, vivos = 0, hecho = false, reloj = null;
+    const lanzar = () => {
+      clearTimeout(reloj);
+      if (hecho || lanzados >= OVERPASS.length) return;
+      const k = (servidorOSM + lanzados++) % OVERPASS.length, corte = new AbortController();
+      const plazo = setTimeout(() => corte.abort(), ESPERA_OSM);
+      cortes.push(corte); vivos++;
+      fetch(OVERPASS[k], { method: "POST", body: new URLSearchParams({ data: consulta }), signal: corte.signal })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+        .then((j) => {
+          // Overpass contesta «200 OK» aunque se le acabe el tiempo: lo avisa en «remark» y manda lo que llevaba.
+          if (j.remark && /error|timed out|out of memory/i.test(j.remark)) throw new Error("overpass");
+          return j;
+        })
+        .then((j) => {
+          vivos--;
+          if (hecho) return;
+          hecho = true; servidorOSM = k; clearTimeout(reloj);
+          for (const c of cortes) if (c !== corte) c.abort();
+          resolver(j);
+        }, (err) => {
+          vivos--;
+          if (hecho) return;
+          if (lanzados < OVERPASS.length) lanzar(); else if (!vivos) rechazar(err);
+        })
+        .finally(() => clearTimeout(plazo));
+      if (lanzados < OVERPASS.length) reloj = setTimeout(lanzar, VENTAJA_OSM);
+    };
+    lanzar();
+  });
+  return new Promise((resolver, rechazar) => encolarOSM(() => preguntar().then(resolver, rechazar),
+    { sigue, alDescartar: () => rechazar(new Error("descartada")) }));
+}
 
 function pedirParcelas() {
   if (!$("capa-parcelas").checked || mapa.getZoom() < ZOOM_PARCELAS) return;
   const teselas = teselasDeLaVista(PASO_LAT, PASO_LON);
   if (teselas.length > MAX_TESELAS) return;
+  const nuevas = [];
   for (const [i, j] of teselas) {
     const clave = `${i},${j}`;
     const previa = teselasParcelas.get(clave);
     if (previa && previa.estado !== "fallo") continue;
     const tesela = { estado: "cargando", parcelas: [] };
     teselasParcelas.set(clave, tesela);
-    const caja = [i * PASO_LAT, j * PASO_LON, (i + 1) * PASO_LAT, (j + 1) * PASO_LON].map((v) => v.toFixed(6)).join(",");
-    encolarCatastro(() => fetch(`${WFS_PARCELAS}?service=wfs&version=2&request=getfeature&Typenames=cp.cadastralparcel&SRSname=EPSG::4326&bbox=${caja}`)
-      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(r.status))))
-      .then((xml) => {
-        // «No records» (el mar, por ejemplo) es un vacío de verdad; cualquier otro informe de error, un fallo.
-        if (/ExceptionReport/.test(xml.slice(0, 600)) && !/No records/i.test(xml)) throw new Error("catastro");
-        tesela.parcelas = leerParcelas(xml); tesela.estado = "lista";
-      })
-      .catch(() => { tesela.estado = "fallo"; }));
+    nuevas.push({ i, j, clave, tesela });
   }
+  if (!nuevas.length) return;
+  // Primero, lo que ya se bajó otro día (las parcelas cambian poco: vale un mes). El resto, a Catastro.
+  memoria.leer(nuevas.map((n) => `parcelas|${n.clave}`), 30 * DIA).then((guardadas) => {
+    nuevas.forEach(({ i, j, clave, tesela }, k) => {
+      if (guardadas[k]) { tesela.parcelas = guardadas[k]; tesela.estado = "lista"; return; }
+      const s = i * PASO_LAT, o = j * PASO_LON, n = (i + 1) * PASO_LAT, e = (j + 1) * PASO_LON;
+      const caja = [s, o, n, e].map((v) => v.toFixed(6)).join(",");
+      encolarCatastro(() => fetch(`${WFS_PARCELAS}?service=wfs&version=2&request=getfeature&Typenames=cp.cadastralparcel&SRSname=EPSG::4326&bbox=${caja}`)
+        .then((r) => (r.ok ? r.text() : Promise.reject(new Error(r.status))))
+        .then((xml) => {
+          // «No records» (el mar, por ejemplo) es un vacío de verdad; cualquier otro informe de error, un fallo.
+          if (/ExceptionReport/.test(xml.slice(0, 600)) && !/No records/i.test(xml)) throw new Error("catastro");
+          tesela.parcelas = leerParcelas(xml); tesela.estado = "lista";
+          memoria.guardar([[`parcelas|${clave}`, tesela.parcelas]]);
+        })
+        .catch(() => { tesela.estado = "fallo"; }),
+      { sigue: () => $("capa-parcelas").checked && mapa.getZoom() >= ZOOM_PARCELAS && enVista(s, o, n, e),
+        alDescartar: () => { if (teselasParcelas.get(clave) === tesela) teselasParcelas.delete(clave); } });
+    });
+    if (guardadas.some(Boolean)) repintarAcceso();
+  });
 }
 
 function pedirVallas() {
@@ -1335,37 +1590,57 @@ function pedirVallas() {
   const paso = PASO_OSM;
   const teselas = teselasDeLaVista(paso, paso);
   if (teselas.length > 6) return;
+  const nuevas = [];
   for (const [i, j] of teselas) {
     const clave = `${i},${j}`;
     const previa = teselasVallas.get(clave);
     if (previa && previa.estado !== "fallo") continue;
     const tesela = { estado: "cargando", elementos: [] };
     teselasVallas.set(clave, tesela);
-    const z = `(${(i * paso).toFixed(5)},${(j * paso).toFixed(5)},${((i + 1) * paso).toFixed(5)},${((j + 1) * paso).toFixed(5)})`;
-    const consulta = `[out:json][timeout:25];(way["barrier"~"^(fence|wall|hedge|retaining_wall)$"]${z};` +
-      `node["barrier"~"^(gate|lift_gate|swing_gate|sliding_gate|chain)$"]${z};` +
-      `way["highway"~"^(path|track|footway|bridleway|cycleway|steps|pedestrian)$"]${z};` +
-      `way["highway"]["access"~"^(private|no)$"]${z};);out geom tags;`;
-    // Si un servidor no contesta a tiempo, se corta y se prueba con el siguiente.
-    const pedir = (k) => {
-      const corte = new AbortController(), reloj = setTimeout(() => corte.abort(), ESPERA_OSM);
-      return fetch(OVERPASS[k], { method: "POST", body: new URLSearchParams({ data: consulta }), signal: corte.signal })
-        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
-        .catch((err) => (k + 1 < OVERPASS.length ? pedir(k + 1) : Promise.reject(err)))
-        .finally(() => clearTimeout(reloj));
-    };
-    encolarOSM(() => pedir(0).then((d) => { tesela.elementos = d.elements || []; tesela.estado = "lista"; }).catch(() => { tesela.estado = "fallo"; }));
+    nuevas.push({ i, j, clave, tesela });
   }
+  if (!nuevas.length) return;
+  memoria.leer(nuevas.map((n) => `vallas|${n.clave}`), 7 * DIA).then((guardadas) => {
+    nuevas.forEach(({ i, j, clave, tesela }, k) => {
+      if (guardadas[k]) { tesela.elementos = guardadas[k]; tesela.estado = "lista"; return; }
+      const s = i * paso, o = j * paso, n = (i + 1) * paso, e = (j + 1) * paso;
+      const z = `(${s.toFixed(5)},${o.toFixed(5)},${n.toFixed(5)},${e.toFixed(5)})`;
+      const consulta = `[out:json][timeout:25];(way["barrier"~"^(fence|wall|hedge|retaining_wall)$"]${z};` +
+        `node["barrier"~"^(gate|lift_gate|swing_gate|sliding_gate|chain)$"]${z};` +
+        `way["highway"~"^(path|track|footway|bridleway|cycleway|steps|pedestrian)$"]${z};` +
+        `way["highway"]["access"~"^(private|no)$"]${z};);out geom tags;`;
+      overpass(consulta, () => $("capa-vallas").checked && mapa.getZoom() >= ZOOM_VALLAS && enVista(s, o, n, e))
+        .then((d) => { tesela.elementos = d.elements || []; tesela.estado = "lista"; memoria.guardar([[`vallas|${clave}`, tesela.elementos]]); })
+        .catch((err) => {
+          if (err && err.message === "descartada") { if (teselasVallas.get(clave) === tesela) teselasVallas.delete(clave); } else tesela.estado = "fallo";
+        })
+        .finally(repintarAcceso);
+    });
+    if (guardadas.some(Boolean)) repintarAcceso();
+  });
 }
 
+/* Lo dibujado se conserva de un movimiento del mapa al siguiente: al mover solo se añade lo
+   que entra en pantalla, en vez de borrarlo todo y volver a dibujar miles de parcelas. */
+const parcelasDibujadas = new Map();   // referencia catastral -> polígono (una parcela puede venir en dos teselas: se dibuja una vez)
+const vallasDibujadas = new Map();     // «way/123» -> línea o puerta
+const MAX_DIBUJOS_ACCESO = 9000;
+function podar(dibujados, capa, vista) {
+  if (dibujados.size <= MAX_DIBUJOS_ACCESO) return;
+  const lejos = vista.pad(1);
+  for (const [id, d] of dibujados) {
+    const dentro = d.getBounds ? lejos.intersects(d.getBounds()) : lejos.contains(d.getLatLng());
+    if (!dentro) { capa.removeLayer(d); dibujados.delete(id); }
+  }
+}
 function pintarAcceso() {
-  capaParcelas.clearLayers(); capaVallas.clearLayers();
   const zoom = mapa.getZoom(), vista = mapa.getBounds().pad(0.2);
   const avisos = [];
+  let hayParcelas = false, hayVallas = false;
   if ($("capa-parcelas").checked) {
     if (zoom < ZOOM_PARCELAS || teselasDeLaVista(PASO_LAT, PASO_LON).length > MAX_TESELAS) avisos.push("Acerca el mapa para ver las parcelas.");
     else {
-      const vistas = new Set();
+      hayParcelas = true;
       let cargando = 0, fallos = 0;
       for (const [i, j] of teselasDeLaVista(PASO_LAT, PASO_LON)) {
         const t = teselasParcelas.get(`${i},${j}`);
@@ -1373,22 +1648,22 @@ function pintarAcceso() {
         if (t.estado === "cargando") cargando++;
         if (t.estado === "fallo") fallos++;
         for (const p of t.parcelas) {
-          if (vistas.has(p.refcat)) continue;      // una parcela puede venir en dos teselas
-          vistas.add(p.refcat);
-          if (!vista.intersects([[p.caja[0], p.caja[1]], [p.caja[2], p.caja[3]]])) continue;
+          if (parcelasDibujadas.has(p.refcat) || !vista.intersects([[p.caja[0], p.caja[1]], [p.caja[2], p.caja[3]]])) continue;
           const publico = p.tipo === "publico";
-          L.polygon(p.poligonos, { renderer: lienzoAcceso, pane: "acceso", interactive: false, color: COLOR[p.tipo],
-            weight: publico ? 2 : 1.3, fillColor: COLOR[p.tipo], fillOpacity: publico ? 0.38 : p.tipo === "urbana" ? 0.1 : 0.03 }).addTo(capaParcelas);
+          parcelasDibujadas.set(p.refcat, L.polygon(p.poligonos, { renderer: lienzoAcceso, pane: "acceso", interactive: false, color: COLOR[p.tipo],
+            weight: publico ? 2 : 1.3, fillColor: COLOR[p.tipo], fillOpacity: publico ? 0.38 : p.tipo === "urbana" ? 0.1 : 0.03 }).addTo(capaParcelas));
         }
       }
+      podar(parcelasDibujadas, capaParcelas, vista);
       if (cargando) avisos.push(`Cargando parcelas de Catastro (${cargando} zonas)…`);
       if (fallos) avisos.push("Catastro no respondió en parte de la zona; mueve el mapa para reintentar.");
     }
   }
+  if (!hayParcelas && parcelasDibujadas.size) { capaParcelas.clearLayers(); parcelasDibujadas.clear(); }
   if ($("capa-vallas").checked) {
     if (zoom < ZOOM_VALLAS || teselasDeLaVista(PASO_OSM, PASO_OSM).length > 6) avisos.push("Acerca el mapa para ver vallas y caminos.");
     else {
-      const vistos = new Set();
+      hayVallas = true;
       let cargando = 0, fallos = 0;
       for (const [i, j] of teselasDeLaVista(PASO_OSM, PASO_OSM)) {
         const t = teselasVallas.get(`${i},${j}`);
@@ -1397,27 +1672,40 @@ function pintarAcceso() {
         if (t.estado === "fallo") fallos++;
         for (const el of t.elementos) {
           const id = `${el.type}/${el.id}`;
-          if (vistos.has(id)) continue;
-          vistos.add(id);
+          if (vallasDibujadas.has(id)) continue;
           const tags = el.tags || {};
           if (el.type === "node") {
-            L.marker([el.lat, el.lon], { pane: "acceso", interactive: false, icon: L.divIcon({ className: "puerta", iconSize: [9, 9] }) }).addTo(capaVallas);
+            vallasDibujadas.set(id, L.marker([el.lat, el.lon], { pane: "acceso", interactive: false, icon: L.divIcon({ className: "puerta", iconSize: [9, 9] }) }).addTo(capaVallas));
           } else if (el.geometry) {
             const linea = el.geometry.map((g) => [g.lat, g.lon]);
             const restringido = /^(private|no)$/.test(tags.access || "") || /^(private|no)$/.test(tags.foot || "");
             const estilo = tags.barrier ? { color: COLOR.valla, weight: 2.5 }
               : restringido ? { color: COLOR.valla, weight: 2.5, dashArray: "3 7" }
               : { color: COLOR.camino, weight: 2.5, dashArray: "7 6" };
-            L.polyline(linea, Object.assign({ renderer: lienzoAcceso, pane: "acceso", interactive: false }, estilo)).addTo(capaVallas);
+            vallasDibujadas.set(id, L.polyline(linea, Object.assign({ renderer: lienzoAcceso, pane: "acceso", interactive: false }, estilo)).addTo(capaVallas));
           }
         }
       }
+      podar(vallasDibujadas, capaVallas, vista);
       if (cargando) avisos.push("Cargando vallas y caminos de OpenStreetMap (puede tardar hasta un minuto)…");
       if (fallos) avisos.push("OpenStreetMap no respondió; mueve el mapa para reintentar.");
     }
   }
+  if (!hayVallas && vallasDibujadas.size) { capaVallas.clearLayers(); vallasDibujadas.clear(); }
   estadoAcceso = avisos.join(" ");
   pintarLeyenda();
+}
+/* Varias peticiones suelen terminar casi a la vez: se repinta una vez para todas. */
+let relojAcceso = null;
+function repintarAcceso() {
+  if (relojAcceso) return;
+  relojAcceso = setTimeout(() => { relojAcceso = null; pintarAcceso(); }, 40);
+}
+/* Olvida las parcelas y vallas bajadas en esta sesión y las vuelve a pedir. */
+function olvidarAcceso() {
+  teselasParcelas.clear(); teselasVallas.clear();
+  capaParcelas.clearLayers(); parcelasDibujadas.clear(); capaVallas.clearLayers(); vallasDibujadas.clear();
+  pedirParcelas(); pedirVallas(); pintarAcceso();
 }
 
 let leyendaPlegada = leerLocal("osintmaps.leyenda.v1", false) === true;
@@ -1662,7 +1950,7 @@ function abrirMarcador(id) {
   if (seleccion) mostrarLista();
   soltarElemento();
   marcadorAbierto = id;
-  $("panel").classList.remove("plegado"); $("plegar").textContent = "Ocultar"; $("plegar").setAttribute("aria-expanded", "true");
+  desplegarPanel();
 
   const volver = el("button", { id: "volver-marcador", type: "button", textContent: "Lista" });
   volver.addEventListener("click", cerrarMarcador);
@@ -1729,13 +2017,13 @@ function abrirMarcador(id) {
 
 function dejarDeColocar() {
   colocando = false;
-  $("anadir").setAttribute("aria-pressed", "false"); $("anadir").textContent = "Añadir marcador";
+  $("anadir").setAttribute("aria-pressed", "false"); rotular($("anadir"), "Añadir marcador");
   $("mapa").classList.remove("colocando");
 }
 $("anadir").addEventListener("click", () => {
   if (colocando) { dejarDeColocar(); return; }
   colocando = true;
-  $("anadir").setAttribute("aria-pressed", "true"); $("anadir").textContent = "Toca el sitio en el mapa";
+  $("anadir").setAttribute("aria-pressed", "true"); rotular($("anadir"), "Toca el sitio en el mapa");
   $("mapa").classList.add("colocando");
 });
 // Botón derecho del ratón, o mantener pulsado con el dedo.
@@ -1754,7 +2042,9 @@ for (const [id, clave] of [["capa-sitios", "sitios"], ["capa-camaras", "camaras"
 }
 
 /* ---------- Controles ---------- */
-$("filtros-mas").open = window.matchMedia("(min-width: 761px)").matches;
+// Abiertos en el ordenador y recogidos en el móvil, hasta que cada uno los deje como quiera.
+$("filtros-mas").open = leerLocal("osintmaps.filtros.v1", window.matchMedia("(min-width: 761px)").matches) === true;
+$("filtros-mas").addEventListener("toggle", () => guardarLocal("osintmaps.filtros.v1", $("filtros-mas").open));
 if (vista.nota != null) $("f-nota").value = vista.nota;
 if (vista.sup) $("f-sup").value = vista.sup;
 if (vista.marca) $("f-marca").value = vista.marca;
@@ -1779,6 +2069,18 @@ $("buscar-texto").addEventListener("keydown", (e) => { if (e.key === "Enter") en
 for (const id of ["f-sup", "f-marca", "f-multi", "f-vista"]) $(id).addEventListener("change", filtrar);
 $("f-orden").addEventListener("change", () => { if ($("f-orden").value === "cercania" && !miPosicion) localizar(); else filtrar(); });
 $("ver-mas").addEventListener("click", pintarMas);
+/* Los dos botones del mapa llevan icono y texto. En el móvil, para no comerse el mapa, solo se
+   ve el icono, salvo cuando el texto avisa de algo («Buscando tu posición»). */
+function rotular(boton, texto) {
+  boton.querySelector(".rotulo").textContent = texto;
+  boton.classList.toggle("avisa", texto !== boton.dataset.nombre);
+  boton.title = texto;
+}
+/* Enseña el panel si estaba recogido (en el móvil, plegado; en el ordenador, escondido con el asa). */
+function desplegarPanel() {
+  $("panel").classList.remove("plegado"); $("plegar").textContent = "Ocultar"; $("plegar").setAttribute("aria-expanded", "true");
+  if (document.body.classList.contains("sin-panel") && typeof ponerPanel === "function") ponerPanel(true);
+}
 $("plegar").addEventListener("click", () => {
   const plegado = $("panel").classList.toggle("plegado");
   $("plegar").textContent = plegado ? "Mostrar" : "Ocultar";
@@ -1792,20 +2094,20 @@ mapa.on("moveend", () => {
 });
 
 function localizar() {
-  if (!navigator.geolocation) { $("cerca").textContent = "Este navegador no da la posición"; return; }
-  $("cerca").textContent = "Buscando tu posición";
+  if (!navigator.geolocation) { rotular($("cerca"), "Este navegador no da la posición"); return; }
+  rotular($("cerca"), "Buscando tu posición");
   navigator.geolocation.getCurrentPosition((pos) => {
     miPosicion = { lat: pos.coords.latitude, lon: pos.coords.longitude };
     if (marcadorYo) mapa.removeLayer(marcadorYo);
     marcadorYo = L.marker([miPosicion.lat, miPosicion.lon], { icon: L.divIcon({ className: "yo", iconSize: [16, 16] }), interactive: false }).addTo(mapa);
-    $("cerca").textContent = "Cerca de mí";
+    rotular($("cerca"), "Cerca de mí");
     $("f-orden").value = "cercania";
     if (seleccion) mostrarLista();
     mapa.setView([miPosicion.lat, miPosicion.lon], Math.max(mapa.getZoom(), 12));
     filtrar();
   }, () => {
     // Los navegadores solo dan la posición en páginas https o abiertas en el propio equipo.
-    $("cerca").textContent = "Posición no disponible";
+    rotular($("cerca"), "Posición no disponible");
     if ($("f-orden").value === "cercania") { $("f-orden").value = "nota"; filtrar(); }
   }, { enableHighAccuracy: true, timeout: 15000 });
 }
@@ -1875,14 +2177,19 @@ if (window.OSINT_DATOS) {
   if (window.OSINT_CAMARAS) cargarCamaras(window.OSINT_CAMARAS);
   cargar(window.OSINT_DATOS);
   pintarMarcadores();
+  $("panel").classList.remove("arrancando");
 } else {
   const base = new URLSearchParams(location.search).get("datos") || "datos/";
-  // Primero lo anotado que haya en disco, luego los datos.
+  // Los datos ya se están bajando (se pidieron en la cabecera de la página); si no, se piden ahora.
+  const pronto = window.OSINT_PRONTO || {};
+  const dato = (nombre) => pronto[nombre] || pedirJSON(`${base}${nombre}.geojson`);
+  const [pHuellas, pCamaras, pSitios] = ["huellas", "camaras", "candidatos"].map(dato);
+  // Primero lo anotado que haya en disco, luego los datos: así cada sitio sale ya con su marca.
   Promise.allSettled([almacenMarcas.sincronizar(base), almacenMarcadores.sincronizar(base)]).then(() => {
     pintarMarcadores();
-    pedirJSON(`${base}huellas.geojson`).then(cargarHuellas).catch(() => { /* las huellas son opcionales */ });
-    pedirJSON(`${base}camaras.geojson`).then(cargarCamaras).catch(() => { /* las cámaras son opcionales */ });
-    pedirJSON(`${base}candidatos.geojson`).then(cargar).catch(() => { /* se queda la pantalla de inicio */ });
+    pHuellas.then(cargarHuellas).catch(() => { /* las huellas son opcionales */ });
+    pCamaras.then(cargarCamaras).catch(() => { /* las cámaras son opcionales */ });
+    pSitios.then(cargar).catch(() => { /* aún no se ha buscado nada: se explica cómo empezar */ }).finally(() => { $("panel").classList.remove("arrancando"); });
   });
 }
 </script>

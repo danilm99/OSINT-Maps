@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import argparse
 import functools
+import gzip
 import http.server
+import io
 import json
 import logging
 import sys
@@ -351,6 +353,29 @@ VIDA_AVIONES = 8.0       # segundos que se reutiliza una respuesta
 MAX_ZONAS_AVIONES = 32
 
 
+# Ficheros que se sirven comprimidos, con su tipo.
+TIPOS_COMPRIMIBLES = {
+    ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8", ".geojson": "application/geo+json; charset=utf-8", ".svg": "image/svg+xml",
+}
+_COMPRIMIDOS: dict[str, tuple[int, int, bytes]] = {}      # ruta -> (fecha, tamaño, contenido comprimido)
+_CANDADO_COMPRIMIDOS = threading.Lock()
+
+
+def _comprimido(ruta: Path, info) -> bytes:
+    """El fichero comprimido con gzip. Se comprime una vez y se guarda en memoria
+    mientras el fichero no cambie (comprimir 6 MB cuesta unas décimas de segundo)."""
+    clave = str(ruta)
+    with _CANDADO_COMPRIMIDOS:
+        guardado = _COMPRIMIDOS.get(clave)
+        if guardado and guardado[:2] == (info.st_mtime_ns, info.st_size):
+            return guardado[2]
+    cuerpo = gzip.compress(ruta.read_bytes(), compresslevel=6)
+    with _CANDADO_COMPRIMIDOS:
+        _COMPRIMIDOS[clave] = (info.st_mtime_ns, info.st_size, cuerpo)
+    return cuerpo
+
+
 class _Servidor(http.server.SimpleHTTPRequestHandler):
     """Sirve el visor web y, bajo /datos/, la carpeta de resultados.
 
@@ -369,11 +394,55 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         return super().translate_path(path)
 
     def end_headers(self) -> None:
-        # Los datos cambian al repetir la búsqueda: que el navegador no los guarde.
-        self.send_header("Cache-Control", "no-store")
+        # «no-cache» deja al navegador guardar el fichero, pero le obliga a preguntar cada vez
+        # si ha cambiado (ver send_head). Lo que no debe guardarse nunca (respuestas en vivo,
+        # lo que el usuario anota) marca _sin_guardar.
+        self.send_header("Cache-Control", "no-store" if getattr(self, "_sin_guardar", False) else "no-cache")
         super().end_headers()
 
+    def send_head(self):
+        """Sirve los ficheros de texto comprimidos y sin repetir lo que el navegador ya tiene.
+
+        Los datos son varios megas de JSON, que comprimido ocupa la sexta parte: en el
+        ordenador da igual, pero desde el móvil por la wifi se nota. Además cada fichero
+        lleva una «etiqueta» (ETag) hecha con su fecha y su tamaño; el navegador la manda
+        de vuelta al recargar y, si coincide, se le contesta «304: no ha cambiado» sin
+        volver a enviarlo.
+        """
+        self._sin_guardar = self._fichero_editable() is not None
+        ruta = Path(self.translate_path(self.path))
+        if ruta.is_dir() and urlparse(self.path).path.endswith("/"):
+            ruta = ruta / "index.html"       # la portada
+        if self._sin_guardar or ruta.suffix.lower() not in TIPOS_COMPRIMIBLES or not ruta.is_file():
+            return super().send_head()
+        try:
+            info = ruta.stat()
+        except OSError:
+            return super().send_head()
+        etiqueta = f'"{info.st_mtime_ns:x}-{info.st_size:x}"'
+        if self.headers.get("If-None-Match") == etiqueta:
+            self.send_response(304)
+            self.send_header("ETag", etiqueta)
+            self.end_headers()
+            return None
+        comprimir = "gzip" in self.headers.get("Accept-Encoding", "") and info.st_size >= 1024
+        try:
+            cuerpo = _comprimido(ruta, info) if comprimir else ruta.read_bytes()
+        except OSError:
+            self.send_error(404)
+            return None
+        self.send_response(200)
+        self.send_header("Content-Type", TIPOS_COMPRIMIBLES[ruta.suffix.lower()])
+        if comprimir:
+            self.send_header("Content-Encoding", "gzip")
+        self.send_header("Vary", "Accept-Encoding")
+        self.send_header("Content-Length", str(len(cuerpo)))
+        self.send_header("ETag", etiqueta)
+        self.end_headers()
+        return io.BytesIO(cuerpo)
+
     def _responder_json(self, codigo: int, cuerpo: bytes) -> None:
+        self._sin_guardar = True
         self.send_response(codigo)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(cuerpo)))
@@ -454,6 +523,7 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         self._relevo(f"ficha:{url}", url, 86400, lambda resp: json.dumps(listaroja.detalle(resp.text)).encode("utf-8"))
 
     def do_GET(self) -> None:
+        self._sin_guardar = False
         ruta = urlparse(self.path).path
         if ruta == "/vivo/aviones":
             self._aviones()
@@ -614,6 +684,10 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
                   f"window.OSINT_CAMARAS={_json_para_script(camaras)};"
                   f"window.OSINT_CAPAS={_json_para_script(capas)};</script>")
     pagina = pagina.replace(marca, incrustado, 1)
+    # Los datos van dentro: sobra el trozo que los pide por adelantado al servidor.
+    antes, hay, resto = pagina.partition("<!--PRONTO-->")
+    if hay and "<!--/PRONTO-->" in resto:
+        pagina = antes + resto.split("<!--/PRONTO-->", 1)[1]
     # El resto del programa del visor va en un fichero aparte: dentro también.
     for fichero in ("iconos.js", "capas.js", "herramientas.js"):
         etiqueta = f'<script src="{fichero}"></script>'

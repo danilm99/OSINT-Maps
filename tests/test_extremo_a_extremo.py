@@ -225,6 +225,59 @@ def test_el_servidor_incorpora_solo_las_marcas_que_cambian(servidor):
     assert requests.get(f"{url}/datos/marcas.json").json() == {"cat-A": {"estado": "", "nota": ""}, **b}
 
 
+def test_el_servidor_comprime_y_no_repite_lo_que_el_navegador_ya_tiene(servidor):
+    import gzip
+    import http.client
+    import requests
+    url, carpeta = servidor
+    contenido = json.dumps({"type": "FeatureCollection", "features": [{"n": k, "texto": "abandonado " * 20} for k in range(200)]})
+    (carpeta / "candidatos.geojson").write_text(contenido, encoding="utf-8")
+
+    # Con http.client se ve lo que viaja de verdad (requests lo descomprime sin avisar).
+    def pedir(ruta, cabeceras):
+        conexion = http.client.HTTPConnection(url.removeprefix("http://"), timeout=10)
+        conexion.request("GET", ruta, headers=cabeceras)
+        r = conexion.getresponse()
+        cuerpo = r.read()
+        conexion.close()
+        return r, cuerpo
+
+    r, cuerpo = pedir("/datos/candidatos.geojson", {"Accept-Encoding": "gzip"})
+    assert r.status == 200 and r.getheader("Content-Encoding") == "gzip"
+    assert len(cuerpo) < len(contenido) / 5 and gzip.decompress(cuerpo).decode("utf-8") == contenido
+    assert r.getheader("Cache-Control") == "no-cache" and int(r.getheader("Content-Length")) == len(cuerpo)
+    etiqueta = r.getheader("ETag")
+    assert etiqueta
+
+    # Quien no admite compresión lo recibe tal cual.
+    r, cuerpo = pedir("/datos/candidatos.geojson", {})
+    assert r.status == 200 and r.getheader("Content-Encoding") is None and cuerpo.decode("utf-8") == contenido
+
+    # Si el navegador ya lo tiene y no ha cambiado: 304 y nada más.
+    r, cuerpo = pedir("/datos/candidatos.geojson", {"Accept-Encoding": "gzip", "If-None-Match": etiqueta})
+    assert r.status == 304 and cuerpo == b""
+
+    # Al repetir la búsqueda el fichero cambia: se manda el nuevo, con otra etiqueta.
+    (carpeta / "candidatos.geojson").write_text(contenido + " ", encoding="utf-8")
+    r, cuerpo = pedir("/datos/candidatos.geojson", {"Accept-Encoding": "gzip", "If-None-Match": etiqueta})
+    assert r.status == 200 and r.getheader("ETag") != etiqueta and gzip.decompress(cuerpo).decode("utf-8") == contenido + " "
+
+    # La portada y el programa del visor también van comprimidos.
+    for ruta in ("/", "/capas.js"):
+        r, cuerpo = pedir(ruta, {"Accept-Encoding": "gzip"})
+        assert r.status == 200 and r.getheader("Content-Encoding") == "gzip" and r.getheader("ETag"), ruta
+    assert gzip.decompress(pedir("/", {"Accept-Encoding": "gzip"})[1]).startswith(b"<!DOCTYPE html>")
+
+    # Lo que el usuario anota y lo que llega en vivo no se guarda nunca en el navegador.
+    requests.post(f"{url}/datos/marcas.json", json={"cat-A": {"estado": "favorito", "nota": ""}})
+    r, _ = pedir("/datos/marcas.json", {"Accept-Encoding": "gzip"})
+    assert r.status == 200 and r.getheader("Cache-Control") == "no-store" and r.getheader("ETag") is None
+    r, _ = pedir("/datos/marcadores.json", {})      # aún no existe: objeto vacío
+    assert r.status == 200 and r.getheader("Cache-Control") == "no-store"
+    # Un fichero que no existe sigue siendo un 404.
+    assert pedir("/datos/no-existe.geojson", {"Accept-Encoding": "gzip"})[0].status == 404
+
+
 def test_guardados_simultaneos_no_se_pisan(servidor):
     import requests
     from concurrent.futures import ThreadPoolExecutor
@@ -388,6 +441,7 @@ def test_paquete_autonomo(red_simulada, tmp_path, capsys):
     assert cli.main(["paquete", "--datos", str(salida), "--min-puntuacion", "40"]) == 0
     html = (salida / "mapa.html").read_text(encoding="utf-8")
     assert "<!--DATOS_INCRUSTADOS-->" not in html
+    assert "OSINT_PRONTO = {}" not in html and "<!--PRONTO-->" not in html      # con los datos dentro no hay nada que pedir por adelantado
     assert "window.OSINT_DATOS=" in html and "window.OSINT_HUELLAS=" in html
     incrustadas = html.split("window.OSINT_CAMARAS=")[1].split(";</script>")[0].split(";window.")[0]
     capas = json.loads(html.split("window.OSINT_CAPAS=")[1].split(";</script>")[0].replace("<\\/", "</"))

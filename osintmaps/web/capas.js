@@ -93,13 +93,7 @@ function pedir(url, opciones, espera = 30000, como = "json") {
 const pedirJ = (url, opciones, espera) => pedir(url, opciones, espera, "json");
 const pedirTexto = (url, opciones, espera) => pedir(url, opciones, espera, "text");
 
-/* Consulta a Overpass (la base de datos de OpenStreetMap): de una en una y
-   probando otro servidor si el primero no contesta. */
-function overpass(consulta) {
-  const intento = (k) => pedirJ(OVERPASS[k], { method: "POST", body: new URLSearchParams({ data: consulta }) }, ESPERA_OSM)
-    .catch((err) => (k + 1 < OVERPASS.length ? intento(k + 1) : Promise.reject(err)));
-  return new Promise((resolver, rechazar) => encolarOSM(() => intento(0).then(resolver, rechazar)));
-}
+/* Las consultas a OpenStreetMap se hacen con overpass(), que está en index.html. */
 
 /* Nombres en castellano de las etiquetas de OSM que más salen. */
 const ETIQUETA_OSM = {
@@ -213,16 +207,24 @@ const CAPAS = [
   { id: "miradores", grupo: "A pie de calle", nombre: "Miradores", color: "#15803d", zoom: 12, tipo: "osm",
     ql: ['nwr["tourism"="viewpoint"]'], es: (t) => t.tourism === "viewpoint", titulo: () => "Mirador" },
   // --- Fotos y artículos ---
-  { id: "wikipedia", grupo: "Fotos y artículos", nombre: "Artículos de Wikipedia", color: "#f5f5f5", zoom: 13, tipo: "api", pedir: pedirWikipedia },
-  { id: "commons", tamano: 0.8, grupo: "Fotos y artículos", nombre: "Fotos de Wikimedia Commons", color: "#0891b2", zoom: 15, tipo: "api", pedir: pedirCommons },
+  { id: "wikipedia", grupo: "Fotos y artículos", nombre: "Artículos de Wikipedia", color: "#f5f5f5", zoom: 13, tipo: "api", pedir: pedirWikipedia, vida: 7 },
+  { id: "commons", tamano: 0.8, grupo: "Fotos y artículos", nombre: "Fotos de Wikimedia Commons", color: "#0891b2", zoom: 15, tipo: "api", pedir: pedirCommons, vida: 7 },
   { id: "panoramax", tamano: 0.7, grupo: "Fotos y artículos", nombre: "Fotos a pie de calle (Panoramax)", color: "#0d9488", zoom: 16, tipo: "api", pedir: pedirPanoramax },
   // --- Catastro ---
-  { id: "edificios", grupo: "Catastro", nombre: "Edificios: estado, año y uso", color: "#60a5fa", zoom: 18, tipo: "api", pedir: pedirEdificios, paso: 0.002, porTesela: true },
+  { id: "edificios", grupo: "Catastro", nombre: "Edificios: estado, año y uso", color: "#60a5fa", zoom: 18, tipo: "api", pedir: pedirEdificios, paso: 0.002, porTesela: true, vida: 60 },
   // --- En vivo ---
   { id: "aviones", grupo: "En vivo", nombre: "Aviones en vuelo", color: "#facc15", zoom: 7, tipo: "vivo", pedir: pedirAviones, cada: 10000 },
   { id: "trenes", grupo: "En vivo", nombre: "Trenes de Cercanías (Renfe)", color: "#fde047", zoom: 8, tipo: "vivo", pedir: pedirTrenes, cada: 20000 },
 ];
 const CAPA = Object.fromEntries(CAPAS.map((c) => [c.id, c]));
+/* Nombre corto de cada capa, para la tira de capas encendidas y los avisos. */
+const CORTO = { camaras: "Cámaras", dgt: "DGT", camvlc: "Tráfico València", policia: "Policía", radares: "Radares", listaroja: "Lista Roja", subastas: "Subastas",
+  abandonado: "Abandonado", descampados: "Descampados", solares: "Solares", bic: "BIC y BRL", refugios: "Refugios", militar: "Militar", historico: "Histórico",
+  tren: "Ferrocarril", tuneles: "Túneles y puentes", muros: "Muros", energia: "Energía", antenas: "Antenas", industria: "Industria", canteras: "Canteras",
+  agua: "Agua", farolas: "Farolas", arte: "Arte urbano", miradores: "Miradores", wikipedia: "Wikipedia", commons: "Commons", panoramax: "Panoramax",
+  edificios: "Edificios", aviones: "Aviones", trenes: "Trenes" };
+const corto = (capa) => CORTO[capa.id] || capa.nombre;
+const enumerar = (nombres, tope = 3) => (nombres.length <= tope ? nombres.join(", ") : `${nombres.slice(0, tope).join(", ")} y ${nombres.length - tope} más`);
 const CAPA_PUNTO = { id: "punto", nombre: "Punto del mapa", color: "#17242e" };
 /* El símbolo de un elemento, como SVG: el mismo que lleva en el mapa. */
 const simboloDe = (capa, color, lado = 22) => simboloSVG(capa.icono || capa.id, color || capa.color, capa.forma, lado);
@@ -331,7 +333,7 @@ function pedirPanoramax(caja) {
 
 const ESTADO_EDIFICIO = { ruin: ["En ruina", "#e5007d"], declined: ["Deficiente", "#f08a00"], functional: ["En uso", "#60a5fa"] };
 const USO_EDIFICIO = { "1_residential": "Residencial", "2_agriculture": "Agrario", "3_industrial": "Industrial", "4_1_office": "Oficinas", "4_2_retail": "Comercial", "4_3_publicServices": "Equipamiento o servicio público" };
-function pedirEdificios(caja) {
+function pedirEdificios(caja, sigue) {
   const url = `https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=wfs&version=2&request=getfeature&Typenames=BU.BUILDING&SRSname=EPSG::4326&bbox=${caja.s},${caja.o},${caja.n},${caja.e}`;
   return new Promise((resolver, rechazar) => encolarCatastro(() => pedirTexto(url, null, 60000).then((xml) => {
     // Catastro contesta «200 OK» con un informe de error dentro. Donde no hay nada (el mar)
@@ -367,7 +369,7 @@ function pedirEdificios(caja) {
           ["Viviendas", texto("numberOfDwellings")], ["Inmuebles", texto("numberOfBuildingUnits")], ["Referencia catastral", refcat]] });
     }
     return salida;
-  }).then(resolver, rechazar)));
+  }).then(resolver, rechazar), { sigue, alDescartar: () => rechazar(new Error("descartada")) }));
 }
 function pedirAviones() {
   if (!/^https?:$/.test(location.protocol) || window.OSINT_DATOS) return Promise.reject(new Error("solo con «osintmaps servir»"));
@@ -486,60 +488,114 @@ function teselasDeCaja(caja, paso) {
   return lista;
 }
 
+/* --- Memoria: lo que ya se bajó de una capa, guardado por trozos de mapa (ver «memoria» en index.html) --- */
+const vidaDe = (capa) => (capa.vida || (capa.tipo === "osm" ? 7 : 3)) * DIA;      // días que vale lo guardado
+const claveMemoria = (capa, paso, tesela) => `capa|${capa.id}|${paso}|${tesela}`;
+/* Las teselas que pisa un elemento: un punto, la suya; una línea o un área, todas las que toca. */
+function teselasDeElemento(e, paso) {
+  let s = e.lat, n = e.lat, o = e.lon, x = e.lon;
+  const puntos = e.linea || (e.anillos ? e.anillos.map((poligono) => poligono[0]).flat() : null);
+  if (puntos) for (const [la, lo] of puntos) { if (la < s) s = la; if (la > n) n = la; if (lo < o) o = lo; if (lo > x) x = lo; }
+  const lista = [];
+  for (let i = Math.floor(s / paso); i <= Math.floor(n / paso); i++) for (let j = Math.floor(o / paso); j <= Math.floor(x / paso); j++) lista.push(`${i}:${j}`);
+  return lista;
+}
+/* Guarda lo recibido repartido por teselas. Una tesela sin nada también se guarda: «aquí no hay» es un dato. */
+function recordar(capa, paso, pedidas, elementos) {
+  const porTesela = new Map(pedidas.map((t) => [t, []]));
+  for (const e of elementos) {
+    const suyas = teselasDeElemento(e, paso).filter((t) => porTesela.has(t));
+    // Lo que no cae en ninguna (una relación de OSM enorme, con el centro fuera) va en todas, para no perderlo.
+    for (const t of suyas.length ? suyas : pedidas) porTesela.get(t).push(e);
+  }
+  memoria.guardar([...porTesela].map(([t, lista]) => [claveMemoria(capa, paso, t), lista]));
+}
+
 let relojCapas = null;
-const programarCapas = () => { clearTimeout(relojCapas); relojCapas = setTimeout(actualizarCapas, 450); };
+const programarCapas = () => { clearTimeout(relojCapas); relojCapas = setTimeout(actualizarCapas, 250); };
 function actualizarCapas() {
-  const z = mapa.getZoom(), tandaOSM = [];
+  const z = mapa.getZoom(), lotes = [];
   for (const capa of CAPAS) {
     const est = estado[capa.id];
     if (capa.tipo === "fija" || capa.tipo === "vivo" || !estaActiva(capa) || z < capa.zoom) continue;
     const { faltan, paso } = teselasQueFaltan(capa);
     if (!faltan.length || faltan.length > 60) continue;
-    // Catastro no admite rectángulos grandes: sus capas se piden tesela a tesela.
-    for (const lote of capa.porTesela ? faltan.slice(0, 16).map((t) => [t]) : [faltan]) {
-      const caja = cajaDe(lote, paso), pedidas = teselasDeCaja(caja, paso);
-      for (const t of pedidas) est.teselas.add(t);
-      est.cargando++; est.error = false;
-      // resultado: true = cargado; false = fallo; "parcial" = llegó solo una parte. Salvo en el
-      // primer caso, esos trozos de mapa quedan sin dar por cargados y se vuelven a pedir.
-      let hecho = false;
-      est.incompleta = false;
-      const fin = (resultado) => {
-        if (hecho) return;
-        hecho = true;
-        est.cargando--;
-        if (resultado !== true) for (const t of pedidas) est.teselas.delete(t);
-        if (resultado === false) est.error = true;
-        if (resultado === "parcial") est.incompleta = true;
-        pintarEstadoCapas();
-      };
-      if (capa.tipo === "osm") tandaOSM.push({ capa, caja, fin });
-      else capa.pedir(caja).then((elementos) => { incorporar(capa, elementos); fin(true); }, () => fin(false));
-    }
+    // Catastro no admite rectángulos grandes: sus capas se piden tesela a tesela, y no más de 16 de una vez.
+    const claves = (capa.porTesela ? faltan.slice(0, 16) : faltan).map((t) => `${t[0]}:${t[1]}`);
+    for (const t of claves) est.teselas.add(t);
+    est.cargando++; est.error = false; est.incompleta = false;
+    // 1.º Lo que haya en la memoria del navegador sale al momento.
+    lotes.push(memoria.leer(claves.map((t) => claveMemoria(capa, paso, t)), vidaDe(capa)).then((guardadas) => {
+      const quedan = [];
+      claves.forEach((t, k) => { if (guardadas[k]) incorporar(capa, guardadas[k]); else quedan.push(t.split(":").map(Number)); });
+      est.cargando--;
+      return { capa, paso, quedan };
+    }));
   }
-  // A OpenStreetMap se le pregunta por tandas pequeñas: así lo primero llega pronto y una capa
-  // lenta no deja a las demás esperando. Las que cuestan mucho al servidor van solas.
-  const ligeras = tandaOSM.filter((t) => !t.capa.pesada);
-  for (let k = 0; k < ligeras.length; k += CAPAS_POR_TANDA) pedirTandaOSM(ligeras.slice(k, k + CAPAS_POR_TANDA));
-  for (const una of tandaOSM.filter((t) => t.capa.pesada)) pedirTandaOSM([una]);
   pintarEstadoCapas();
+  if (!lotes.length) return;
+  // 2.º El resto se pide fuera.
+  Promise.all(lotes).then((listas) => {
+    const tandaOSM = [];
+    for (const { capa, paso, quedan } of listas) {
+      const est = estado[capa.id];
+      if (!quedan.length) continue;
+      if (!estaActiva(capa)) { for (const t of quedan) est.teselas.delete(`${t[0]}:${t[1]}`); continue; }      // se apagó mientras tanto
+      for (const lote of capa.porTesela ? quedan.map((t) => [t]) : [quedan]) {
+        const caja = cajaDe(lote, paso), pedidas = teselasDeCaja(caja, paso);
+        for (const t of pedidas) est.teselas.add(t);
+        est.cargando++;
+        // resultado: true = cargado (y se guarda en la memoria); false = fallo; "parcial" = llegó solo una
+        // parte; "descartada" = ya no hacía falta. Salvo en el primer caso, esos trozos de mapa quedan
+        // sin dar por cargados y se vuelven a pedir cuando toque.
+        let hecho = false;
+        const fin = (resultado, elementos) => {
+          if (hecho) return;
+          hecho = true;
+          est.cargando--;
+          if (resultado === true) recordar(capa, paso, pedidas, elementos || []);
+          else for (const t of pedidas) est.teselas.delete(t);
+          if (resultado === false) est.error = true;
+          if (resultado === "parcial") est.incompleta = true;
+          pintarEstadoCapas();
+          // Las capas de Catastro van por tandas de 16 trozos: al acabar una (bien), se mira si queda algo a la vista.
+          if (resultado === true && capa.porTesela && !est.cargando) programarCapas();
+        };
+        const sigue = () => estaActiva(capa) && mapa.getZoom() >= capa.zoom && enVista(caja.s, caja.o, caja.n, caja.e);
+        const fallo = (err) => fin(err && err.message === "descartada" ? "descartada" : false);
+        if (capa.tipo === "osm") tandaOSM.push({ capa, caja, fin, sigue, fallo });
+        else capa.pedir(caja, sigue).then((elementos) => { incorporar(capa, elementos); fin(true, elementos); }, fallo);
+      }
+    }
+    // A OpenStreetMap se le pregunta por tandas pequeñas: así lo primero llega pronto y una capa
+    // lenta no deja a las demás esperando. Las que cuestan mucho al servidor van solas.
+    const ligeras = tandaOSM.filter((t) => !t.capa.pesada);
+    for (let k = 0; k < ligeras.length; k += CAPAS_POR_TANDA) pedirTandaOSM(ligeras.slice(k, k + CAPAS_POR_TANDA));
+    for (const una of tandaOSM.filter((t) => t.capa.pesada)) pedirTandaOSM([una]);
+    pintarEstadoCapas();
+  });
 }
 /* Una consulta a OpenStreetMap para varias capas a la vez. */
 const TOPE_OSM = 8000, CAPAS_POR_TANDA = 3;
 function pedirTandaOSM(tanda) {
   const cuerpo = tanda.map(({ capa, caja }) => capa.ql.map((q) => `${q}(${caja.s},${caja.o},${caja.n},${caja.e});`).join("")).join("");
-  return overpass(`[out:json][timeout:40];(${cuerpo});out geom qt ${TOPE_OSM};`).then((j) => {
-    // Overpass contesta «200 OK» aunque se le acabe el tiempo: lo avisa en «remark» y manda lo que llevaba.
-    if (j.remark && /error|timed out|out of memory/i.test(j.remark)) throw new Error("overpass");
+  return overpass(`[out:json][timeout:40];(${cuerpo});out geom qt ${TOPE_OSM};`, () => tanda.some((una) => una.sigue())).then((j) => {
     const elementos = j.elements || [], cortado = elementos.length >= TOPE_OSM;
     // Si se llegó al tope, faltan elementos y no se sabe de qué capa: se repite capa a capa.
     if (cortado && tanda.length > 1) return Promise.all(tanda.map((una) => pedirTandaOSM([una])));
     for (const { capa, fin } of tanda) {
-      incorporar(capa, elementos.filter((e) => capa.es(e.tags || {})).map((e) => elementoOSM(e, capa)).filter(Boolean));
-      fin(cortado ? "parcial" : true);      // una capa sola que llega al tope: al acercar el mapa se pedirá menos trozo
+      const suyos = elementos.filter((e) => capa.es(e.tags || {})).map((e) => elementoOSM(e, capa)).filter(Boolean);
+      incorporar(capa, suyos);
+      fin(cortado ? "parcial" : true, suyos);      // una capa sola que llega al tope: al acercar el mapa se pedirá menos trozo
     }
     return null;
-  }).catch(() => { for (const { fin } of tanda) fin(false); });
+  }).catch((err) => {
+    // Si al servidor se le acabó el tiempo con varias capas juntas, la culpa suele ser de una sola:
+    // se repite capa a capa para que las demás no paguen por ella.
+    if (err && err.message === "overpass" && tanda.length > 1) return Promise.all(tanda.map((una) => pedirTandaOSM([una])));
+    for (const { fallo } of tanda) fallo(err);
+    return null;
+  });
 }
 
 /* Capas en vivo: se vuelven a pedir cada pocos segundos mientras están encendidas. */
@@ -557,19 +613,29 @@ function refrescarVivo(capa) {
 
 /* --- Panel de capas --- */
 function pintarEstadoCapas() {
-  const z = mapa.getZoom();
-  let cargando = 0, fallos = 0;
+  const z = mapa.getZoom(), cargando = [], fallos = [];
   for (const capa of CAPAS) {
     const est = estado[capa.id], nota = $(`estado-${capa.id}`);
-    if (estaActiva(capa)) { cargando += est.cargando; if (est.error) fallos++; }
+    // (un fallo de una capa que a este zoom ni se pide no se anuncia: ya dirá «acerca el mapa»)
+    if (estaActiva(capa)) { if (est.cargando) cargando.push(corto(capa)); else if (est.error && (z >= capa.zoom || capa.tipo === "vivo")) fallos.push(corto(capa)); }
     if (!nota) continue;
     nota.parentElement.classList.toggle("lejos", est.sinDatos || (estaActiva(capa) && z < capa.zoom));
     nota.textContent = est.sinDatos ? "sin descargar" : !estaActiva(capa) ? "" : z < capa.zoom ? "acerca el mapa" : est.cargando ? "cargando" : est.error ? (est.mensaje || "sin respuesta")
       : est.incompleta ? `${est.elementos.size}, hay más: acerca` : String(est.elementos.size);
   }
-  const aviso = $("aviso-capas");
-  aviso.hidden = !cargando && !fallos;
-  aviso.textContent = cargando ? "Cargando capas…" : "Alguna capa no ha respondido. Mueve el mapa para reintentar.";
+  // El aviso dice qué se está pidiendo; si algo no ha contestado, deja reintentarlo. Solo se
+  // rehace cuando cambia lo que dice: esta función se llama muchas veces seguidas.
+  const aviso = $("aviso-capas"), texto = cargando.length ? `Cargando ${enumerar(cargando)}…` : fallos.length ? `Sin respuesta: ${enumerar(fallos)}.` : "";
+  aviso.hidden = !texto;
+  if (aviso.dataset.texto !== texto) {
+    aviso.dataset.texto = texto;
+    if (cargando.length) aviso.replaceChildren(el("i", { className: "girando" }), el("span", { textContent: texto }));
+    else if (fallos.length) {
+      const reintentar = el("button", { type: "button", textContent: "Reintentar" });
+      reintentar.addEventListener("click", actualizarCapas);
+      aviso.replaceChildren(el("span", { textContent: texto }), reintentar);
+    }
+  }
   GRUPOS.forEach((grupo, k) => {
     const suyas = CAPAS.filter((c) => c.grupo === grupo && !c.oculta), encendidas = suyas.filter((c) => capasActivas.has(c.id)).length;
     $(`cuenta-grupo-${k}`).textContent = encendidas ? `${encendidas} de ${suyas.length}` : String(suyas.length);
@@ -581,17 +647,20 @@ function conmutarCapa(capa, encendida) {
   encendida ? capasActivas.add(capa.id) : capasActivas.delete(capa.id);
   guardarLocal("osintmaps.capas-datos.v1", [...capasActivas]);
   encendida ? est.grupo.addTo(mapa) : mapa.removeLayer(est.grupo);
+  if (encendida && capa.traer) capa.traer();
   if (capa.tipo === "vivo") {
     clearInterval(relojesVivo[capa.id]);
     if (encendida) { refrescarVivo(capa); relojesVivo[capa.id] = setInterval(() => refrescarVivo(capa), capa.cada); } else vaciar(capa);
   }
   programarCapas();
+  pintarEstadoCapas();
 }
 const GRUPOS = [...new Set(CAPAS.filter((c) => !c.oculta).map((c) => c.grupo))];
 {
   // Abiertos de entrada los grupos con algo encendido y los dos primeros; después, como los deje cada uno.
   const abiertos = leerLocal("osintmaps.grupos.v1", null) || GRUPOS.filter((g, k) => k < 2 || CAPAS.some((c) => c.grupo === g && capasActivas.has(c.id)));
-  const recordar = () => guardarLocal("osintmaps.grupos.v1", GRUPOS.filter((g, k) => $(`grupo-${k}`).open));
+  // (mientras se busca una capa por su nombre los grupos se abren solos: eso no se recuerda)
+  const recordar = () => { if (!$("capas").classList.contains("buscando")) guardarLocal("osintmaps.grupos.v1", GRUPOS.filter((g, k) => $(`grupo-${k}`).open)); };
   GRUPOS.forEach((grupo, k) => {
     const caja = el("details", { id: `grupo-${k}`, className: "grupo-de-capas", open: abiertos.includes(grupo) },
       el("summary", {}, el("span", { textContent: grupo }), el("small", { id: `cuenta-grupo-${k}` })));
@@ -606,11 +675,15 @@ const GRUPOS = [...new Set(CAPAS.filter((c) => !c.oculta).map((c) => c.grupo))];
 }
 $("capa-camaras").addEventListener("change", programarCapas);
 mapa.on("moveend", programarCapas);
-/* Al cambiar de zoom, las áreas pasan de punto a contorno y al revés. */
+/* Al cambiar de zoom, las áreas pasan de punto a contorno y al revés. Solo hay que
+   redibujarlas cuando se cruza ese umbral, no en cada cambio de zoom. */
+let conContorno = mapa.getZoom() >= 15;
 mapa.on("zoomend", () => {
+  if ((mapa.getZoom() >= 15) === conContorno) return;
+  conContorno = !conContorno;
   for (const capa of CAPAS) {
     const est = estado[capa.id];
-    if (capa.id === "edificios" || !estaActiva(capa)) continue;
+    if (capa.id === "edificios") continue;
     for (const [id, e] of est.elementos) if (e.anillos) { est.grupo.removeLayer(est.dibujos.get(id)); const d = dibujar(capa, e); est.dibujos.set(id, d); d.addTo(est.grupo); alFondo(d); }
   }
 });
@@ -629,13 +702,20 @@ function cargarCapaFija(capa, geojson) {
 }
 {
   const base = new URLSearchParams(location.search).get("datos") || "datos/";
-  for (const capa of CAPAS.filter((c) => c.tipo === "fija")) {
-    estado[capa.id].sinDatos = true;
-    const dentro = window.OSINT_CAPAS && window.OSINT_CAPAS[capa.id];
-    (dentro ? Promise.resolve(dentro) : window.OSINT_DATOS ? Promise.reject() : pedirJSON(`${base}capa-${capa.id}.geojson`))
-      .then((g) => cargarCapaFija(capa, g)).catch(() => { /* aún no se ha descargado */ }).finally(pintarEstadoCapas);
+  const fijas = CAPAS.filter((c) => c.tipo === "fija");
+  for (const capa of fijas) {
+    let pedida = false;
+    capa.traer = () => {
+      if (pedida) return;
+      pedida = true;
+      const dentro = window.OSINT_CAPAS && window.OSINT_CAPAS[capa.id];
+      (dentro ? Promise.resolve(dentro) : window.OSINT_DATOS ? Promise.reject() : pedirJSON(`${base}capa-${capa.id}.geojson`))
+        .then((g) => cargarCapaFija(capa, g)).catch(() => { estado[capa.id].sinDatos = true; /* aún no se ha descargado */ }).finally(pintarEstadoCapas);
+    };
   }
-  for (const capa of CAPAS) if (!capa.oculta && capasActivas.has(capa.id)) conmutarCapa(capa, true);
+  for (const capa of CAPAS) if (!capa.oculta && capasActivas.has(capa.id)) conmutarCapa(capa, true);      // las encendidas se leen ya
+  // Las apagadas, cuando la página ya está pintada: no estorban al arrancar y quedan listas para el buscador.
+  setTimeout(() => { for (const capa of fijas) capa.traer(); }, 2500);
   programarCapas();
 }
 
@@ -770,7 +850,7 @@ function abrirElemento(e, mover) {
   soltarMarcador(); soltarElemento();
   elementoAbierto = e;
   const capa = capaDe(e);
-  $("panel").classList.remove("plegado"); $("plegar").textContent = "Ocultar"; $("plegar").setAttribute("aria-expanded", "true");
+  desplegarPanel();
 
   const volver = el("button", { type: "button", textContent: "Lista" });
   volver.addEventListener("click", cerrarElemento);

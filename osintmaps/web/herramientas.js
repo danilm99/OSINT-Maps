@@ -94,7 +94,7 @@ function pintarListaMarcadores() {
 function pintarListas() { pintarListaCapas(); pintarListaMarcadores(); }
 let relojListas = null;
 const programarListas = () => { clearTimeout(relojListas); relojListas = setTimeout(pintarListas, 250); };
-function alCambiarCapas() { programarListas(); }
+function alCambiarCapas() { programarListas(); pintarTira(); }
 mapa.on("moveend", programarListas);
 $("capa-camaras").addEventListener("change", programarListas);
 {
@@ -211,3 +211,124 @@ document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && midien
     else pedirJ(`vivo/ficha?url=${encodeURIComponent(e.url)}`, null, 25000).then((d) => { e.detalle = d; poner(d); }).catch(() => { /* se queda con la ortofoto */ });
   };
 }
+
+/* ====================== 4. Alrededor del mapa ====================== */
+
+/* --- Tira de capas encendidas ---
+   Una ficha por capa, con su símbolo, su nombre corto y cuántos elementos tiene: es la leyenda
+   de lo que se está viendo. Pulsar una ficha oculta la capa; pulsarla otra vez la vuelve a
+   mostrar. Las que se han ocultado se quedan en la tira (atenuadas) hasta recargar la página,
+   para poder compararlas con un toque. */
+const FIJAS_EN_TIRA = [["capa-sitios", "Sitios", "sitio", "#e5007d", "cuadrado"], ["capa-camaras", "Cámaras", "camaras", "#d90429", "circulo"],
+  ["capa-marcadores", "Marcadores", "spray", "#2fbf71", "circulo"]];
+const enTira = new Set(), fichasDeTira = new Map();
+for (const [id, nombre, icono, color, forma] of FIJAS_EN_TIRA) {
+  const casilla = $(id), b = el("button", { type: "button" }, simboloSVG(icono, color, forma, 20), el("span", { textContent: nombre }));
+  const poner = () => { b.setAttribute("aria-pressed", String(casilla.checked)); b.title = casilla.checked ? `${nombre}: pulsa para ocultar` : `${nombre}: ocultos; pulsa para mostrar`; };
+  b.addEventListener("click", () => { casilla.checked = !casilla.checked; casilla.dispatchEvent(new Event("change")); });
+  casilla.addEventListener("change", poner);
+  poner();
+  $("tira-capas").append(b);
+}
+function pintarTira() {
+  const z = mapa.getZoom();
+  for (const capa of CAPAS) {
+    if (capa.oculta) continue;
+    const activa = capasActivas.has(capa.id);
+    if (activa) enTira.add(capa.id);
+    if (!enTira.has(capa.id)) continue;
+    let b = fichasDeTira.get(capa.id);
+    if (!b) {
+      b = el("button", { type: "button" }, simboloDe(capa, null, 20), el("span", { textContent: corto(capa) }), el("small"));
+      b.addEventListener("click", () => { const casilla = $(`dato-${capa.id}`); casilla.checked = !casilla.checked; casilla.dispatchEvent(new Event("change")); });
+      fichasDeTira.set(capa.id, b);
+      $("tira-capas").append(b);
+    }
+    const est = estado[capa.id], nota = b.lastChild;
+    const lejos = activa && z < capa.zoom && capa.tipo !== "fija", falla = activa && !est.cargando && !lejos && (est.error || est.sinDatos);
+    b.setAttribute("aria-pressed", String(activa));
+    b.classList.toggle("falla", !!falla);
+    b.title = `${capa.nombre}: ` + (!activa ? "oculta; pulsa para mostrarla" : est.sinDatos ? "aún no se ha descargado (osintmaps capas)" : lejos ? "acerca el mapa para verla"
+      : est.cargando ? "cargando…" : est.error ? (est.mensaje || "no ha respondido") : `${est.elementos.size} cargados`) + (activa ? ". Pulsa para ocultarla." : "");
+    if (activa && est.cargando && !lejos) { if (!nota.firstElementChild) nota.replaceChildren(el("i", { className: "girando" })); }
+    else {
+      const texto = !activa ? "" : est.sinDatos ? "sin datos" : lejos ? "acerca" : est.error ? "!" : est.incompleta ? `${miles(est.elementos.size)}+` : miles(est.elementos.size);
+      if (nota.firstElementChild || nota.textContent !== texto) nota.textContent = texto;
+    }
+  }
+}
+pintarTira();
+{
+  // Sobre el mapa en el ordenador; en el móvil, donde el mapa es pequeño, dentro del panel bajo el buscador.
+  const movil = matchMedia("(max-width: 760px)");
+  const colocar = () => { if (movil.matches) $("buscador").after($("tira-capas")); else $("mapa-zona").insertBefore($("tira-capas"), $("asa-panel")); };
+  movil.addEventListener("change", colocar);
+  colocar();
+}
+
+/* --- Asa para esconder el panel (ordenador) --- */
+function ponerPanel(visible, recordar) {
+  const borde = () => mapa.getContainer().getBoundingClientRect().left, antes = borde();
+  document.body.classList.toggle("sin-panel", !visible);
+  const asa = $("asa-panel");
+  asa.setAttribute("aria-expanded", String(visible));
+  asa.title = visible ? "Ocultar el panel" : "Mostrar el panel";
+  asa.setAttribute("aria-label", asa.title);
+  if (recordar) guardarLocal("osintmaps.panel.v1", visible);
+  // El mapa gana o pierde ancho por la izquierda: se recoloca para que lo que se veía no se mueva del sitio.
+  const corrido = borde() - antes;
+  mapa.invalidateSize({ pan: false });
+  if (corrido) mapa.panBy([corrido, 0], { animate: false });
+}
+$("asa-panel").append(iconoSVG("atras", 16));
+$("asa-panel").setAttribute("aria-label", "Ocultar el panel");
+$("asa-panel").addEventListener("click", () => ponerPanel(document.body.classList.contains("sin-panel"), true));
+if (leerLocal("osintmaps.panel.v1", true) === false && matchMedia("(min-width: 761px)").matches) ponerPanel(false);
+
+/* --- Panel de capas: buscar una por su nombre --- */
+{
+  const panel = $("capas"), campo = $("buscar-capa");
+  let abiertos = null;      // cómo estaban los grupos antes de buscar
+  campo.addEventListener("input", () => {
+    const texto = sinAcentos(campo.value.trim()), grupos = [...panel.querySelectorAll("details.grupo-de-capas")];
+    if (texto && !abiertos) abiertos = grupos.map((g) => g.open);
+    panel.classList.toggle("buscando", !!texto);
+    for (const fila of panel.querySelectorAll(".cuerpo label.casilla")) fila.classList.toggle("oculta-por-busqueda", !!texto && !sinAcentos(fila.textContent).includes(texto));
+    grupos.forEach((g, k) => {
+      g.classList.toggle("oculta-por-busqueda", !!texto && !g.querySelector("label.casilla:not(.oculta-por-busqueda)"));
+      g.open = texto ? true : abiertos ? abiertos[k] : g.open;
+    });
+    if (!texto) abiertos = null;
+  });
+}
+
+/* --- Datos guardados en el navegador --- */
+function pintarMemoria() {
+  memoria.cuantos().then((n) => {
+    $("memoria-estado").textContent = n
+      ? `${miles(n)} trozos de mapa ya descargados. Al volver a esas zonas salen al momento, sin esperar a Catastro ni a OpenStreetMap. Se renuevan solos: lo de OpenStreetMap cada semana, las parcelas cada mes.`
+      : "Aún no hay nada. Lo que vayas viendo se guarda aquí para que la próxima vez salga al momento.";
+    $("memoria-vaciar").hidden = !n;
+  });
+}
+$("capas").addEventListener("toggle", () => { if ($("capas").open) pintarMemoria(); });
+$("memoria-vaciar").addEventListener("click", () => {
+  memoria.vaciar().then(() => {
+    for (const capa of CAPAS) if (capa.tipo === "osm" || capa.tipo === "api") vaciar(capa);
+    olvidarAcceso();
+    actualizarCapas();
+    pintarMemoria();
+  });
+});
+
+/* --- Atajo: «/» lleva al buscador --- */
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "/" || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  const foco = document.activeElement;
+  if (foco && (/^(INPUT|TEXTAREA|SELECT)$/.test(foco.tagName) || foco.isContentEditable)) return;
+  if (visor) return;      // con el visor de imágenes abierto, el teclado es suyo
+  ev.preventDefault();
+  desplegarPanel();
+  $("buscar-texto").focus();
+  $("buscar-texto").select();
+});

@@ -136,8 +136,8 @@ medio minuto por sitio.
   una cortina que se arrastra, con hoy a la izquierda y ese año a la derecha.
 - **Marcas**: favorito, visitado, descartado y notas. Se guardan en
   `datos/marcas.json`, así que sobreviven a repetir la búsqueda.
-- **Qué se ve**: en *Capas del mapa* se encienden y apagan por separado los
-  sitios, las cámaras y tus marcadores.
+- **Qué se ve**: en *Capas* (y en la tira de arriba del mapa) se encienden y
+  apagan por separado los sitios, las cámaras y tus marcadores.
 - **Revisión rápida** con el teclado: `→` siguiente, `←` anterior, `F`
   favorito, `V` visitado, `X` descartar (pasa solo al siguiente), `Esc` lista.
 
@@ -188,6 +188,44 @@ desuso va en magenta.
 El botón de la luna, junto al título, cambia entre modo claro y oscuro. La
 primera vez se sigue el del sistema. En modo oscuro los mapas dibujados
 (callejero, topográfico, OpenStreetMap) se invierten; las fotos no se tocan.
+
+Arriba del mapa hay una **tira con las capas encendidas**: cada ficha lleva el
+símbolo de la capa, su nombre y cuántos elementos tiene cargados, así que hace
+de leyenda. Pulsar una ficha oculta esa capa y pulsarla otra vez la vuelve a
+mostrar (se queda en la tira, atenuada), que es la forma rápida de despejar el
+mapa cuando hay muchas cosas encima. Mientras una capa carga, su ficha gira; si
+pone «acerca», esa capa solo se pide más de cerca; un «!» es que su servicio
+no ha contestado, y el aviso de abajo trae un botón para reintentar.
+
+En el ordenador, el asa del borde izquierdo del mapa esconde el panel y deja
+todo el ancho al mapa; al abrir cualquier ficha el panel vuelve solo. En el
+panel *Capas* se puede buscar una capa por su nombre. La tecla `/` lleva al
+buscador.
+
+### Velocidad: lo que se descarga se guarda
+
+Los servicios de fuera son lentos y no hay forma de acelerarlos: Catastro tarda
+entre 10 y 30 segundos por cada trozo de mapa y OpenStreetMap, a ratos, un
+minuto. Lo que sí se puede es no esperar dos veces por lo mismo:
+
+- **Memoria en el navegador.** Las parcelas, los edificios, las vallas y todo
+  lo que traen las capas se guarda por trozos de mapa en el navegador
+  (IndexedDB). Al volver a una zona, o al recargar la página, sale al
+  momento sin preguntar a nadie. Cada dato caduca solo: una semana lo de
+  OpenStreetMap, Wikipedia y Commons; tres días lo municipal y Panoramax; un
+  mes las parcelas y dos los edificios. Al final del panel *Capas* se ve
+  cuánto hay guardado y hay un botón para vaciarlo y pedirlo todo de nuevo.
+- **Solo se pide lo que se está mirando.** Si mueves el mapa mientras hay
+  peticiones en cola, las de la zona que ya no ves se tiran y pasan delante
+  las de la zona nueva.
+- **OpenStreetMap, con carrera entre servidores.** Se pregunta al servidor
+  que mejor respondió la última vez; si a los 8 segundos sigue callado se
+  pregunta también al siguiente y vale la primera respuesta.
+- **Mover el mapa no rehace los puntos.** Los miles de sitios y las parcelas
+  ya dibujadas se conservan al mover; solo se añade lo que entra en pantalla.
+- **Datos comprimidos y sin repetir.** `osintmaps servir` manda los ficheros
+  de datos comprimidos (ocupan la sexta parte, se nota desde el móvil por la
+  wifi) y, al recargar, el navegador solo pregunta si han cambiado.
 
 ### Ficha, visor y buscador
 
@@ -372,10 +410,13 @@ funciones cortas que hay debajo, y vuelve a ejecutar `buscar`.
 - El servidor principal de Overpass (OSM) a veces responde con un error por
   saturación; el programa reintenta y prueba otros servidores.
 - OpenStreetMap contesta despacio cuando hay varias capas encendidas: la
-  primera carga de una zona puede tardar medio minuto.
+  primera vez que se ve una zona puede tardar medio minuto. La segunda sale
+  de la memoria del navegador.
 - Los edificios de Catastro solo se cargan muy de cerca (zoom 18) y en el
-  centro de una ciudad cada trozo tarda de 15 a 25 segundos: el servicio es
-  así de lento con muchos edificios.
+  centro de una ciudad cada trozo tarda de 15 a 25 segundos; las parcelas,
+  de 10 a 30. El servicio es así de lento y solo se nota la primera vez.
+- La memoria del navegador es de cada navegador: el móvil y el ordenador
+  guardan cada uno lo suyo, y en una ventana privada no se guarda nada.
 - Las subastas y la Lista Roja se leen de sus webs, que no tienen API: si
   cambian el diseño, esas dos capas dejarán de actualizarse hasta adaptarlas.
 - Street View va incrustado con una dirección que Google no documenta; puede
@@ -408,9 +449,9 @@ osintmaps/
   exportar.py       GeoJSON, CSV, KML
   red.py, geo.py    utilidades de red y de coordenadas
   web/iconos.js     iconos, símbolos del mapa y cambio de tema
-  web/index.html    el mapa: sitios, fichas, marcas, marcadores y accesos
+  web/index.html    el mapa: sitios, fichas, marcas, marcadores, accesos y la memoria de lo descargado
   web/capas.js      capas de datos, ficha general, visor, buscador y menú
-  web/herramientas.js  pestañas del panel, ruta, medición y exportación
+  web/herramientas.js  pestañas del panel, ruta, medición, exportación y tira de capas
 tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
 ```
 
