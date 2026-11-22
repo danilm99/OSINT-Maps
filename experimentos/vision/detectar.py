@@ -55,8 +55,9 @@ def pedir_foto(sesion: requests.Session, capa: str, x0: float, y0: float) -> np.
     return None
 
 
-def trazar(mascara: np.ndarray, confianza: np.ndarray, minimo_px: float) -> list[tuple[np.ndarray, float]]:
-    """De una mancha a líneas: se adelgaza hasta un píxel de ancho y se siguen los trazos de cruce a cruce."""
+def trazar(mascara: np.ndarray, minimo_px: float) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """De una mancha a líneas: se adelgaza hasta un píxel de ancho y se siguen los trazos de cruce a cruce.
+    De cada línea devuelve sus vértices (ya simplificados) y las filas y columnas de los píxeles por los que pasa."""
     from skimage.morphology import skeletonize
     hueso = skeletonize(mascara)
     _, grupo = cv2.connectedComponents(hueso.astype(np.uint8), connectivity=8)
@@ -107,7 +108,34 @@ def trazar(mascara: np.ndarray, confianza: np.ndarray, minimo_px: float) -> list
         puntos = np.column_stack([xs[t], ys[t]]).astype(np.float32)
         simple = cv2.approxPolyDP(puntos.reshape(-1, 1, 2), 1.5, False).reshape(-1, 2)
         if len(simple) >= 2:
-            salida.append((simple, float(confianza[ys[t], xs[t]].mean())))
+            salida.append((simple, ys[t], xs[t]))
+    return salida
+
+
+def lineas_de(prob: np.ndarray, corte: dict) -> list[tuple[str, float, np.ndarray]]:
+    """Las líneas que se ven en la ventana: (clase, confianza, vértices en píxeles de 30 cm).
+
+    Las clases parecidas se trazan juntas y luego se decide qué es cada línea entera: si un muro saliese por
+    un lado y una valla por otro, la misma tapia se partiría en trocitos de cada cosa.
+    - Cierres (muro, valla, seto): la línea es de la clase que más se pasa de su corte a lo largo de ella.
+    - Vías de tierra (camino, senda): fuera de donde manda la carretera. Es senda si lo dice el modelo o si
+      la franja detectada es estrecha (menos de 1,8 m): en OSM las sendas vienen de trazas de GPS desviadas
+      varios metros y el modelo apenas aprende a nombrarlas, pero sí las ve como un camino fino."""
+    paso = PIXEL * 2
+    n = {c: i for i, c in enumerate(CLASES)}
+    sobra = {c: prob[n[c]] / corte[c] for c in CLASES}                   # más de 1: detectado
+    salida = []
+    cierres = ("muro", "valla", "seto")
+    for vertices, ys, xs in trazar(np.maximum.reduce([sobra[c] for c in cierres]) > 1, min(LARGO_MIN_M[c] for c in cierres) / paso):
+        clase = max(cierres, key=lambda c: float(sobra[c][ys, xs].mean()))
+        salida.append((clase, float(prob[n[clase]][ys, xs].mean()), vertices))
+    tierra = np.maximum(sobra["camino"], sobra["senda"])
+    via = (tierra > 1) & (tierra >= sobra["carretera"])
+    ancho_m = cv2.distanceTransform(via.astype(np.uint8), cv2.DIST_L2, 3) * 2 * paso        # ancho de la franja, medido en su eje
+    for vertices, ys, xs in trazar(via, min(LARGO_MIN_M["camino"], LARGO_MIN_M["senda"]) / paso):
+        es_senda = float(sobra["senda"][ys, xs].mean()) > float(sobra["camino"][ys, xs].mean()) or float(np.median(ancho_m[ys, xs])) < 1.8
+        clase = "senda" if es_senda else "camino"
+        salida.append((clase, float(np.maximum(prob[n["camino"]], prob[n["senda"]])[ys, xs].mean()), vertices))
     return salida
 
 
@@ -205,16 +233,14 @@ def analizar(modelo, dispositivo, media, desv, bajado: dict, huella, nombre_mode
     paso = PIXEL * 2
     y1 = y0 + VENTANA * PIXEL
     lineas, largos = [], {}
-    for clase in LINEALES:
-        c = CLASES.index(clase)
-        for puntos, confianza in trazar(prob[c] > corte[clase], prob[c], LARGO_MIN_M[clase] / paso):
-            ux, uy = x0 + (puntos[:, 0] + 0.5) * paso, y1 - (puntos[:, 1] + 0.5) * paso
-            largo = float(np.hypot(np.diff(ux), np.diff(uy)).sum())
-            if largo < 3:
-                continue
-            lo, la = a_geo(ux, uy)
-            lineas.append({"c": clase, "p": round(confianza, 2), "g": [[round(float(a), 6), round(float(b), 6)] for a, b in zip(lo, la)]})
-            largos[clase] = largos.get(clase, 0.0) + largo
+    for clase, confianza, puntos in lineas_de(prob, corte):
+        ux, uy = x0 + (puntos[:, 0] + 0.5) * paso, y1 - (puntos[:, 1] + 0.5) * paso
+        largo = float(np.hypot(np.diff(ux), np.diff(uy)).sum())
+        if largo < 3:
+            continue
+        lo, la = a_geo(ux, uy)
+        lineas.append({"c": clase, "p": round(confianza, 2), "g": [[round(float(a), 6), round(float(b), 6)] for a, b in zip(lo, la)]})
+        largos[clase] = largos.get(clase, 0.0) + largo
     salida = {"id": sitio["properties"]["id"], "imagen": IMAGEN, "modelo": nombre_modelo, "fecha": time.strftime("%Y-%m-%d"),
               "centro": [round(float(c), 6) for c in sitio["geometry"]["coordinates"][:2]],
               "largo_m": {k: round(v) for k, v in largos.items()}, "lineas": lineas}
@@ -240,7 +266,7 @@ def cortes_de(base: Path, modelo: str) -> dict:
     corte = {c: 0.5 for c in CLASES}
     fichero = base / "modelos" / f"{modelo}-umbrales.json"
     if fichero.exists():
-        corte.update({c: v["corte"] for c, v in json.loads(fichero.read_text(encoding="utf-8"))["elegido"].items()})
+        corte.update({c: v["corte"] for c, v in json.loads(fichero.read_text(encoding="utf-8"))["elegido"].items() if c in corte})
     return corte
 
 

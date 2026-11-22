@@ -35,6 +35,12 @@ PESO = {"camino": 2.0, "senda": 4.0, "carretera": 1.0, "muro": 5.0, "valla": 5.0
 MEDIA = np.array([0.485, 0.456, 0.406, 0.5], np.float32)
 DESV = np.array([0.229, 0.224, 0.225, 0.25], np.float32)
 NUCLEO_DUDA = np.ones((15, 15), np.uint8)             # 7 píxeles a cada lado: un metro
+NUCLEO_VIA = np.ones((41, 41), np.uint8)              # 20 píxeles a cada lado: tres metros
+CIERRES = ("muro", "valla", "seto")
+# Lo que OSM no tiene dibujado no prueba que no exista: de los cierres falta la mayoría. Marcar uno donde
+# OSM no dice nada se castiga menos que en las demás clases; y menos aún en las teselas donde nadie ha
+# dibujado ningún cierre (ahí lo normal es que no se haya mirado).
+PESO_NO_CIERRE = {True: 0.7, False: 0.3}              # según la tesela tenga o no algún cierre dibujado
 
 
 def leer_tesela(base: Path, i: int, j: int) -> np.ndarray:
@@ -56,10 +62,23 @@ class Teselas(torch.utils.data.Dataset):
         x = leer_tesela(self.base, i, j)
         bits = cv2.imread(str(self.base / "etiquetas" / f"{i}_{j}.png"), cv2.IMREAD_UNCHANGED)
         y = np.stack([(bits >> n) & 1 for n in range(len(CLASES))]).astype(np.float32)
-        cuenta = np.ones_like(y)                       # 0 en la franja de duda
+        cuenta = np.ones_like(y)                       # cuánto pesa cada píxel al corregir: 0 en la franja de duda
         for n, clase in enumerate(CLASES):
             if clase in FINAS and y[n].any():
                 cuenta[n][(cv2.dilate(y[n], NUCLEO_DUDA) > 0) & (y[n] == 0)] = 0
+        # Caminos y sendas se parecen y en OSM las sendas vienen de trazas de GPS desviadas varios metros:
+        # a tres metros de una, no se castiga marcar la otra; y la senda tiene esa misma franja de duda.
+        ic, isd = CLASES.index("camino"), CLASES.index("senda")
+        if y[isd].any():
+            cerca = cv2.dilate(y[isd], NUCLEO_VIA) > 0
+            cuenta[ic][cerca & (y[ic] == 0)] = 0
+            cuenta[isd][cerca & (y[isd] == 0)] = 0
+        if y[ic].any():
+            cuenta[isd][(cv2.dilate(y[ic], NUCLEO_VIA) > 0) & (y[isd] == 0)] = 0
+        hay_cierres = any(y[CLASES.index(c)].any() for c in CIERRES)
+        for c in CIERRES:
+            n = CLASES.index(c)
+            cuenta[n][(y[n] == 0) & (cuenta[n] > 0)] = PESO_NO_CIERRE[hay_cierres]
         if self.aumentar:                              # la misma tesela girada, volteada o con otra luz es otro ejemplo
             giros = random.randrange(4)
             x, y, cuenta = np.rot90(x, giros, (0, 1)), np.rot90(y, giros, (1, 2)), np.rot90(cuenta, giros, (1, 2))
@@ -115,6 +134,7 @@ def main() -> None:
     ap.add_argument("--carpeta", default="cache/_vision"); ap.add_argument("--vueltas", type=int, default=24)
     ap.add_argument("--lote", type=int, default=8); ap.add_argument("--nombre", default="lineas-v1")
     ap.add_argument("--prueba", action="store_true", help="64 teselas y una vuelta, para ver que todo funciona")
+    ap.add_argument("--cpu", action="store_true", help="sin la gráfica (lento: solo para probar mientras está ocupada)")
     args = ap.parse_args()
     no_dormir()
     base = Path(args.carpeta)
@@ -126,7 +146,7 @@ def main() -> None:
     # Se aparta una de cada diez manzanas de 600 m para medir: así no se examina con vecinos de lo ya visto.
     aparte = [c for c in claves if ((c[0] // 8) * 31 + (c[1] // 8) * 17) % 10 == 0]
     resto = [c for c in claves if c not in set(aparte)]
-    dispositivo = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dispositivo = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
     print(f"teselas: {len(resto)} para aprender, {len(aparte)} para medir | {dispositivo}", flush=True)
     torch.backends.cudnn.benchmark = True
     cargar = dict(batch_size=args.lote, num_workers=4, pin_memory=True, persistent_workers=True)

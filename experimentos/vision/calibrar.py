@@ -18,7 +18,7 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 
-from entrenar import FINAS, Teselas, crear_modelo
+from entrenar import CIERRES, FINAS, Teselas, crear_modelo
 from preparar import CLASES
 
 CORTES = (0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7)
@@ -27,14 +27,20 @@ CORTES = (0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7)
 @torch.no_grad()
 def probar_cortes(modelo, datos, dispositivo) -> dict:
     """Para cada clase y cada corte: precisión y alcance con la misma manga ancha que entrenar.medir()."""
-    n, k = len(CLASES), len(CORTES)
+    # Además de las clases del modelo se mide una inventada, «cierre»: muro, valla o seto, sin distinguir.
+    # Desde arriba una tapia y una valla tupida se parecen; esto dice cuánto acierta en que ahí hay algo que cierra.
+    nombres = CLASES + ["cierre"]
+    de_cierre = [CLASES.index(c) for c in CIERRES]
+    n, k = len(nombres), len(CORTES)
     acierto_p, dicho, acierto_r, hay = (torch.zeros((k, n), device=dispositivo) for _ in range(4))
     for x, y, _ in datos:
         x, y = x.to(dispositivo), y.to(dispositivo)
         with torch.autocast("cuda", enabled=dispositivo.type == "cuda"):
             prob = torch.sigmoid(modelo(x)).float()
-        for c, clase in enumerate(CLASES):
-            m = 8 if clase in FINAS else 4
+        prob = torch.cat([prob, prob[:, de_cierre].amax(1, keepdim=True)], 1)
+        y = torch.cat([y, y[:, de_cierre].amax(1, keepdim=True)], 1)
+        for c, clase in enumerate(nombres):
+            m = 8 if clase in FINAS or clase == "cierre" else 4
             cerca_y = F.max_pool2d(y[:, c:c + 1], 2 * m + 1, 1, m)
             for t, corte in enumerate(CORTES):
                 p = (prob[:, c:c + 1] > corte).float()
@@ -42,7 +48,7 @@ def probar_cortes(modelo, datos, dispositivo) -> dict:
                 acierto_p[t, c] += (p * cerca_y).sum(); dicho[t, c] += p.sum()
                 acierto_r[t, c] += (y[:, c:c + 1] * cerca_p).sum(); hay[t, c] += y[:, c].sum()
     salida = {}
-    for c, clase in enumerate(CLASES):
+    for c, clase in enumerate(nombres):
         filas = []
         for t, corte in enumerate(CORTES):
             precision = float(acierto_p[t, c] / dicho[t, c].clamp(min=1)); alcance = float(acierto_r[t, c] / hay[t, c].clamp(min=1))
