@@ -742,6 +742,19 @@ def crear_sitio(destino: Path, carpeta_datos: Path | None, con_notas: bool = Fal
         if fichero.is_file():
             shutil.copy2(fichero, destino / fichero.name)
     (destino / ".nojekyll").write_text("", encoding="utf-8")      # que GitHub no intente procesar la carpeta
+    # Un alojamiento de páginas deja que el navegador se quede cada fichero unos minutos sin volver a
+    # preguntar. Tras publicar una versión nueva, alguien podría recibir la página nueva con un
+    # programa de la anterior. Para evitarlo, la página pide cada programa con una marca de su
+    # contenido (capas.js?v=1a2b3c4d): si el contenido cambia, la dirección cambia y se baja de nuevo.
+    import hashlib
+    indice = destino / "index.html"
+    pagina = indice.read_text(encoding="utf-8")
+    for guion in sorted(destino.glob("*.js")):
+        etiqueta = f'<script src="{guion.name}"></script>'
+        if etiqueta in pagina:
+            marca = hashlib.sha256(guion.read_bytes()).hexdigest()[:10]
+            pagina = pagina.replace(etiqueta, f'<script src="{guion.name}?v={marca}"></script>')
+    indice.write_text(pagina, encoding="utf-8")
     copiados = []
     if carpeta_datos is not None:
         (destino / "datos").mkdir(exist_ok=True)

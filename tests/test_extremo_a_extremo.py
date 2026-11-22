@@ -503,6 +503,13 @@ def test_sitio_estatico(tmp_path, capsys):
     sitio = tmp_path / "sitio"
     assert cli.main(["sitio", "--salida", str(sitio), "--datos", str(datos)]) == 0
     assert {f.name for f in sitio.iterdir()} >= {"index.html", "capas.js", "iconos.js", "herramientas.js", "rutas.js", "tresd.js", "sw.js", "manifest.webmanifest", "icono-192.png", ".nojekyll", "datos"}
+    # Cada programa se pide con la marca de su contenido: una versión nueva no se mezcla con ficheros viejos del navegador.
+    import hashlib, re
+    pagina_sitio = (sitio / "index.html").read_text(encoding="utf-8")
+    marcas = dict(re.findall(r'<script src="(\w+\.js)\?v=([0-9a-f]{10})"></script>', pagina_sitio))
+    assert set(marcas) == {"iconos.js", "capas.js", "herramientas.js", "rutas.js", "tresd.js"}
+    assert all(hashlib.sha256((sitio / nombre).read_bytes()).hexdigest()[:10] == marca for nombre, marca in marcas.items())
+    assert '<script src="capas.js"></script>' in (cli.CARPETA_WEB / "index.html").read_text(encoding="utf-8")      # el original no se toca
     assert sorted(f.name for f in (sitio / "datos").iterdir()) == ["camaras.geojson", "candidatos.geojson", "capa-dgt.geojson", "huellas.geojson"]
     assert json.loads((sitio / "manifest.webmanifest").read_text(encoding="utf-8"))["start_url"] == "."      # relativo: vale en una subcarpeta
     assert "ninguno" not in capsys.readouterr().out
