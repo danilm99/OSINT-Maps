@@ -12,7 +12,7 @@ function duracionLegible(s) {
   return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${min % 60 ? `${min % 60} min` : ""}`.trim();
 }
 function descargar(nombre, texto, tipo) {
-  const enlace = el("a", { href: URL.createObjectURL(new Blob([texto], { type })), download: nombre });
+  const enlace = el("a", { href: URL.createObjectURL(new Blob([texto], { type: tipo })), download: nombre });
   enlace.click();
   URL.revokeObjectURL(enlace.href);
 }
@@ -55,10 +55,22 @@ function filaDeLista(simboloNodo, titulo, detalle, alPulsar) {
   b.addEventListener("click", alPulsar);
   return el("li", {}, b);
 }
+/* La forma de un elemento en GeoJSON, que escribe las coordenadas al revés que Leaflet (longitud, latitud).
+   Un área lleva su contorno y sus huecos; GeoJSON pide que cada anillo acabe donde empieza. */
+function geometriaGeoJSON(e) {
+  const girar = (puntos) => puntos.map(([lat, lon]) => [lon, lat]);
+  if (e.linea) return { type: "LineString", coordinates: girar(e.linea) };
+  if (e.anillos && e.anillos.length) {
+    const cerrar = (anillo) => { const a = girar(anillo), u = a[a.length - 1]; if (a[0][0] !== u[0] || a[0][1] !== u[1]) a.push(a[0]); return a; };
+    const poligonos = e.anillos.map((poligono) => poligono.map(cerrar));
+    return poligonos.length === 1 ? { type: "Polygon", coordinates: poligonos[0] } : { type: "MultiPolygon", coordinates: poligonos };
+  }
+  return { type: "Point", coordinates: [e.lon, e.lat] };
+}
 function exportarVista() {
   const features = elementosEnVista().map(([capa, e]) => ({
     type: "Feature",
-    geometry: e.linea ? { type: "LineString", coordinates: e.linea.map(([lat, lon]) => [lon, lat]) } : { type: "Point", coordinates: [e.lon, e.lat] },
+    geometry: geometriaGeoJSON(e),
     properties: Object.assign({ capa: capa.nombre, nombre: e.nombre }, Object.fromEntries((e.datos || []).filter((d) => d[1] != null && d[1] !== "")), e.etiquetas || {}, e.url ? { url: e.url } : {}),
   }));
   descargar("osintmaps-vista.geojson", JSON.stringify({ type: "FeatureCollection", features }), "application/geo+json");

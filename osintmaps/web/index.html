@@ -2081,6 +2081,9 @@ function dejarDeColocar() {
 }
 $("anadir").addEventListener("click", () => {
   if (colocando) { dejarDeColocar(); return; }
+  // Si se estaba midiendo, se termina la medida (lo medido se queda): si no, el siguiente toque
+  // en el mapa sería otro punto de la medida y no el marcador que se acaba de pedir.
+  if (midiendo && typeof terminarMedida === "function") terminarMedida(false);
   colocando = true;
   $("anadir").setAttribute("aria-pressed", "true"); rotular($("anadir"), "Toca el sitio en el mapa");
   $("mapa").classList.add("colocando");

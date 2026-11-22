@@ -437,6 +437,55 @@ def test_el_servidor_hace_de_relevo_de_trenes_y_fichas(servidor, monkeypatch):
     assert pedir_de_verdad(f"{url}/vivo/ficha", params={"url": "https://listaroja.hispanianostra.org/ficha/caida/"}, timeout=10).status_code == 502
 
 
+def test_una_ficha_lenta_no_deja_esperando_a_los_trenes(servidor, monkeypatch):
+    import threading
+    import time
+
+    import requests
+    url, _ = servidor
+    pedidas, soltar = [], threading.Event()
+
+    class Respuesta:
+        def __init__(self, texto):
+            self.text, self.content = texto, texto.encode("utf-8")
+
+        def raise_for_status(self):
+            pass
+
+    pedir_de_verdad = requests.get
+
+    def a_la_red(direccion, **kw):
+        if "127.0.0.1" in direccion:
+            return pedir_de_verdad(direccion, **kw)
+        pedidas.append(direccion)
+        if "renfe" in direccion:
+            return Respuesta('{"entity": []}')
+        soltar.wait(10)      # la web de la ficha tarda en contestar
+        return Respuesta('<meta property="og:description" content="Torre">')
+
+    cli._RELEVO.clear()
+    cli._CANDADOS_RELEVO.clear()
+    monkeypatch.setattr(cli.requests, "get", a_la_red)
+    ficha = "https://listaroja.hispanianostra.org/ficha/lenta/"
+    respuestas = []
+    hilos = [threading.Thread(target=lambda: respuestas.append(pedir_de_verdad(f"{url}/vivo/ficha", params={"url": ficha}, timeout=15).json())) for _ in range(2)]
+    for h in hilos:
+        h.start()
+    time.sleep(0.3)      # las dos peticiones de la ficha ya están dentro, esperando a la web
+
+    # Mientras tanto los trenes contestan enseguida.
+    t0 = time.monotonic()
+    assert pedir_de_verdad(f"{url}/vivo/trenes", timeout=5).json() == {"entity": []}
+    assert time.monotonic() - t0 < 2
+
+    soltar.set()
+    for h in hilos:
+        h.join(15)
+    assert [r["descripcion"] for r in respuestas] == ["Torre", "Torre"]
+    # Y la misma ficha pedida dos veces a la vez solo sale una vez a la red.
+    assert len([p for p in pedidas if "lenta" in p]) == 1
+
+
 def test_paquete_autonomo(red_simulada, tmp_path, capsys):
     salida = tmp_path / "datos"
     cli.main(["buscar", "--municipios", "46900", "--salida", str(salida), "--cache", str(tmp_path / "cache")])

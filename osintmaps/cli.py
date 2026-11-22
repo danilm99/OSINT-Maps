@@ -349,6 +349,7 @@ _AVIONES: OrderedDict[tuple, tuple[float, bytes]] = OrderedDict()
 _CANDADO_AVIONES = threading.Lock()
 _RELEVO: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
 _CANDADO_RELEVO = threading.Lock()
+_CANDADOS_RELEVO: dict[str, threading.Lock] = {}      # uno por clave, para la petición a la web de fuera
 VIDA_AVIONES = 8.0       # segundos que se reutiliza una respuesta
 MAX_ZONAS_AVIONES = 32
 
@@ -499,10 +500,16 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
     def _relevo(self, clave: str, url: str, vida: float, convertir=None) -> None:
         """Devuelve como JSON lo que contesta un servicio que no deja que una página web le
         pregunte directamente. Guarda la respuesta `vida` segundos para no repetir la consulta."""
+        # Dos candados. El general solo se coge un instante, para tocar la tabla de respuestas
+        # guardadas. La petición a la web de fuera, que puede tardar 20 segundos, se hace con el
+        # candado de su propia clave: dos peticiones de lo mismo no salen dos veces, y una ficha
+        # lenta no deja esperando a los trenes ni a las demás fichas.
         with _CANDADO_RELEVO:
-            ahora = time.monotonic()
-            guardado = _RELEVO.get(clave)
-            if not guardado or ahora - guardado[0] > vida:
+            candado = _CANDADOS_RELEVO.setdefault(clave, threading.Lock())
+        with candado:
+            with _CANDADO_RELEVO:
+                guardado = _RELEVO.get(clave)
+            if not guardado or time.monotonic() - guardado[0] > vida:
                 try:
                     resp = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0 OSINT-Maps"})
                     resp.raise_for_status()
@@ -511,10 +518,16 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
                     guardado = None
                 else:
                     guardado = (time.monotonic(), contenido)
-                    _RELEVO[clave] = guardado
-                    _RELEVO.move_to_end(clave)
-                    while len(_RELEVO) > 300:
-                        _RELEVO.popitem(last=False)
+                with _CANDADO_RELEVO:
+                    if guardado is None:
+                        if clave not in _RELEVO:
+                            _CANDADOS_RELEVO.pop(clave, None)      # no se guardó nada: su candado tampoco
+                    else:
+                        _RELEVO[clave] = guardado
+                        _RELEVO.move_to_end(clave)
+                        while len(_RELEVO) > 300:
+                            vieja, _ = _RELEVO.popitem(last=False)
+                            _CANDADOS_RELEVO.pop(vieja, None)
         if guardado is None:
             self.send_error(502)
             return
