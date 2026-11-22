@@ -1894,7 +1894,8 @@ function sinRepetidos(lugares) {
   const salida = [];
   for (const l of lugares) {
     if (!l) continue;
-    if (!salida.some((o) => (l.osm && o.osm === l.osm) || (sinAcentos(o.nombre) === sinAcentos(l.nombre) && mapa.distance([o.lat, o.lon], [l.lat, l.lon]) < 150))) salida.push(l);
+    // (mismo nombre, mismo tipo de cosa y al lado: una estación de tren y la de bicis de su puerta se llaman igual y no son lo mismo)
+    if (!salida.some((o) => (l.osm && o.osm === l.osm) || (sinAcentos(o.nombre) === sinAcentos(l.nombre) && o.capa === l.capa && mapa.distance([o.lat, o.lon], [l.lat, l.lon]) < 150))) salida.push(l);
   }
   return salida;
 }
