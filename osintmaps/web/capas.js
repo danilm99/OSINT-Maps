@@ -1323,7 +1323,7 @@ function horarioOSM(texto, ahora = new Date()) {
     }
     return filas.map(([a, b, horas]) => [a === b ? DIAS_ES[a] : b === a + 1 ? `${DIAS_ES[a]} y ${DIAS_ES[b]}` : `${DIAS_ES[a]} a ${DIAS_ES[b]}`, horas]);
   };
-  if (semana.every((lista) => lista.length === 1 && lista[0][0] === 0 && lista[0][1] >= 1440)) return { abierto: true, cambio: "abre las 24 horas", semana: texto7() };
+  if (semana.every((lista) => lista.length === 1 && lista[0][0] === 0 && lista[0][1] >= 1440)) return { abierto: true, siempre: true, cambio: "las 24 horas", semana: texto7() };
   if (!tramos.length) return { abierto: false, cambio: "", semana: texto7() };
   // (un tramo que pasa de la medianoche del domingo sigue en el lunes: por eso se mira también t + una semana)
   const actual = tramos.find(([a, b]) => (t >= a && t < b) || (t + SEMANA >= a && t + SEMANA < b));
@@ -1350,7 +1350,7 @@ function resumenNegocio(t) {
       const tabla = el("dl", { className: "datos" });
       for (const [dias, horas] of h.semana) tabla.append(el("dt", { textContent: dias.replace(/^./, (x) => x.toUpperCase()) }), el("dd", { textContent: horas }));
       caja.append(el("details", { className: "horario" }, el("summary", {}, el("b", { className: h.abierto ? "abierto" : "cerrado", textContent: h.abierto ? "Abierto" : "Cerrado" }),
-        el("span", { textContent: h.cambio ? ` · ${h.cambio}` : "" })), tabla, el("p", { className: "ayuda", textContent: "Horario de OpenStreetMap, sin festivos: puede no estar al día." })));
+        el("span", { textContent: h.siempre ? " las 24 horas" : h.cambio ? ` · ${h.cambio}` : "" })), tabla, el("p", { className: "ayuda", textContent: "Horario de OpenStreetMap, sin festivos: puede no estar al día." })));
     } else caja.append(el("p", { className: "horario" }, iconoSVG("reloj", 16), ` Horario: ${t.opening_hours}`));
   }
   const direccion = direccionDe(t), telefono = telefonoDe(t), web = webDe(t);
@@ -1429,7 +1429,7 @@ function analizarEntorno(e, destino) {
   destino.replaceChildren(el("p", { className: "pendiente", textContent: "Preguntando a OpenStreetMap (hasta un minuto)…" }));
   const r = 200, c = `${e.lat},${e.lon}`;
   overpass(`[out:json][timeout:30];(nwr["man_made"="surveillance"](around:${r},${c});node["highway"="street_lamp"](around:${r},${c});way["barrier"](around:${r},${c});` +
-           `node["barrier"](around:${r},${c});nwr["amenity"="police"](around:2500,${c});way["building"](around:${r},${c}););out tags center qt;`).then((j) => {
+           `node["barrier"](around:${r},${c});nwr["amenity"="police"](around:2500,${c});way["building"](around:${r},${c}););out tags center qt;`, null, true).then((j) => {
     const sitio = (x) => (x.type === "node" ? x : x.center) || {}, lejos = (x) => Math.round(mapa.distance([e.lat, e.lon], [sitio(x).lat, sitio(x).lon]));
     const de = (prueba) => (j.elements || []).filter((x) => sitio(x).lat != null && prueba(x.tags || {})).sort((a, b) => lejos(a) - lejos(b));
     const camaras0 = de((t) => t.man_made === "surveillance" && t.surveillance !== "indoor"), farolas = de((t) => t.highway === "street_lamp");
@@ -1497,7 +1497,7 @@ function abrirElemento(e, mover) {
 
   const partes = [el("div", { className: "navegacion" }, volver),
     el("h2", { textContent: e.nombre || capa.nombre }),
-    el("div", { className: "lugar" }, muestra, `${e.detalle && capa === CAPA_LUGAR ? e.detalle : capa.uno || capa.nombre}. ${e.lat.toFixed(5)}, ${e.lon.toFixed(5)}`),
+    el("div", { className: "lugar" }, muestra, `${e.detalle && capa === CAPA_LUGAR ? e.detalle : (capa.uno && ((e.etiquetas && tipoDeEtiquetas(e.etiquetas)) || ((e.datos || []).find(([k]) => k === "Qué es") || [])[1])) || capa.uno || capa.nombre}. ${e.lat.toFixed(5)}, ${e.lon.toFixed(5)}`),
     negocio, portada, vistas, el("div", { className: "bloque" }, acciones)];
 
   // Los datos se pintan ahora y otra vez si después llegan las etiquetas de OpenStreetMap (un sitio abierto desde el buscador).
@@ -1943,7 +1943,7 @@ function buscarCerca(capa, radioPedido) {
   pintarResultados([[`${capa.nombre}: buscando lo más cercano…`, []]], true);
   let pedido;
   if (capa.tipo === "osm") {
-    pedido = overpass(`[out:json][timeout:25];(${capa.ql.map((q) => `${q}(around:${radio},${centro.lat.toFixed(5)},${centro.lng.toFixed(5)});`).join("")});out center tags qt 300;`)
+    pedido = overpass(`[out:json][timeout:25];(${capa.ql.map((q) => `${q}(around:${radio},${centro.lat.toFixed(5)},${centro.lng.toFixed(5)});`).join("")});out center tags qt 300;`, null, true)
       .then((j) => (j.elements || []).filter((x) => capa.es(x.tags || {})).map((x) => elementoOSM(x, capa)).filter(Boolean));
   } else if (capa.tipo === "api") {
     const dLat = radio / 111320, dLon = dLat / Math.cos((centro.lat * Math.PI) / 180);
@@ -1968,7 +1968,7 @@ function pintarBusquedaCerca() {
   const filas = elementos.map((e) => {
     const h = e.etiquetas && e.etiquetas.opening_hours ? horarioOSM(e.etiquetas.opening_hours) : null;
     return { color: e.color || capa.color, icono: capa.icono || capa.id, forma: capa.forma, titulo: e.nombre, derecha: metrosLegibles(e.lejos),
-      detalle: [h ? (h.abierto ? "Abierto" : "Cerrado") + (h.cambio ? `, ${h.cambio}` : "") : "", e.etiquetas ? [e.etiquetas["addr:street"], e.etiquetas["addr:housenumber"]].filter(Boolean).join(" ") : ""].filter(Boolean).join(" · "),
+      detalle: [h ? (h.siempre ? "Abierto las 24 horas" : (h.abierto ? "Abierto" : "Cerrado") + (h.cambio ? `, ${h.cambio}` : "")) : "", e.etiquetas ? [e.etiquetas["addr:street"], e.etiquetas["addr:housenumber"]].filter(Boolean).join(" ") : ""].filter(Boolean).join(" · "),
       clase: h ? (h.abierto ? "abierto" : "cerrado") : "", ir: () => abrirElemento(e, true) };
   });
   pintarResultados([[elementos.length ? `${capa.nombre}: ${elementos.length === 60 ? "los 60 más cercanos" : `${elementos.length} a menos de ${metrosLegibles(radio)}`}` : `${capa.nombre}: no hay ninguno a menos de ${metrosLegibles(radio)}`, filas]], true);

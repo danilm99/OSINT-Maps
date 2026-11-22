@@ -4,15 +4,26 @@ Un mapa para cruzar fuentes abiertas sobre el terreno, en España: se elige qué
 capas ver, se busca en todas a la vez y cualquier cosa del mapa abre su ficha
 con datos e imágenes sin salir de la página.
 
+- **Buscador como el de un mapa de calle**: negocios, direcciones con su
+  portal, lugares, coordenadas y referencias catastrales, y «farmacias (o
+  gasolineras, cajeros, aseos...) cerca de aquí» con lo más próximo primero.
+- **Cómo llegar**: a pie, en coche, en bici y en transporte público, con
+  alternativas, pasos uno a uno, líneas y transbordos.
 - **Sitios abandonados**, sacados de Catastro, OpenStreetMap y Wikidata y
   ordenados por interés.
-- **Más de treinta capas de datos**: cámaras (OpenStreetMap, DGT y València),
+- **Más de 120 capas de datos**: cámaras (OpenStreetMap, DGT y València),
   radares, patrimonio en riesgo, inmuebles en subasta, solares, descampados,
   ferrocarril, túneles, energía, antenas, industria, agua, farolas, arte
-  urbano, miradores, edificios de Catastro con su estado y su año, artículos
-  de Wikipedia, fotos, aviones y trenes de Cercanías en vivo.
-- **Ruta y medición** dentro de la página: a pie o en coche entre dos puntos,
-  y distancias en línea recta.
+  urbano, edificios de Catastro con su estado y su año, Wikipedia y fotos;
+  lo de cada día (restaurantes, tiendas, farmacias, bancos, aparcamientos,
+  paradas con sus próximos pasos, gasolineras con el precio de hoy); 35
+  capas del Ayuntamiento de València (Valenbisi, aparcamientos y tráfico al
+  momento, obras, arbolado, mupis, hidrantes...); y en vivo, aviones, trenes
+  de Cercanías, terremotos y sensores de aire.
+- **La foto aérea más nítida de cada sitio** (6 cm en València ciudad, 15 cm
+  en la provincia, 25 cm en el resto de España) y **vista en 3D** con relieve
+  y edificios.
+- **Medición** de distancias sobre el mapa.
 - **Imágenes dentro de la página**: ortofoto de cada año desde 1956, Street
   View, fotos a pie de calle de Panoramax, fotos de Wikimedia Commons, las
   últimas pasadas del satélite Sentinel-2 y cámaras de tráfico en directo.
@@ -21,8 +32,10 @@ con datos e imágenes sin salir de la página.
 - **Marcadores propios** con nota, y **parcelas, vallas y caminos** para leer
   el terreno.
 
-Herramienta personal: funciona en tu ordenador y los datos se quedan en él.
-Todo lo que usa es gratuito y no pide cuenta ni clave.
+Funciona de dos maneras: en tu ordenador (`osintmaps servir`) o publicado como
+página web (`osintmaps publicar`), que se abre desde el móvil y se puede
+instalar como una aplicación. Todo lo que usa es gratuito y no pide cuenta ni
+clave.
 
 ## Estado
 
@@ -36,7 +49,7 @@ Probado de principio a fin con la provincia de Valencia (noviembre de 2026):
 | Candidatos | 4.297 |
 | Con nota de 40 o más | 331 |
 
-Todas las fuentes responden y el mapa funciona con datos reales. Hay 88
+Todas las fuentes responden y el mapa funciona con datos reales. Hay 93
 pruebas automáticas (`pytest`) que no necesitan internet.
 
 Recuentos reales de esa misma prueba: 390 cámaras en OpenStreetMap, 1.980
@@ -92,7 +105,12 @@ los cambios que hagas en el código se apliquen sin reinstalar.
 osintmaps buscar --provincia 46 --fotos 200    # genera los datos en datos/
 osintmaps servir                               # abre el mapa en el navegador
 osintmaps capas --provincia 46                 # refresca Lista Roja, DGT y subastas
+osintmaps publicar --con-notas                 # lo sube a GitHub Pages, para el móvil
 ```
+
+El buscador, las rutas, la mayoría de las capas y el 3D no necesitan `buscar`:
+funcionan nada más abrir el mapa, en cualquier sitio. `buscar` es lo que
+rellena la lista de sitios abandonados de una provincia.
 
 En Windows, el mapa también se abre con doble clic en `abrir-mapa.bat`.
 
@@ -149,15 +167,36 @@ acerque el mapa, y lo dicen.
 
 | Grupo | Capas | De dónde salen |
 |---|---|---|
-| Vigilancia | Cámaras, cámaras de tráfico de la DGT y de València, radares de velocidad, policía | OpenStreetMap, DGT, Ajuntament de València |
+| Vigilancia | Cámaras, cámaras de tráfico de la DGT y de València, radares de velocidad, policía, barreras y controles de paso, prisiones | OpenStreetMap, DGT, Ajuntament de València |
 | Abandono y patrimonio | Lista Roja, Verde y Negra; inmuebles en subasta; abandonado en OSM; descampados y obras; solares y edificios a rehabilitar; BIC y BRL; refugios antiaéreos; militar; lugares históricos | Hispania Nostra, BOE, OpenStreetMap, Ajuntament de València |
-| Infraestructura | Ferrocarril (en magenta lo que está en desuso), túneles y puentes, muros, energía, antenas, industria, canteras, minas y cuevas, agua, farolas | OpenStreetMap |
-| A pie de calle | Arte urbano y murales, miradores | OpenStreetMap |
+| Infraestructura | Ferrocarril (en magenta lo que está en desuso), túneles y puentes, muros, energía, antenas, industria, canteras, minas y cuevas, agua, farolas, centros de datos y armarios de calle, tapas de registro, granjas e invernaderos | OpenStreetMap |
+| A pie de calle | Arte urbano y murales, miradores, publicidad (vallas, mupis, pantallas), skateparks, escaleras y ascensores | OpenStreetMap |
+| Transporte | Paradas con sus próximos pasos, estaciones, taxis, bicis de alquiler, aparcabicis, carriles bici, gasolineras con el precio de hoy, recarga eléctrica, aparcamientos, talleres, aeropuertos, puertos | Transitous, Ministerio para la Transición Ecológica, OpenStreetMap |
+| Comer y beber, Compras, Servicios, Ocio, Naturaleza | Restaurantes, bares, cafeterías; supermercados, panaderías, pintura y ferretería, todas las tiendas; farmacias, hospitales, bancos y cajeros, correos, oficinas públicas, emergencias, colegios, aseos, fuentes, wifi; hoteles, museos y cines, deporte; parques, picos, playas, manantiales, camping y refugios | OpenStreetMap |
+| València: movilidad | Valenbisi, aparcamientos y tráfico al momento; metro y bocas, EMT, taxis, carril bici, zona azul, plazas reservadas, obras y cortes, bolardos, semáforos, aforos, paneles, vados | Ajuntament de València |
+| València: ciudad | Calidad del aire y estaciones meteorológicas al momento, sonómetros, fuentes, aseos, jardines, los 158.000 árboles, contenedores, wifi municipal, monumentos, excavaciones arqueológicas, fallas, hidrantes, mupis, quioscos, vivienda protegida, equipamientos | Ajuntament de València |
 | Fotos y artículos | Wikipedia, fotos de Commons, fotos a pie de calle | Wikimedia, Panoramax |
 | Catastro | Edificios con su estado (en uso, deficiente, ruina), año y uso | Catastro |
-| En vivo | Aviones en vuelo y trenes de Cercanías | adsb.lol y Renfe, a través de `osintmaps servir` |
+| En vivo | Aviones en vuelo y trenes de Cercanías (solo con `osintmaps servir`); terremotos del último mes y sensores de partículas | adsb.lol, Renfe, EMSC, sensor.community |
 
-Los grupos del panel se pliegan y dicen cuántas capas tienen encendidas.
+Los grupos del panel se pliegan y dicen cuántas capas tienen encendidas, y el
+buscador de capas del propio panel encuentra una por su nombre.
+
+Lo que cambia cada pocos minutos (Valenbisi, aparcamientos, tráfico, aire) no
+se guarda: se vuelve a pedir lo que se ve, cada uno a su ritmo. Las
+gasolineras se colorean por tercios de precio dentro de su provincia (verde
+lo barato, rojo lo caro).
+
+**Imágenes para poner encima** (en *Capas*, bajo el mapa de fondo): nombres
+de calles, red ferroviaria, mapa de 1915-1960, relieve LiDAR, radar de lluvia,
+zonas inundables (ríos a 100 y 500 años y temporales de mar), restricciones
+para drones de ENAIRE, límites municipales, senderos y rutas ciclistas
+señalizadas, señales del mar y focos de calor vistos desde satélite. De
+València: mapa de ruido, calificación urbanística (PGOU), distritos y barrios
+(los municipales y los policiales), secciones censales, zona de bajas
+emisiones y zonas acústicamente saturadas. Con una de estas zonas encendida,
+la ficha de cualquier punto dice además qué le toca (su calificación, su
+barrio policial, su nivel de ruido).
 
 Tres de ellas no se piden al momento, sino que se descargan a la carpeta de
 datos: la Lista Roja, las cámaras de la DGT y las subastas. Lo hace `osintmaps
@@ -239,9 +278,23 @@ minuto. Lo que sí se puede es no esperar dos veces por lo mismo:
   IGN a la máxima resolución que tiene (15 a 50 cm por píxel según la zona y
   el año). Sentinel-2 son 10 m por píxel: vale para ver si algo ha cambiado
   este mes, no para ver detalle.
-- **Buscador**: una sola caja para los sitios, lo cargado en las capas, tus
-  marcadores, calles y lugares (Nominatim), coordenadas (`39.47, -0.37`) y
-  referencias catastrales.
+- **Buscador**: una sola caja para todo. Mientras se escribe propone negocios
+  y lugares (Photon) y portales de España (CartoCiudad); con Intro, o al dejar
+  de escribir, pregunta además a Nominatim, que entiende frases enteras
+  («mercadona ruzafa»). También busca en los sitios, en lo cargado de las
+  capas y en tus marcadores, y entiende coordenadas (`39.47, -0.37`) y
+  referencias catastrales. El mapa no se mueve solo mientras se escribe: los
+  resultados se ordenan por cercanía a lo que se está mirando.
+- **Cerca de aquí**: al entrar en la caja vacía salen dieciséis búsquedas
+  rápidas (restaurantes, súper, farmacias, gasolineras, cajeros, parking,
+  paradas, aseos, fuentes...), y escribir «farmacia» o «gasolinera» ofrece lo
+  mismo. La lista sale por distancia al centro del mapa, con «abierto» o
+  «cerrado» cuando OpenStreetMap trae el horario; *Buscar en esta zona* la
+  repite donde se haya movido el mapa y *Dejar la capa encendida* la convierte
+  en una capa normal.
+- **Ficha de un negocio**: si está abierto y cuándo cierra, el horario de la
+  semana, la dirección, el teléfono (para llamar con un toque) y la web. Los
+  datos son los de OpenStreetMap; el horario no sabe de festivos.
 - **Fondos**: ortofoto del IGN, satélite de Esri (otra fecha), Sentinel-2,
   callejero, mapas oscuro y claro de Esri, relieve LiDAR (se ven edificios y
   muros bajo los árboles), luces nocturnas desde satélite y los mapas de 1870
@@ -250,16 +303,45 @@ minuto. Lo que sí se puede es no esperar dos veces por lo mismo:
 - **Pestañas del panel**: *Sitios* es la lista de siempre; *En el mapa*
   enumera lo que hay de las capas encendidas en lo que se ve, de más cerca a
   más lejos, y lo guarda como GeoJSON; *Marcadores* es la lista de los tuyos.
-- **Ruta**: el botón *Ruta* de cualquier ficha traza el camino hasta ese
-  punto, a pie o en coche, con distancia y tiempo. El origen es tu posición
-  si el navegador la da, o el punto que elijas con botón derecho, *Ruta desde
-  aquí*. La calcula el servidor público de OpenStreetMap (OSRM).
+- **Cómo llegar**: el botón de cualquier ficha (o botón derecho, *Ruta desde
+  aquí* y *Ruta hasta aquí*) abre las cuatro maneras de ir, cada una con lo
+  que tarda: a pie, en transporte público, en coche y en bici. El origen es
+  tu posición si el navegador la da; si no, se escribe o se toca en el mapa.
+  A pie, en coche y en bici (OSRM) salen hasta tres caminos, que se eligen en
+  la lista o tocándolos en el mapa, con las maniobras una a una. En
+  transporte público (Transitous) salen varios viajes con sus líneas en su
+  color, los transbordos, las paradas intermedias y si el vehículo va ya
+  comunicando su posición; se puede pedir para otra hora o «llegar a las».
+  Si la ruta sale de tu posición y te mueves, dice cuánto queda y la vuelve a
+  calcular cuando te sales de ella.
 - **Medir**: botón derecho, *Medir distancia desde aquí*, y cada clic añade
   un tramo. Escape termina.
 - La ficha de un punto enseña la **foto de fachada de Catastro** cuando la
   parcela la tiene, y las de Hispania Nostra traen su foto y su resumen.
 - La dirección de la página guarda dónde se está mirando: se puede copiar y
   volver al mismo sitio.
+
+### La foto y el 3D
+
+- **La foto más nítida de cada sitio**: el fondo por defecto elige solo, para
+  cada trozo de mapa, la mejor foto aérea que hay: la del Ayuntamiento en
+  València ciudad (unos 6 cm por punto), la del ICV de 2025 en la provincia
+  (15 cm) y la del PNOA en el resto de España (25 cm). Se puede acercar hasta
+  el zoom 22, y en pantallas densas (móviles, portátiles modernos) se pide el
+  doble de detalle. En *Capas → Ajustar la foto* hay brillo, contraste, color
+  y enfoque.
+- **Otros fondos**: infrarrojo del ICV (la vegetación sale en rojo), satélite
+  de Google y de Esri (otras fechas), el satélite de ayer de todo el planeta
+  (250 m, para ver humo, riadas o nieve), y en València ciudad los vuelos
+  desde 1956 y los planos desde 1738 para comparar con cortina.
+- **3D**: el botón *3D* cambia el mapa por una vista en perspectiva con el
+  relieve, la foto aérea pegada encima y los edificios levantados con su
+  altura. Encima siguen los sitios, tus marcadores, lo cargado de las capas,
+  la ruta y tu posición, y al tocar un punto se abre su ficha. Se gira y se
+  inclina con el botón derecho (o con dos dedos). No es una maqueta
+  fotográfica como la de Google Earth: cada edificio es un prisma con la
+  altura que consta en OpenStreetMap. La biblioteca que lo dibuja (MapLibre)
+  pesa un megabyte y solo se descarga la primera vez que se pulsa el botón.
 
 ### Cámaras
 
@@ -319,21 +401,34 @@ Lo que estos datos **no** dicen, y conviene no suponer:
 Las vallas y caminos pueden tardar hasta un minuto en cargar: el servicio de
 OpenStreetMap es gratuito y compartido.
 
-### En el móvil
+### En el móvil, sin el ordenador
 
+- **Publicado como página web**: `osintmaps publicar` sube el mapa a GitHub
+  Pages (la rama `gh-pages` del repositorio) y queda en una dirección del
+  tipo `https://usuario.github.io/OSINT-Maps/`, que se abre desde cualquier
+  sitio. Lleva los sitios, las cámaras y las capas descargadas; con
+  `--con-notas`, también tus marcas y marcadores (quedan a la vista de quien
+  tenga la dirección). `osintmaps sitio` crea la misma página en una carpeta,
+  para alojarla donde se quiera. El repositorio tiene que ser público, o la
+  cuenta de pago, para que GitHub sirva la página.
+- **Como una aplicación**: en el navegador del móvil, *Añadir a la pantalla
+  de inicio*. Se abre a pantalla completa y arranca aunque no haya cobertura
+  (lo ya visto sale de la memoria).
+- **Pensado para el dedo**: el buscador flota sobre el mapa y el panel es una
+  hoja que sube desde abajo, con tres alturas; se arrastra por el asa. El
+  botón de la posición pone un punto azul que sigue al aparato mientras la
+  página está abierta.
+- En la versión web las notas que se hagan se quedan en ese navegador (no hay
+  un programa detrás que las guarde), y los aviones y los trenes en vivo no
+  salen: sus servicios no dejan que una página les pregunte directamente.
 - **En casa, por la wifi**: `osintmaps servir --red` (o `abrir-mapa.bat
   --red`) muestra una dirección del tipo `http://192.168.1.20:8000/` para
-  abrir en el móvil. Las marcas y los marcadores se comparten con el ordenador. Mientras esté
-  abierto, cualquiera en esa wifi puede ver el mapa.
-- **Fuera de casa**: `osintmaps paquete` crea `datos/mapa.html`, un único
-  fichero con el mapa y los datos dentro. Pásalo al móvil y ábrelo; solo
-  necesita internet para las ortofotos. En este modo lo que anotes se queda
-  en el navegador del móvil; pásalo al ordenador con una copia.
+  abrir en el móvil. Las marcas y los marcadores se comparten con el
+  ordenador. Mientras esté abierto, cualquiera en esa wifi puede ver el mapa.
+  Así el navegador no da la posición: solo la da en páginas seguras (https).
+- **Un solo fichero**: `osintmaps paquete` crea `datos/mapa.html`, con el
+  mapa y los datos dentro, para pasarlo al móvil y abrirlo sin servidor.
 - **Google Earth**: `datos/candidatos.kml` se abre tal cual.
-
-El botón *Cerca de mí* necesita que el navegador dé la posición, y los
-navegadores solo la dan en el propio ordenador o en páginas seguras: por la
-wifi de casa no funcionará.
 
 ### Qué genera
 
@@ -423,8 +518,20 @@ funciones cortas que hay debajo, y vuelve a ejecutar `buscar`.
   dejar de funcionar sin aviso. Las imágenes de Sentinel-2 dependen de un
   servidor de demostración (titiler.xyz).
 - Las capas de València solo cubren el término municipal.
-- Los aviones y las imágenes en directo no funcionan en el `mapa.html`
-  autónomo: necesitan `osintmaps servir`.
+- Los aviones y los trenes en vivo solo funcionan con `osintmaps servir`: ni
+  en la versión web ni en el `mapa.html` autónomo.
+- Las rutas en coche no cuentan el tráfico, y no hay navegación hablada: se
+  ve cuánto queda y el paso siguiente hay que mirarlo.
+- El transporte público es lo que las empresas publican y Transitous reúne:
+  en València están EMT, Metrovalencia, MetroBus y Renfe; en otros sitios
+  puede faltar alguna empresa.
+- Los negocios y sus horarios son los de OpenStreetMap: lo que nadie ha
+  apuntado no sale, y un horario puede estar anticuado.
+- Los buscadores, las rutas y OpenStreetMap son servidores públicos
+  mantenidos por voluntarios: a ratos tardan o no contestan, y no están
+  pensados para un uso masivo.
+- El 3D no es fotogramétrico: relieve, foto y prismas. La altura de un
+  edificio es la que consta en OpenStreetMap, que a veces falta.
 
 ## Estructura del código
 
@@ -450,8 +557,11 @@ osintmaps/
   red.py, geo.py    utilidades de red y de coordenadas
   web/iconos.js     iconos, símbolos del mapa y cambio de tema
   web/index.html    el mapa: sitios, fichas, marcas, marcadores, accesos y la memoria de lo descargado
-  web/capas.js      capas de datos, ficha general, visor, buscador y menú
-  web/herramientas.js  pestañas del panel, ruta, medición, exportación y tira de capas
+  web/capas.js      fondos, capas de datos, ficha general, visor, buscador y menú
+  web/herramientas.js  pestañas del panel, medición, exportación, tira de capas y hoja del móvil
+  web/rutas.js      cómo llegar: a pie, en coche, en bici y en transporte público
+  web/tresd.js      la vista en 3D
+  web/sw.js, manifest.webmanifest  lo que hace falta para instalarlo como aplicación
 tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
 ```
 
@@ -466,8 +576,20 @@ tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
   València: geoportal municipal. Subastas: Portal de Subastas del BOE.
 - Iconos: Material Design Icons (Pictogrammers), Apache 2.0.
 - Patrimonio en riesgo: Hispania Nostra. Fotos de calle: Panoramax. Aviones:
-  adsb.lol. Trenes: Renfe. Tiempo y altitud: Open-Meteo. Direcciones:
-  CartoCiudad y Nominatim. Rutas: OSRM de FOSSGIS. Lluvia: RainViewer. Mapas
-  oscuro y claro: Esri. Luces nocturnas: NASA Black Marble.
+  adsb.lol. Trenes: Renfe. Tiempo, altitud y aire: Open-Meteo. Lluvia:
+  RainViewer. Mapas oscuro y claro: Esri. Luces nocturnas: NASA Black Marble.
+- Buscador: Photon (Komoot), CartoCiudad (IGN) y Nominatim, sobre datos de
+  OpenStreetMap. Rutas: OSRM en los servidores de FOSSGIS. Transporte
+  público: Transitous, con los horarios que publican las empresas.
+- Fotos aéreas de detalle: Ajuntament de València e Institut Cartogràfic
+  Valencià (CC BY 4.0). Capas y zonas de València: geoportal de datos
+  abiertos del Ajuntament.
+- Gasolineras: Ministerio para la Transición Ecológica. Terremotos: EMSC.
+  Sensores de aire: sensor.community. Zonas inundables: SNCZI (MITECO), vía
+  IDEE. Drones: ENAIRE. Senderos: Waymarked Trails. Mar: OpenSeaMap. Satélite
+  diario y focos de calor: NASA GIBS.
+- 3D: MapLibre GL (BSD); edificios y nombres de OpenFreeMap (OpenMapTiles,
+  datos de OpenStreetMap); relieve de las teselas Terrarium (Mapzen, con
+  datos SRTM y otros).
 
 `datos/` y `cache/` no se suben al repositorio.

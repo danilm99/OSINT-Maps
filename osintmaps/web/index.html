@@ -1810,7 +1810,9 @@ const enVista = (s, o, n, e, margen = 0.3) => mapa.getBounds().pad(margen).inter
    y gratuitos: a ratos alguno está saturado y tarda un minuto o no contesta. Se pregunta primero
    al que respondió bien la última vez; si a los 8 segundos sigue callado se pregunta además al
    siguiente, y vale la primera respuesta buena (a los demás se les cuelga).
-   `sigue`, si se da, dice si la consulta aún hace falta cuando le llega el turno. */
+   `sigue`, si se da, dice si la consulta aún hace falta cuando le llega el turno.
+   `urgente`: lo que alguien acaba de pedir a mano (una búsqueda «cerca de aquí») no espera en la
+   cola detrás de las capas que se están cargando: se pregunta ya. */
 // El servidor que funcionó se recuerda una hora, también de una recarga a la siguiente: si el
 // principal está caído no hay que tropezar con él cada vez que se abre la página.
 let servidorOSM = 0;
@@ -1818,7 +1820,7 @@ let servidorOSM = 0;
   const recordado = leerLocal("osintmaps.overpass.v1", null);
   if (recordado && recordado.url && Date.now() - recordado.t < 3600000 && OVERPASS.includes(recordado.url)) servidorOSM = OVERPASS.indexOf(recordado.url);
 }
-function overpass(consulta, sigue) {
+function overpass(consulta, sigue, urgente) {
   const preguntar = () => new Promise((resolver, rechazar) => {
     const cortes = [];
     let lanzados = 0, vivos = 0, hecho = false, reloj = null;
@@ -1852,6 +1854,7 @@ function overpass(consulta, sigue) {
     };
     lanzar();
   });
+  if (urgente) return preguntar();
   return new Promise((resolver, rechazar) => encolarOSM(() => preguntar().then(resolver, rechazar),
     { sigue, alDescartar: () => rechazar(new Error("descartada")) }));
 }
