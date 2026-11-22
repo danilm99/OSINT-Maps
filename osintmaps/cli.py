@@ -405,9 +405,9 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
 
         Los datos son varios megas de JSON, que comprimido ocupa la sexta parte: en el
         ordenador da igual, pero desde el móvil por la wifi se nota. Además cada fichero
-        lleva una «etiqueta» (ETag) hecha con su fecha y su tamaño; el navegador la manda
-        de vuelta al recargar y, si coincide, se le contesta «304: no ha cambiado» sin
-        volver a enviarlo.
+        lleva su fecha y una «etiqueta» (ETag) hecha con su fecha y su tamaño; el navegador
+        las manda de vuelta al recargar y, si coinciden, se le contesta «304: no ha
+        cambiado» sin volver a enviarlo.
         """
         self._sin_guardar = self._fichero_editable() is not None
         ruta = Path(self.translate_path(self.path))
@@ -419,10 +419,15 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
             info = ruta.stat()
         except OSError:
             return super().send_head()
+        # Dos formas de preguntar «¿ha cambiado?»: por etiqueta o por fecha. Chrome solo usa la
+        # etiqueta con servidores HTTP/1.1 y este contesta en HTTP/1.0, así que se atienden las dos.
         etiqueta = f'"{info.st_mtime_ns:x}-{info.st_size:x}"'
-        if self.headers.get("If-None-Match") == etiqueta:
+        fecha = self.date_time_string(info.st_mtime)
+        la_tiene = self.headers.get("If-None-Match")
+        if la_tiene == etiqueta or (la_tiene is None and self.headers.get("If-Modified-Since") == fecha):
             self.send_response(304)
             self.send_header("ETag", etiqueta)
+            self.send_header("Last-Modified", fecha)
             self.end_headers()
             return None
         comprimir = "gzip" in self.headers.get("Accept-Encoding", "") and info.st_size >= 1024
@@ -438,6 +443,7 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(cuerpo)))
         self.send_header("ETag", etiqueta)
+        self.send_header("Last-Modified", fecha)
         self.end_headers()
         return io.BytesIO(cuerpo)
 

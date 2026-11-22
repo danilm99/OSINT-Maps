@@ -257,6 +257,14 @@ def test_el_servidor_comprime_y_no_repite_lo_que_el_navegador_ya_tiene(servidor)
     r, cuerpo = pedir("/datos/candidatos.geojson", {"Accept-Encoding": "gzip", "If-None-Match": etiqueta})
     assert r.status == 304 and cuerpo == b""
 
+    # Chrome, con un servidor HTTP/1.0 como este, pregunta por fecha en vez de por etiqueta.
+    fecha = pedir("/datos/candidatos.geojson", {})[0].getheader("Last-Modified")
+    assert fecha
+    r, cuerpo = pedir("/datos/candidatos.geojson", {"Accept-Encoding": "gzip", "If-Modified-Since": fecha})
+    assert r.status == 304 and cuerpo == b""
+    r, _ = pedir("/datos/candidatos.geojson", {"Accept-Encoding": "gzip", "If-Modified-Since": "Thu, 01 Jan 2015 00:00:00 GMT"})
+    assert r.status == 200
+
     # Al repetir la búsqueda el fichero cambia: se manda el nuevo, con otra etiqueta.
     (carpeta / "candidatos.geojson").write_text(contenido + " ", encoding="utf-8")
     r, cuerpo = pedir("/datos/candidatos.geojson", {"Accept-Encoding": "gzip", "If-None-Match": etiqueta})
