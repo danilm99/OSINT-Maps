@@ -111,7 +111,7 @@ function identificarEnSuperpuestas(e, dl, sigue) {
     pedirJ(`${capa.options.servicio}/identify?geometry=${e.lon},${e.lat}&geometryType=esriGeometryPoint&sr=4326&layers=all:${capa.options.capas}&tolerance=2` +
       `&mapExtent=${e.lon - d},${e.lat - d},${e.lon + d},${e.lat + d}&imageDisplay=400,400,96&returnGeometry=false&f=json`, null, 15000).then((j) => {
       if (!sigue()) return;
-      const textos = (j.results || []).map((r) => Object.entries(r.attributes || {}).filter(([k, v]) => !CAMPOS_FUERA.test(k) && limpio(v) && !/^(null|polygon|polyline|point)$/i.test(String(v))).slice(0, 5)
+      const textos = (j.results || []).map((r) => Object.entries(r.attributes || {}).filter(([k, v]) => !CAMPOS_FUERA.test(k) && !/^(objectid|shape|fid|gid|cod|id)\b/i.test(k) && limpio(v) && !/^(null|polygon|polyline|point)$/i.test(String(v))).slice(0, 5)
         .map(([k, v]) => `${CAMPO_BONITO[k.toLowerCase()] || k.toLowerCase().replace(/_/g, " ")}: ${limpio(v)}`).join(", ")).filter(Boolean);
       dd.className = textos.length ? "" : "pendiente";
       dd.textContent = textos.length ? textos.join(" · ").slice(0, 420) : "nada en este punto";
