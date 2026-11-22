@@ -414,12 +414,12 @@ function capaMalla() {
         focal: lienzo.clientHeight / (2 * Math.tan(campo / 2)), pasoW: Math.hypot(g, h, k),
         ojo: [(p * (e * k - f * h) - b * (q * k - f * r) + c * (q * h - e * r)) / det, (a * (q * k - f * r) - p * (d * k - f * g) + c * (d * r - q * g)) / det,
           (a * (e * r - q * h) - b * (d * r - q * g) + p * (d * h - e * g)) / det] };
-      lista = []; cola = [];
-      arboles.forEach((arbol, ia) => elegir(arbol, ia, 0));
-      // Subir a la tarjeta lo que haya llegado (poco cada vez, para no dar tirones) y pedir lo que falta, lo más grande primero.
+      // Primero se pasa a la tarjeta lo que haya llegado (poco cada vez, para no dar tirones): así ya entra en este fotograma.
       for (const recien of porSubir.splice(0, 2)) subir(recien);
       if (porSubir.length) repintar();
-      cola.sort((x, y) => y.px - x.px);
+      lista = []; cola = [];
+      arboles.forEach((arbol, ia) => elegir(arbol, ia, 0));
+      cola.sort((x, y) => y.px - x.px);          // y se pide lo que falta, lo más grande en pantalla primero
       siguiente();
 
       if (gl2) gl.bindVertexArray(null);
