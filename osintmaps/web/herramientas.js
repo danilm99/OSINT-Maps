@@ -5,7 +5,6 @@
    2. Ruta entre dos puntos y medición de distancias, con una tarjeta sobre el mapa.
    3. Lo que se añade a las fichas: la foto y el resumen de las de Hispania Nostra. */
 
-const servido = /^https?:$/.test(location.protocol) && !window.OSINT_DATOS;      // con «osintmaps servir», no como fichero suelto
 const distanciaLegible = (m) => (m < 950 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toLocaleString("es-ES", { maximumFractionDigits: m < 10000 ? 1 : 0 })} km`);
 function duracionLegible(s) {
   const min = Math.max(1, Math.round(s / 60));
@@ -208,7 +207,7 @@ document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && midien
   const original = abrirElemento;
   abrirElemento = function (e, mover) {
     original(e, mover);
-    if (elementoAbierto !== e || e.capa !== "listaroja" || !e.url || !servido) return;
+    if (elementoAbierto !== e || e.capa !== "listaroja" || !e.url || !conServidor) return;
     const poner = (d) => {
       if (elementoAbierto !== e || !d) return;
       const ficha = $("ficha-elemento");

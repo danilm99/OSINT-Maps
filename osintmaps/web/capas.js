@@ -379,11 +379,13 @@ function pedirEdificios(caja, sigue) {
     return salida;
   }).then(resolver, rechazar), { sigue, alDescartar: () => rechazar(new Error("descartada")) }));
 }
+/* Lo que es en directo y viene de servicios que no dejan que una página les pregunte: solo si
+   detrás está el programa del ordenador, que pregunta por ella. */
+const relevo = (ruta) => hayServidor.then((si) => (si ? pedirJ(ruta, null, 15000) : Promise.reject(new Error("solo con «osintmaps servir»"))));
 function pedirAviones() {
-  if (!/^https?:$/.test(location.protocol) || window.OSINT_DATOS) return Promise.reject(new Error("solo con «osintmaps servir»"));
   const c = mapa.getCenter(), b = mapa.getBounds();
   const millas = Math.min(120, Math.max(5, Math.round(mapa.distance(c, b.getNorthEast()) / 1852)));
-  return pedirJ(`vivo/aviones?lat=${c.lat.toFixed(3)}&lon=${c.lng.toFixed(3)}&dist=${millas}`, null, 15000).then((j) => (j.ac || []).filter((a) => a.lat != null && a.lon != null).map((a) => ({
+  return relevo(`vivo/aviones?lat=${c.lat.toFixed(3)}&lon=${c.lng.toFixed(3)}&dist=${millas}`).then((j) => (j.ac || []).filter((a) => a.lat != null && a.lon != null).map((a) => ({
     id: `avion/${a.hex}`, lat: a.lat, lon: a.lon, nombre: (a.flight || "").trim() || a.r || a.hex, rumbo: a.track, url: `https://globe.adsb.lol/?icao=${a.hex}`,
     datos: [["Vuelo", (a.flight || "").trim()], ["Matrícula", a.r], ["Modelo", a.t], ["Altitud", typeof a.alt_baro === "number" ? `${miles(a.alt_baro * 0.3048)} m` : a.alt_baro === "ground" ? "en tierra" : ""],
       ["Velocidad", a.gs != null ? `${miles(a.gs * 1.852)} km/h` : ""], ["Rumbo", a.track != null ? `${Math.round(a.track)}°` : ""], ["Código transpondedor", a.squawk], ["Identificador", a.hex]] })));
@@ -392,9 +394,8 @@ function pedirAviones() {
 /* Trenes de Cercanías: Renfe publica dónde va cada uno. Llegan los de toda España; se enseñan los de la vista. */
 const ESTADO_TREN = { STOPPED_AT: "parado en", INCOMING_AT: "llegando a", IN_TRANSIT_TO: "en camino a" };
 function pedirTrenes() {
-  if (!/^https?:$/.test(location.protocol) || window.OSINT_DATOS) return Promise.reject(new Error("solo con «osintmaps servir»"));
   const vista = mapa.getBounds().pad(0.2);
-  return pedirJ("vivo/trenes", null, 15000).then((j) => (j.entity || []).map((x) => x.vehicle || {}).filter((v) => v.position && vista.contains([v.position.latitude, v.position.longitude])).map((v) => {
+  return relevo("vivo/trenes").then((j) => (j.entity || []).map((x) => x.vehicle || {}).filter((v) => v.position && vista.contains([v.position.latitude, v.position.longitude])).map((v) => {
     const etiqueta = ((v.vehicle || {}).label || "").trim(), linea = (/^(C\d+\w?)/.exec(etiqueta) || /-(C\d+\w?)-/.exec((v.vehicle || {}).id || "") || [])[1] || "";
     return { id: `tren/${(v.vehicle || {}).id || (v.trip || {}).tripId}`, lat: v.position.latitude, lon: v.position.longitude, nombre: etiqueta || `Tren ${(v.trip || {}).tripId || ""}`.trim(),
       datos: [["Línea", linea], ["Tren", etiqueta], ["Situación", ESTADO_TREN[v.currentStatus] ? `${ESTADO_TREN[v.currentStatus]} la parada ${v.stopId || ""}`.trim() : ""],
@@ -618,7 +619,7 @@ function refrescarVivo(capa) {
     const abierto = elementoAbierto && elementoAbierto.capa === capa.id ? elementoAbierto.id : null;
     vaciar(capa); incorporar(capa, elementos); est.error = false;
     if (abierto && est.elementos.has(abierto)) { const e = est.elementos.get(abierto); elementoAbierto = e; marcarSeleccion(e); }
-  }, (err) => { est.error = true; est.mensaje = /servir/.test(err.message) ? "solo con «osintmaps servir»" : ""; }).finally(pintarEstadoCapas);
+  }, (err) => { est.error = true; est.mensaje = /servir/.test(err.message) ? "solo con el programa del PC" : ""; }).finally(pintarEstadoCapas);
 }
 
 /* --- Panel de capas --- */

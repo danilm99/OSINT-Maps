@@ -30,6 +30,13 @@ if (/^https?:$/.test(location.protocol)) {
 </script>
 <!--/PRONTO-->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2317242e'/%3E%3Cpath d='M16 6a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7z' fill='%23e5007d'/%3E%3Ccircle cx='16' cy='13' r='2.6' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#17242e">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="OSINT Maps">
+<link rel="apple-touch-icon" href="icono-180.png">
 <link rel="preconnect" href="https://unpkg.com" crossorigin>
 <!-- De aquí salen las ortofotos y las parcelas: se va abriendo la conexión mientras carga la página. -->
 <link rel="preconnect" href="https://www.ign.es">
@@ -712,6 +719,14 @@ function distanciaKm(a, b) {
    servidor si ha cambiado. Si no ha cambiado, el servidor contesta solo eso y no lo vuelve a
    mandar: recargar la página no vuelve a bajar los megas de datos. */
 const pedirJSON = (ruta) => fetch(ruta, { cache: "no-cache" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))));
+/* ¿Detrás de la página está el programa «osintmaps servir», o es una web estática (GitHub Pages,
+   el fichero suelto)? Con el programa, las notas se guardan además en disco y se puede preguntar
+   a servicios que no dejan que una página les pregunte directamente (aviones, trenes). Sin él,
+   todo lo demás funciona igual y las notas se quedan en este navegador. */
+let conServidor = false;
+const hayServidor = window.OSINT_DATOS || !/^https?:$/.test(location.protocol) ? Promise.resolve(false)
+  : fetch("vivo/hola", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => !!(j && j.osintmaps)).catch(() => false);
+hayServidor.then((si) => { conServidor = si; document.documentElement.classList.toggle("sin-servidor", !si); });
 const leerLocal = (clave, porDefecto) => { try { return JSON.parse(localStorage.getItem(clave)) ?? porDefecto; } catch { return porDefecto; } };
 const guardarLocal = (clave, valor) => { try { localStorage.setItem(clave, JSON.stringify(valor)); } catch { /* sin almacenamiento */ } };
 
@@ -843,9 +858,11 @@ function crearAlmacen(nombre, normalizar, esVacio) {
     a.guardar(null);
     return n;
   };
-  a.sincronizar = (base) => pedirJSON(`${base}${nombre}.json`).then((datos) => {
+  /* Lee lo que haya publicado junto a la página. Si detrás está el programa, además se le manda lo
+     pendiente; en una web estática solo se lee, y lo que se anote aquí se queda en este navegador. */
+  a.sincronizar = (base) => Promise.all([pedirJSON(`${base}${nombre}.json`), hayServidor]).then(([datos, si]) => {
     a.incorporarDelServidor(datos);
-    a.enServidor = base === "datos/";
+    a.enServidor = si && base === "datos/";
     if (a.pendientes.size) a.guardar(null);
   });
   /* Al cerrar o cambiar de pestaña se manda lo pendiente sin esperar al temporizador. */
@@ -2377,6 +2394,12 @@ $("importar-marcas").addEventListener("change", (e) => {
   }).catch(() => { $("estado-marcas").textContent = "Ese fichero no es una copia de OSINT Maps ni de GraffMap."; });
   e.target.value = "";
 });
+
+/* En la versión web (https) se instala el trabajador de servicio (sw.js): guarda copia de la
+   página para que abra sin cobertura. En el propio ordenador no hace falta. */
+if ("serviceWorker" in navigator && location.protocol === "https:" && !window.OSINT_DATOS) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => { /* sin él todo funciona igual */ }));
+}
 
 /* ---------- Arranque ---------- */
 actualizarCapasDePuntos();

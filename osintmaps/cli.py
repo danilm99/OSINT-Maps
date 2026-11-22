@@ -358,6 +358,7 @@ MAX_ZONAS_AVIONES = 32
 TIPOS_COMPRIMIBLES = {
     ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
     ".json": "application/json; charset=utf-8", ".geojson": "application/geo+json; charset=utf-8", ".svg": "image/svg+xml",
+    ".webmanifest": "application/manifest+json; charset=utf-8",
 }
 _COMPRIMIDOS: dict[str, tuple[int, int, bytes]] = {}      # ruta -> (fecha, tamaño, contenido comprimido)
 _CANDADO_COMPRIMIDOS = threading.Lock()
@@ -544,6 +545,11 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
     def do_GET(self) -> None:
         self._sin_guardar = False
         ruta = urlparse(self.path).path
+        if ruta == "/vivo/hola":
+            # Así sabe el visor que detrás está este programa y no una web estática: puede
+            # guardar las notas en disco y pedir lo que una página sola no puede (aviones, trenes).
+            self._responder_json(200, json.dumps({"osintmaps": __version__}).encode("utf-8"))
+            return
         if ruta == "/vivo/aviones":
             self._aviones()
             return
@@ -716,6 +722,76 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
     return pagina
 
 
+# --------------------------------------------------------------------------
+# sitio y publicar: la versión web, sin este ordenador
+# --------------------------------------------------------------------------
+
+# Lo que se copia de la carpeta de datos a la web. Las notas (marcas y marcadores propios) solo si se pide.
+DATOS_DEL_SITIO = ("candidatos.geojson", "huellas.geojson", "camaras.geojson", *(f"capa-{n}.geojson" for n in CAPAS_EXTRA))
+NOTAS_DEL_SITIO = tuple(LIMPIADORES)
+
+
+def crear_sitio(destino: Path, carpeta_datos: Path | None, con_notas: bool = False) -> list[str]:
+    """Deja en `destino` el visor como web estática: los ficheros del visor y, bajo datos/,
+    los resultados. Vale para cualquier alojamiento de páginas (GitHub Pages, por ejemplo):
+    no necesita ningún programa detrás. Devuelve los ficheros de datos que ha copiado."""
+    import shutil
+
+    destino.mkdir(parents=True, exist_ok=True)
+    for fichero in CARPETA_WEB.iterdir():
+        if fichero.is_file():
+            shutil.copy2(fichero, destino / fichero.name)
+    (destino / ".nojekyll").write_text("", encoding="utf-8")      # que GitHub no intente procesar la carpeta
+    copiados = []
+    if carpeta_datos is not None:
+        (destino / "datos").mkdir(exist_ok=True)
+        for nombre in DATOS_DEL_SITIO + (NOTAS_DEL_SITIO if con_notas else ()):
+            origen = carpeta_datos / nombre
+            if origen.is_file():
+                shutil.copy2(origen, destino / "datos" / nombre)
+                copiados.append(nombre)
+    return copiados
+
+
+def cmd_sitio(args: argparse.Namespace) -> int:
+    destino = Path(args.salida)
+    datos = None if args.sin_datos else Path(args.datos)
+    copiados = crear_sitio(destino, datos, args.con_notas)
+    _decir(f"Web estática en {destino.resolve()} ({len(copiados)} ficheros de datos: {', '.join(copiados) or 'ninguno'}).")
+    _decir("Súbela a cualquier alojamiento de páginas, o usa «osintmaps publicar» para GitHub Pages.")
+    return 0
+
+
+def cmd_publicar(args: argparse.Namespace) -> int:
+    """Publica la web en la rama gh-pages del repositorio de GitHub (la que usa GitHub Pages).
+
+    La rama se rehace entera cada vez, con un solo commit: los datos pesan varios megas y así
+    el repositorio no crece con cada publicación.
+    """
+    import subprocess
+
+    def git(*orden: str, carpeta: Path | None = None) -> str:
+        r = subprocess.run(["git", *orden], cwd=carpeta, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r.returncode != 0:
+            raise RuntimeError(f"git {' '.join(orden[:2])} ha fallado: {(r.stderr or r.stdout).strip()[:300]}")
+        return r.stdout.strip()
+
+    repo = args.repo or git("remote", "get-url", "origin")
+    datos = None if args.sin_datos else Path(args.datos)
+    with tempfile.TemporaryDirectory(prefix="osintmaps-sitio-") as tmp:
+        sitio = Path(tmp)
+        copiados = crear_sitio(sitio, datos, args.con_notas)
+        git("init", "-q", "-b", "gh-pages", carpeta=sitio)
+        git("add", "-A", carpeta=sitio)
+        git("-c", "user.name=OSINT Maps", "-c", "user.email=osintmaps@users.noreply.github.com", "commit", "-q", "-m",
+            f"Web publicada el {time.strftime('%Y-%m-%d %H:%M')}", carpeta=sitio)
+        git("push", "-q", "--force", repo, "gh-pages", carpeta=sitio)
+    _decir(f"Publicado en la rama gh-pages de {repo} ({len(copiados)} ficheros de datos{', con tus notas' if args.con_notas else ''}).")
+    _decir("La primera vez hay que activar GitHub Pages en el repositorio: Settings → Pages → Branch: gh-pages.")
+    _decir("Una web en GitHub Pages la puede abrir cualquiera que tenga la dirección.")
+    return 0
+
+
 def cmd_paquete(args: argparse.Namespace) -> int:
     carpeta = Path(args.datos)
     if not (carpeta / "candidatos.geojson").exists():
@@ -794,6 +870,20 @@ def crear_parser() -> argparse.ArgumentParser:
     p.add_argument("--sin-navegador", action="store_true")
     p.add_argument("--red", action="store_true", help="lo abre a la red local, para usarlo desde el móvil")
     p.set_defaults(func=cmd_servir)
+
+    p = sub.add_parser("sitio", help="deja el mapa como web estática en una carpeta, para alojarla donde quieras")
+    p.add_argument("--salida", default="sitio", help="carpeta donde dejar la web (por defecto: sitio)")
+    p.add_argument("--datos", default="datos", help="carpeta con los resultados (por defecto: datos)")
+    p.add_argument("--sin-datos", action="store_true", help="solo el visor, sin ningún resultado")
+    p.add_argument("--con-notas", action="store_true", help="incluye también tus marcas y tus marcadores")
+    p.set_defaults(func=cmd_sitio)
+
+    p = sub.add_parser("publicar", help="publica la web en GitHub Pages (rama gh-pages del repositorio)")
+    p.add_argument("--datos", default="datos", help="carpeta con los resultados (por defecto: datos)")
+    p.add_argument("--sin-datos", action="store_true", help="solo el visor, sin ningún resultado")
+    p.add_argument("--con-notas", action="store_true", help="incluye también tus marcas y tus marcadores")
+    p.add_argument("--repo", default=None, help="dirección del repositorio (por defecto, el «origin» de esta carpeta)")
+    p.set_defaults(func=cmd_publicar)
 
     p = sub.add_parser("paquete", help="crea un único HTML con el mapa y los datos dentro")
     p.add_argument("--datos", default="datos")

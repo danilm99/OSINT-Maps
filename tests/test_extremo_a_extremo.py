@@ -486,6 +486,56 @@ def test_una_ficha_lenta_no_deja_esperando_a_los_trenes(servidor, monkeypatch):
     assert len([p for p in pedidas if "lenta" in p]) == 1
 
 
+def test_el_servidor_se_identifica(servidor):
+    import requests
+    url, _ = servidor
+    r = requests.get(f"{url}/vivo/hola", timeout=10)
+    assert r.json() == {"osintmaps": cli.__version__} and r.headers["Cache-Control"] == "no-store"
+
+
+def test_sitio_estatico(tmp_path, capsys):
+    datos = tmp_path / "datos"
+    datos.mkdir()
+    for nombre in ("candidatos.geojson", "huellas.geojson", "camaras.geojson", "capa-dgt.geojson", "marcas.json", "marcadores.json", "otra-cosa.txt"):
+        (datos / nombre).write_text("{}", encoding="utf-8")
+
+    # Por defecto, los resultados sí y las notas personales no.
+    sitio = tmp_path / "sitio"
+    assert cli.main(["sitio", "--salida", str(sitio), "--datos", str(datos)]) == 0
+    assert {f.name for f in sitio.iterdir()} >= {"index.html", "capas.js", "iconos.js", "herramientas.js", "sw.js", "manifest.webmanifest", "icono-192.png", ".nojekyll", "datos"}
+    assert sorted(f.name for f in (sitio / "datos").iterdir()) == ["camaras.geojson", "candidatos.geojson", "capa-dgt.geojson", "huellas.geojson"]
+    assert json.loads((sitio / "manifest.webmanifest").read_text(encoding="utf-8"))["start_url"] == "."      # relativo: vale en una subcarpeta
+    assert "ninguno" not in capsys.readouterr().out
+
+    con_notas = tmp_path / "con-notas"
+    cli.main(["sitio", "--salida", str(con_notas), "--datos", str(datos), "--con-notas"])
+    assert {"marcas.json", "marcadores.json"} <= {f.name for f in (con_notas / "datos").iterdir()}
+
+    solo_visor = tmp_path / "solo-visor"
+    cli.main(["sitio", "--salida", str(solo_visor), "--sin-datos"])
+    assert not (solo_visor / "datos").exists() and (solo_visor / "index.html").exists()
+
+
+def test_publicar_en_la_rama_de_paginas(tmp_path, capsys):
+    import subprocess
+    remoto = tmp_path / "remoto.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remoto)], check=True)
+    datos = tmp_path / "datos"
+    datos.mkdir()
+    (datos / "candidatos.geojson").write_text('{"type": "FeatureCollection", "features": []}', encoding="utf-8")
+    (datos / "marcadores.json").write_text('{"m1": {"lat": 1, "lng": 2}}', encoding="utf-8")
+
+    assert cli.main(["publicar", "--datos", str(datos), "--repo", str(remoto)]) == 0
+    listado = subprocess.run(["git", "--git-dir", str(remoto), "ls-tree", "-r", "--name-only", "gh-pages"], capture_output=True, text=True, check=True).stdout.split()
+    assert {"index.html", "sw.js", ".nojekyll", "datos/candidatos.geojson"} <= set(listado) and "datos/marcadores.json" not in listado
+
+    # Publicar otra vez rehace la rama: sigue habiendo un solo commit. Con --con-notas van también las notas.
+    assert cli.main(["publicar", "--datos", str(datos), "--repo", str(remoto), "--con-notas"]) == 0
+    assert subprocess.run(["git", "--git-dir", str(remoto), "rev-list", "--count", "gh-pages"], capture_output=True, text=True, check=True).stdout.strip() == "1"
+    listado = subprocess.run(["git", "--git-dir", str(remoto), "ls-tree", "-r", "--name-only", "gh-pages"], capture_output=True, text=True, check=True).stdout.split()
+    assert "datos/marcadores.json" in listado
+
+
 def test_paquete_autonomo(red_simulada, tmp_path, capsys):
     salida = tmp_path / "datos"
     cli.main(["buscar", "--municipios", "46900", "--salida", str(salida), "--cache", str(tmp_path / "cache")])
