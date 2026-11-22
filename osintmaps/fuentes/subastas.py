@@ -69,27 +69,44 @@ def listar(sesion: requests.Session, provincia: str, estado: str = "EJ") -> list
     return ids_del_listado(resp.text)
 
 
+class ServicioCaido(Exception):
+    """Catastro o CartoCiudad no han contestado: no se sabe si el bien se puede situar."""
+
+
+def _consultar(sesion: requests.Session, url: str, parametros: dict) -> dict | None:
+    """Pregunta a un servicio de localización. Devuelve None si rechaza la pregunta (un
+    dato mal escrito) y lanza ServicioCaido si no contesta o contesta algo ilegible."""
+    try:
+        return pedir(sesion, "GET", url, params=parametros, timeout=30, reintentos=2).json()
+    except requests.HTTPError as exc:
+        codigo = getattr(getattr(exc, "response", None), "status_code", None)
+        if codigo is not None and 400 <= codigo < 500 and codigo != 429:
+            return None
+        raise ServicioCaido(f"{url}: {exc}") from exc
+    except (OSError, ValueError) as exc:      # sin conexión, fuera de plazo o respuesta que no es JSON
+        raise ServicioCaido(f"{url}: {exc}") from exc
+
+
 def _coordenadas(sesion: requests.Session, bien: dict) -> tuple[float, float, str] | None:
+    """Dónde está un bien, o None si de verdad no se puede saber. Si lo que falla es el
+    servicio lanza ServicioCaido: no es lo mismo «no tiene sitio» que «hoy no contestan»."""
     refcat = _REFCAT.search(bien.get("Referencia catastral", ""))
     if refcat:
+        datos = _consultar(sesion, URL_CPMRC, {"RefCat": refcat.group(1), "SRS": "EPSG:4326"})
         try:
-            datos = pedir(sesion, "GET", URL_CPMRC, params={"RefCat": refcat.group(1), "SRS": "EPSG:4326"},
-                          timeout=30, reintentos=2).json()
             geo = datos["Consulta_CPMRCResult"]["coordenadas"]["coord"][0]["geo"]
             return float(geo["ycen"]), float(geo["xcen"]), "parcela"
-        except Exception as exc:  # noqa: BLE001 - se intenta por la dirección
-            log.debug("Catastro no situó %s: %s", refcat.group(1), exc)
+        except (KeyError, IndexError, TypeError, ValueError):
+            log.debug("Catastro no conoce la referencia %s", refcat.group(1))      # se intenta por la dirección
     direccion, localidad = bien.get("Dirección"), bien.get("Localidad")
     if direccion and localidad:
+        datos = _consultar(sesion, URL_CARTOCIUDAD, {"q": f"{direccion}, {localidad}"})
         try:
-            datos = pedir(sesion, "GET", URL_CARTOCIUDAD, params={"q": f"{direccion}, {localidad}"},
-                          timeout=30, reintentos=2).json()
-            if datos and datos.get("lat") and datos.get("lng"):
-                # Solo vale si acertó al menos con la calle; un municipio entero no sitúa nada.
-                if datos.get("type") in ("portal", "callejero", "toponimo", "Codpost") or datos.get("tip_via"):
-                    return float(datos["lat"]), float(datos["lng"]), "portal" if datos.get("type") == "portal" else "calle"
-        except Exception as exc:  # noqa: BLE001
-            log.debug("CartoCiudad no situó «%s, %s»: %s", direccion, localidad, exc)
+            # Solo vale si acertó al menos con la calle; un municipio entero no sitúa nada.
+            if datos.get("type") in ("portal", "callejero", "toponimo", "Codpost") or datos.get("tip_via"):
+                return float(datos["lat"]), float(datos["lng"]), "portal" if datos.get("type") == "portal" else "calle"
+        except (AttributeError, KeyError, TypeError, ValueError):
+            log.debug("CartoCiudad no situó «%s, %s»", direccion, localidad)
     return None
 
 
@@ -147,10 +164,12 @@ def buscar(sesion: requests.Session, carpeta_cache: Path, provincia: str, *, usa
         if guardado is None:
             try:
                 guardado = detalle(sesion, identificador)
-                cache.guardar(identificador, guardado)
-            except Exception as exc:  # noqa: BLE001 - una subasta ilegible no detiene el resto
-                log.warning("Subasta %s omitida: %s", identificador, exc)
+            except Exception as exc:  # noqa: BLE001 - una subasta que falla no detiene el resto
+                # No se guarda: así la próxima vez se vuelve a intentar entera, en vez de
+                # dar por buena una lectura a medias.
+                log.warning("Subasta %s omitida esta vez: %s", identificador, exc)
                 continue
+            cache.guardar(identificador, guardado)
         for punto in guardado:
             for campo in ("fin", "inicio"):      # «10-12-2026 18:00:00 CET (ISO: 2026-...)»: sobra la segunda mitad
                 if punto.get(campo):

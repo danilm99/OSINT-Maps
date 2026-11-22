@@ -61,12 +61,15 @@ const metros = (a, b) => mapa.distance([a.lat, a.lon], [b.lat, b.lon]);
 const limpio = (t) => String(t == null ? "" : t).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 const fechaCorta = (t) => { const d = new Date(t); return Number.isNaN(+d) ? String(t || "") : d.toLocaleDateString("es-ES"); };
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
-function pedir(url, opciones, espera = 30000) {
+/* Petición con plazo. El plazo cubre también la lectura del cuerpo: un servidor que
+   manda las cabeceras y luego se queda callado no debe dejar la cola bloqueada. */
+function pedir(url, opciones, espera = 30000, como = "json") {
   const corte = new AbortController(), reloj = setTimeout(() => corte.abort(), espera);
   return fetch(url, Object.assign({ signal: corte.signal }, opciones || {}))
-    .then((r) => (r.ok ? r : Promise.reject(new Error(r.status)))).finally(() => clearTimeout(reloj));
+    .then((r) => (r.ok ? r[como]() : Promise.reject(new Error(r.status)))).finally(() => clearTimeout(reloj));
 }
-const pedirJ = (url, opciones, espera) => pedir(url, opciones, espera).then((r) => r.json());
+const pedirJ = (url, opciones, espera) => pedir(url, opciones, espera, "json");
+const pedirTexto = (url, opciones, espera) => pedir(url, opciones, espera, "text");
 
 /* Consulta a Overpass (la base de datos de OpenStreetMap): de una en una y
    probando otro servidor si el primero no contesta. */
@@ -127,7 +130,7 @@ const CAPAS = [
     es: (t) => t.abandoned === "yes" || t.disused === "yes" || t.ruins === "yes" || t.building === "ruins" || t.historic === "ruins" || Object.keys(t).some((k) => k.startsWith("abandoned:")),
     titulo: (t) => tituloOSM(t, "historic", "building", "man_made", "amenity") || "Abandonado" },
   { id: "solares", grupo: "Abandono y patrimonio", nombre: "Solares y edificios a rehabilitar (València)", color: "#c2410c", zoom: 13, tipo: "api",
-    pedir: arcgis([`${VALENCIA}/UrbanismoEInfraestructuras/MapServer/318`, `${VALENCIA}/UrbanismoEInfraestructuras/MapServer/286`, `${VALENCIA}/UrbanismoEInfraestructuras/MapServer/294`]) },
+    pedir: arcgis([`${VALENCIA}/UrbanismoEInfraestructuras/MapServer/286`, `${VALENCIA}/UrbanismoEInfraestructuras/MapServer/294`]) },
   { id: "bic", grupo: "Abandono y patrimonio", nombre: "Patrimonio protegido BIC y BRL (València)", color: "#8a6d1c", zoom: 13, tipo: "api",
     pedir: arcgis([`${VALENCIA}/UrbanismoEInfraestructuras/MapServer/277`, `${VALENCIA}/UrbanismoEInfraestructuras/MapServer/278`]) },
   { id: "refugios", grupo: "Abandono y patrimonio", nombre: "Refugios antiaéreos y patrimonio industrial (València)", color: "#5b4636", zoom: 12, tipo: "api",
@@ -170,7 +173,7 @@ const CAPAS = [
   { id: "commons", grupo: "Fotos y artículos", nombre: "Fotos de Wikimedia Commons", color: "#22d3ee", zoom: 15, tipo: "api", pedir: pedirCommons, radio: 4.5 },
   { id: "panoramax", grupo: "Fotos y artículos", nombre: "Fotos a pie de calle (Panoramax)", color: "#a78bfa", zoom: 16, tipo: "api", pedir: pedirPanoramax, radio: 4 },
   // --- Catastro ---
-  { id: "edificios", grupo: "Catastro", nombre: "Edificios: estado, año y uso", color: "#60a5fa", zoom: 17, tipo: "api", pedir: pedirEdificios, paso: 0.004, porTesela: true },
+  { id: "edificios", grupo: "Catastro", nombre: "Edificios: estado, año y uso", color: "#60a5fa", zoom: 18, tipo: "api", pedir: pedirEdificios, paso: 0.002, porTesela: true },
   // --- En vivo ---
   { id: "aviones", grupo: "En vivo", nombre: "Aviones en vuelo", color: "#facc15", zoom: 7, tipo: "vivo", pedir: pedirAviones, cada: 10000 },
 ];
@@ -188,8 +191,18 @@ function arcgis(servicios) {
   return (caja) => Promise.all(servicios.map((url) =>
     pedirJ(`${url}/query?where=1%3D1&geometry=${caja.o},${caja.s},${caja.e},${caja.n}&geometryType=esriGeometryEnvelope&inSR=4326` +
            "&spatialRel=esriSpatialRelIntersects&outFields=*&outSR=4326&resultRecordCount=2000&f=geojson")
-      .then((g) => (g.features || []).map((f) => elementoGeoJSON(f, url.split("/").slice(-3).join("-"))).filter(Boolean))
-      .catch(() => []))).then((listas) => listas.flat());
+      .then((g) => {
+        // Este servidor contesta «200 OK» también cuando falla, con el error dentro: si se diera
+        // por bueno, ese trozo de mapa quedaría como cargado y vacío para siempre.
+        if (g.error || !Array.isArray(g.features)) throw new Error("arcgis");
+        return g.features.map((f) => elementoGeoJSON(f, url.split("/").slice(-3).join("-"))).filter(Boolean);
+      }))).then((listas) => listas.flat());
+}
+/* Las áreas se guardan como lista de polígonos, y cada polígono como lista de anillos:
+   el primero es el contorno y los demás, huecos (un patio, un claro). */
+function centroDe(anillos) {
+  const fuera = anillos.map((poligono) => poligono[0]).flat();
+  return [fuera.reduce((s, q) => s + q[0], 0) / fuera.length, fuera.reduce((s, q) => s + q[1], 0) / fuera.length];
 }
 const CAMPOS_NOMBRE = ["nombre", "nom", "denominacion", "denominaci", "descripcio", "descripcion", "titulo", "name", "direccion", "adreca", "emplazamiento", "situacion", "texto"];
 const CAMPOS_FUERA = /^(objectid|fid|shape.*|x|y|gid|globalid|st_.*|angulo|anggra)$/i;
@@ -205,9 +218,9 @@ function elementoGeoJSON(f, prefijo) {
     e.linea = (g.type === "LineString" ? g.coordinates : g.coordinates.flat()).map(([x, y]) => [y, x]);
     [e.lat, e.lon] = e.linea[Math.floor(e.linea.length / 2)];
   } else if (g.type === "Polygon" || g.type === "MultiPolygon") {
-    e.anillos = (g.type === "Polygon" ? [g.coordinates] : g.coordinates).map((pol) => pol[0].map(([x, y]) => [y, x]));
-    const todos = e.anillos.flat();
-    e.lat = todos.reduce((s, q) => s + q[0], 0) / todos.length; e.lon = todos.reduce((s, q) => s + q[1], 0) / todos.length;
+    e.anillos = (g.type === "Polygon" ? [g.coordinates] : g.coordinates).map((pol) => pol.map((anillo) => anillo.map(([x, y]) => [y, x]))).filter((pol) => pol.length && pol[0].length >= 3);
+    if (!e.anillos.length) return null;
+    [e.lat, e.lon] = centroDe(e.anillos);
   } else return null;
   if (!Number.isFinite(e.lat) || !Number.isFinite(e.lon)) return null;
   const clave = Object.keys(p).find((k) => CAMPOS_NOMBRE.includes(k.toLowerCase()) && limpio(p[k]));
@@ -273,23 +286,35 @@ const ESTADO_EDIFICIO = { ruin: ["En ruina", "#e5007d"], declined: ["Deficiente"
 const USO_EDIFICIO = { "1_residential": "Residencial", "2_agriculture": "Agrario", "3_industrial": "Industrial", "4_1_office": "Oficinas", "4_2_retail": "Comercial", "4_3_publicServices": "Equipamiento o servicio público" };
 function pedirEdificios(caja) {
   const url = `https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=wfs&version=2&request=getfeature&Typenames=BU.BUILDING&SRSname=EPSG::4326&bbox=${caja.s},${caja.o},${caja.n},${caja.e}`;
-  return new Promise((resolver, rechazar) => encolarCatastro(() => pedir(url).then((r) => r.text()).then((xml) => {
+  return new Promise((resolver, rechazar) => encolarCatastro(() => pedirTexto(url, null, 60000).then((xml) => {
+    // Catastro contesta «200 OK» con un informe de error dentro. Donde no hay nada (el mar)
+    // el informe dice «No records»: eso es un vacío de verdad; cualquier otro es un fallo.
+    if (/ExceptionReport/.test(xml.slice(0, 600))) { if (/No records/i.test(xml)) return []; throw new Error("catastro"); }
     const doc = new DOMParser().parseFromString(xml, "text/xml"), salida = [];
+    if (doc.getElementsByTagName("parsererror").length) throw new Error("xml");
     for (const nodo of doc.getElementsByTagNameNS("*", "Building")) {
       const texto = (nombre) => { const e = nodo.getElementsByTagNameNS("*", nombre)[0]; return e ? e.textContent.trim() : ""; };
       const refcat = texto("reference") || texto("localId");
-      const anillos = [];
+      // Cada trozo del edificio trae su contorno y, si tiene patios, sus huecos. El servicio
+      // repite a veces el mismo trozo: se queda uno solo.
+      const anillos = [], vistos = new Set();
       for (const exterior of nodo.getElementsByTagNameNS("*", "exterior")) {
-        const v = (exterior.getElementsByTagNameNS("*", "posList")[0] || { textContent: "" }).textContent.trim().split(/\s+/).map(Number), anillo = [];
-        for (let i = 0; i + 1 < v.length; i += 2) if (Number.isFinite(v[i]) && Number.isFinite(v[i + 1])) anillo.push([v[i], v[i + 1]]);
-        if (anillo.length >= 3) anillos.push(anillo);
+        const trozo = exterior.parentNode, poligono = [];
+        for (const lista of trozo.getElementsByTagNameNS("*", "posList")) {
+          const v = lista.textContent.trim().split(/\s+/).map(Number), anillo = [];
+          for (let i = 0; i + 1 < v.length; i += 2) if (Number.isFinite(v[i]) && Number.isFinite(v[i + 1])) anillo.push([v[i], v[i + 1]]);
+          if (anillo.length >= 3) poligono.push(anillo);
+        }
+        const huella = poligono.length ? poligono[0].slice(0, 4).join(";") : "";
+        if (!poligono.length || vistos.has(huella)) continue;
+        vistos.add(huella);
+        anillos.push(poligono);
       }
       if (!refcat || !anillos.length) continue;
-      const todos = anillos.flat(), est = texto("conditionOfConstruction"), anio = (texto("beginning") || "").slice(0, 4), uso = USO_EDIFICIO[texto("currentUse")] || "";
+      const [latC, lonC] = centroDe(anillos), est = texto("conditionOfConstruction"), anio = (texto("beginning") || "").slice(0, 4), uso = USO_EDIFICIO[texto("currentUse")] || "";
       const sup = nodo.getElementsByTagNameNS("*", "OfficialArea")[0];
       const m2 = sup ? +(sup.getElementsByTagNameNS("*", "value")[0] || {}).textContent : 0;
-      salida.push({ id: `edificio/${refcat}`, refcat, anillos, estado_edificio: est, superficie: m2 || 400,
-        lat: todos.reduce((s, q) => s + q[0], 0) / todos.length, lon: todos.reduce((s, q) => s + q[1], 0) / todos.length,
+      salida.push({ id: `edificio/${refcat}`, refcat, anillos, estado_edificio: est, superficie: m2 || 400, lat: latC, lon: lonC,
         nombre: `Edificio ${uso ? uso.toLowerCase() : ""}${anio && anio !== "0001" ? ` de ${anio}` : ""}`.replace(/\s+/g, " ").trim(),
         datos: [["Estado", (ESTADO_EDIFICIO[est] || [est])[0]], ["Año de construcción", anio === "0001" ? "" : anio], ["Uso", uso], ["Superficie construida", m2 ? `${miles(m2)} m²` : ""],
           ["Viviendas", texto("numberOfDwellings")], ["Inmuebles", texto("numberOfBuildingUnits")], ["Referencia catastral", refcat]] });
@@ -317,7 +342,7 @@ function elementoOSM(e, capa) {
     const g = e.type === "way" ? e.geometry : null;
     if (g && g.length > 1) {
       const cerrada = g[0].lat === g[g.length - 1].lat && g[0].lon === g[g.length - 1].lon;
-      if (cerrada && g.length > 3) el0.anillos = [g.map((p) => [p.lat, p.lon])];
+      if (cerrada && g.length > 3) el0.anillos = [[g.map((p) => [p.lat, p.lon])]];
       else if (capa.lineas) { el0.linea = g.map((p) => [p.lat, p.lon]); [el0.lat, el0.lon] = el0.linea[Math.floor(el0.linea.length / 2)]; }
     }
   } else return null;
@@ -341,7 +366,9 @@ function dibujar(capa, e) {
   else if (e.anillos && mapa.getZoom() >= 15) d = L.polygon(e.anillos, { color, weight: 2, fillOpacity: 0.25 });
   else d = L.circleMarker([e.lat, e.lon], { radius: capa.radio || 6, color: "#ffffff", weight: 1.5, fillColor: color, fillOpacity: 1 });
   d.on("click", (ev) => { L.DomEvent.stopPropagation(ev); abrirElemento(e); });
-  if (e.nombre) d.bindTooltip(e.nombre, { direction: "top", offset: [0, -6] });
+  // El nombre viene de fuera (OpenStreetMap, ayuntamientos...): Leaflet trata una cadena como
+  // HTML, así que se le da un nodo de texto, que no puede traer código dentro.
+  if (e.nombre) d.bindTooltip(() => el("span", { textContent: e.nombre }), { direction: "top", offset: [0, -6] });
   return d;
 }
 function incorporar(capa, elementos) {
@@ -401,22 +428,42 @@ function actualizarCapas() {
       const caja = cajaDe(lote, paso), pedidas = teselasDeCaja(caja, paso);
       for (const t of pedidas) est.teselas.add(t);
       est.cargando++; est.error = false;
-      const fin = (ok) => { est.cargando--; if (!ok) { est.error = true; for (const t of pedidas) est.teselas.delete(t); } pintarEstadoCapas(); };
+      // resultado: true = cargado; false = fallo; "parcial" = llegó solo una parte. Salvo en el
+      // primer caso, esos trozos de mapa quedan sin dar por cargados y se vuelven a pedir.
+      let hecho = false;
+      est.incompleta = false;
+      const fin = (resultado) => {
+        if (hecho) return;
+        hecho = true;
+        est.cargando--;
+        if (resultado !== true) for (const t of pedidas) est.teselas.delete(t);
+        if (resultado === false) est.error = true;
+        if (resultado === "parcial") est.incompleta = true;
+        pintarEstadoCapas();
+      };
       if (capa.tipo === "osm") tandaOSM.push({ capa, caja, fin });
       else capa.pedir(caja).then((elementos) => { incorporar(capa, elementos); fin(true); }, () => fin(false));
     }
   }
-  if (tandaOSM.length) {
-    // Una sola consulta a OpenStreetMap para todas las capas que lo necesitan.
-    const cuerpo = tandaOSM.map(({ capa, caja }) => capa.ql.map((q) => `${q}(${caja.s},${caja.o},${caja.n},${caja.e});`).join("")).join("");
-    overpass(`[out:json][timeout:40];(${cuerpo});out geom qt 8000;`).then((j) => {
-      for (const { capa, fin } of tandaOSM) {
-        incorporar(capa, (j.elements || []).filter((e) => capa.es(e.tags || {})).map((e) => elementoOSM(e, capa)).filter(Boolean));
-        fin(true);
-      }
-    }, () => { for (const { fin } of tandaOSM) fin(false); });
-  }
+  if (tandaOSM.length) pedirTandaOSM(tandaOSM);
   pintarEstadoCapas();
+}
+/* Una sola consulta a OpenStreetMap para todas las capas que lo necesitan. */
+const TOPE_OSM = 8000;
+function pedirTandaOSM(tanda) {
+  const cuerpo = tanda.map(({ capa, caja }) => capa.ql.map((q) => `${q}(${caja.s},${caja.o},${caja.n},${caja.e});`).join("")).join("");
+  return overpass(`[out:json][timeout:40];(${cuerpo});out geom qt ${TOPE_OSM};`).then((j) => {
+    // Overpass contesta «200 OK» aunque se le acabe el tiempo: lo avisa en «remark» y manda lo que llevaba.
+    if (j.remark && /error|timed out|out of memory/i.test(j.remark)) throw new Error("overpass");
+    const elementos = j.elements || [], cortado = elementos.length >= TOPE_OSM;
+    // Si se llegó al tope, faltan elementos y no se sabe de qué capa: se repite capa a capa.
+    if (cortado && tanda.length > 1) return Promise.all(tanda.map((una) => pedirTandaOSM([una])));
+    for (const { capa, fin } of tanda) {
+      incorporar(capa, elementos.filter((e) => capa.es(e.tags || {})).map((e) => elementoOSM(e, capa)).filter(Boolean));
+      fin(cortado ? "parcial" : true);      // una capa sola que llega al tope: al acercar el mapa se pedirá menos trozo
+    }
+    return null;
+  }).catch(() => { for (const { fin } of tanda) fin(false); });
 }
 
 /* Capas en vivo: se vuelven a pedir cada pocos segundos mientras están encendidas. */
@@ -441,7 +488,8 @@ function pintarEstadoCapas() {
     if (estaActiva(capa)) { cargando += est.cargando; if (est.error) fallos++; }
     if (!nota) continue;
     nota.parentElement.classList.toggle("lejos", est.sinDatos || (estaActiva(capa) && z < capa.zoom));
-    nota.textContent = est.sinDatos ? "sin descargar" : !estaActiva(capa) ? "" : z < capa.zoom ? "acerca el mapa" : est.cargando ? "cargando" : est.error ? (est.mensaje || "sin respuesta") : String(est.elementos.size);
+    nota.textContent = est.sinDatos ? "sin descargar" : !estaActiva(capa) ? "" : z < capa.zoom ? "acerca el mapa" : est.cargando ? "cargando" : est.error ? (est.mensaje || "sin respuesta")
+      : est.incompleta ? `${est.elementos.size}, hay más: acerca` : String(est.elementos.size);
   }
   const aviso = $("aviso-capas");
   aviso.hidden = !cargando && !fallos;
@@ -710,7 +758,12 @@ function abrirElemento(e, mover) {
 
 /* ====================== 4. Visor a pantalla completa ====================== */
 let visor = null;
-function cerrarVisor() { if (!visor) return; clearInterval(visor.reloj); visor.nodo.remove(); visor = null; }
+function cerrarVisor() {
+  if (!visor) return;
+  const antes = visor.antes;
+  clearInterval(visor.reloj); visor.nodo.remove(); visor = null;
+  if (antes && antes.focus && document.contains(antes)) antes.focus({ preventScroll: true });      // el foco vuelve a donde estaba
+}
 function abrirVisor(e, pestana) {
   cerrarVisor();
   const lienzo = el("div", { className: "lienzo" }), opciones = el("div", { className: "opciones" }), pie = el("div", { className: "pie-foto" }), tira = el("div", { className: "miniaturas" });
@@ -719,7 +772,11 @@ function abrirVisor(e, pestana) {
   const pestanas = el("div", { className: "pestanas", role: "tablist" });
   const nodo = el("div", { id: "visor", role: "dialog", ariaLabel: "Imágenes del sitio" },
     el("header", {}, el("h2", { textContent: e.nombre || "Punto del mapa" }), cerrar), pestanas, lienzo, el("div", {}, pie, tira, opciones));
-  visor = { nodo, reloj: null };
+  visor = { nodo, reloj: null, antes: document.activeElement };
+  // Cada cambio de pestaña es un turno nuevo: una respuesta que llega tarde, de una pestaña
+  // que ya no se está viendo, no debe pintar nada.
+  let turno = 0;
+  const vigente = (t) => !!visor && visor.nodo === nodo && t === turno;
   const chip = (texto, alPulsar, grupo) => {
     const b = el("button", { type: "button", textContent: texto });
     b.setAttribute("aria-pressed", "false");
@@ -766,9 +823,9 @@ function abrirVisor(e, pestana) {
       };
       chip("Street View", google, opciones).setAttribute("aria-pressed", "true");
       google();
-      const d = 0.0009;
+      const d = 0.0009, t = turno;
       pedirPanoramax({ s: e.lat - d, n: e.lat + d, o: e.lon - d * 1.3, e: e.lon + d * 1.3 }).then((fotos) => {
-        if (!visor || visor.nodo !== nodo || !fotos.length) return;
+        if (!vigente(t) || !fotos.length) return;
         fotos.sort((a, b) => metros(e, a) - metros(e, b));
         chip(`Panoramax (${fotos.length} fotos libres)`, () => {
           tira.replaceChildren();
@@ -781,9 +838,10 @@ function abrirVisor(e, pestana) {
       }).catch(() => { /* sin fotos libres aquí */ });
     },
     fotos() {
+      const t = turno;
       mensaje("Buscando fotos en Wikimedia Commons a menos de 600 m…");
       consultaWiki("commons.wikimedia.org", Object.assign({ ggscoord: `${e.lat}|${e.lon}`, ggsradius: "600", ggslimit: "60" }, PEDIDO_COMMONS, { iiurlwidth: "1920" })).then((paginas) => {
-        if (!visor || visor.nodo !== nodo) return;
+        if (!vigente(t)) return;
         const fotos = paginas.map(fotoCommons).filter(Boolean).sort((a, b) => (a.lat != null ? metros(e, a) : 1e9) - (b.lat != null ? metros(e, b) : 1e9));
         if (!fotos.length) { mensaje("No hay fotos libres de este sitio en Wikimedia Commons."); return; }
         fotos.forEach((f, k) => {
@@ -791,14 +849,15 @@ function abrirVisor(e, pestana) {
           b.append(el("img", { src: f.imagen.replace(/\/\d+px-/, "/250px-"), alt: "", loading: "lazy" }));
           if (!k) b.click();
         });
-      }).catch(() => mensaje("Wikimedia Commons no ha respondido."));
+      }).catch(() => { if (vigente(t)) mensaje("Wikimedia Commons no ha respondido."); });
     },
     satelite() {
+      const t = turno;
       mensaje("Buscando las últimas pasadas de Sentinel-2…");
       pedirJ("https://earth-search.aws.element84.com/v1/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
         collections: ["sentinel-2-l2a"], intersects: { type: "Point", coordinates: [e.lon, e.lat] }, limit: 14, query: { "eo:cloud_cover": { lt: 35 } },
         sortby: [{ field: "properties.datetime", direction: "desc" }] }) }).then((j) => {
-        if (!visor || visor.nodo !== nodo) return;
+        if (!vigente(t)) return;
         const vistas = new Map();
         for (const f of j.features || []) { const dia = f.properties.datetime.slice(0, 10); if (!vistas.has(dia) && f.assets.visual) vistas.set(dia, f); }
         if (!vistas.size) { mensaje("No hay pasadas recientes sin nubes."); return; }
@@ -811,11 +870,12 @@ function abrirVisor(e, pestana) {
           }, opciones);
           if (!k) b.click();
         });
-      }).catch(() => mensaje("El catálogo de Sentinel-2 no ha respondido."));
+      }).catch(() => { if (vigente(t)) mensaje("El catálogo de Sentinel-2 no ha respondido."); });
     },
   };
   const nombres = { imagen: e.enDirecto || e.marco ? "En directo" : "Foto", ortofoto: "Ortofoto por años", calle: "A pie de calle", fotos: "Fotos cerca", satelite: "Satélite reciente" };
   const mostrar = (cual) => {
+    turno++;
     limpiar();
     for (const b of pestanas.children) b.setAttribute("aria-selected", String(b.dataset.modo === cual));
     modos[cual]();
@@ -854,9 +914,21 @@ function abrirMenuContextual(ev) {
 }
 mapa.on("click movestart zoomstart", cerrarMenu);
 document.addEventListener("keydown", (ev) => {
+  if (visor) {
+    // Con el visor abierto el teclado es suyo: los atajos de la ficha que queda debajo
+    // (F, V, X, flechas) no deben actuar, y el tabulador no debe salirse de él.
+    if (ev.key === "Escape") cerrarVisor();
+    else if (ev.key === "Tab") {
+      const focos = [...visor.nodo.querySelectorAll("button, a[href], iframe")].filter((n) => n.offsetParent !== null);
+      const i = focos.indexOf(document.activeElement);
+      const destino = ev.shiftKey ? (i <= 0 ? focos[focos.length - 1] : null) : i === -1 || i === focos.length - 1 ? focos[0] : null;
+      if (destino) { ev.preventDefault(); destino.focus(); }
+    }
+    ev.stopPropagation();
+    return;
+  }
   if (ev.key !== "Escape") return;
-  if (visor) { cerrarVisor(); ev.stopPropagation(); }
-  else if (menu) cerrarMenu();
+  if (menu) cerrarMenu();
   else if (elementoAbierto && !/^(INPUT|SELECT|TEXTAREA)$/.test((document.activeElement || {}).tagName || "")) cerrarElemento();
 }, true);
 
@@ -871,7 +943,7 @@ function pintarResultados(grupos) {
     for (const f of filas) {
       const muestra = el("i", { className: "punto" }); muestra.style.background = f.color;
       const b = el("button", { type: "button" }, muestra, el("b", { textContent: f.titulo }), el("small", { textContent: f.detalle || "" }));
-      b.addEventListener("click", f.ir);
+      b.addEventListener("click", () => { clearTimeout(temporizadorBusqueda); f.ir(); });
       lista.append(el("li", {}, b));
     }
   }
@@ -889,6 +961,14 @@ function buscarTodo(texto, conCallejero) {
   const refcat = /^[0-9A-Z]{14}(?:[0-9A-Z]{6})?$/.test(texto.trim().toUpperCase()) && /\d/.test(texto) && /[A-Za-z]/.test(texto) ? texto.trim().toUpperCase().slice(0, 14) : null;
   for (const [id, m] of Object.entries(marcadores)) {
     if (!m.deleted && sinAcentos(m.note).includes(q)) enCapas.push({ color: TIPOS_MARCADOR[m.type][1], titulo: m.note.slice(0, 70), detalle: `Marcador: ${TIPOS_MARCADOR[m.type][0].toLowerCase()}`, ir: () => { mapa.setView([m.lat, m.lng], Math.max(mapa.getZoom(), 17)); abrirMarcador(id); } });
+  }
+  if ($("capa-camaras").checked) {
+    // Las cámaras no tienen nombre: se buscan por lo que se sabe de ellas (tipo, zona, operador)
+    // y salen las más cercanas al centro del mapa.
+    const centro = mapa.getCenter();
+    [...camaras.values()].map((c) => [c, filasCamara(c).map((f) => f[1]).join(", ")]).filter(([, texto]) => sinAcentos(texto).includes(q))
+      .sort((a, b) => mapa.distance(centro, [a[0].lat, a[0].lon]) - mapa.distance(centro, [b[0].lat, b[0].lon])).slice(0, 4)
+      .forEach(([c, texto]) => enCapas.push({ color: "#ff2d2d", titulo: texto, detalle: "Cámara de vigilancia (OpenStreetMap)", ir: () => abrirElemento(elementoDeCamara(c), true) }));
   }
   for (const capa of CAPAS) {
     if (enCapas.length >= 12) break;
@@ -934,14 +1014,10 @@ $("buscar-texto").addEventListener("keydown", (ev) => {
 });
 
 /* --- La dirección de la página recuerda dónde se está mirando --- */
-{
-  const m = /^#mapa=(\d{1,2})\/(-?\d+\.\d+)\/(-?\d+\.\d+)$/.exec(location.hash);
-  if (m && Math.abs(+m[2]) <= 90 && Math.abs(+m[3]) <= 180) { vista.centro = [+m[2], +m[3]]; vista.zoom = +m[1]; mapa.setView(vista.centro, vista.zoom, { animate: false }); }
-  mapa.on("moveend", () => {
-    const c = mapa.getCenter();
-    try { history.replaceState(null, "", `#mapa=${mapa.getZoom()}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}`); } catch { /* en un fichero suelto puede no dejar */ }
-  });
-}
+mapa.on("moveend", () => {      // la lectura, al arrancar, está en index.html (vistaDeLaURL)
+  const c = mapa.getCenter();
+  try { history.replaceState(null, "", `#mapa=${mapa.getZoom()}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}`); } catch { /* en un fichero suelto puede no dejar */ }
+});
 pintarEstadoCapas();
 
 /* Las fichas de los sitios abandonados y de los marcadores propios también

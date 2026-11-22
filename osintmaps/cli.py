@@ -20,6 +20,7 @@ import tempfile
 import threading
 import time
 import webbrowser
+from collections import OrderedDict
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -28,6 +29,8 @@ from .fuentes import camaras as fuente_camaras
 from .fuentes import catastro, dgt, listaroja, osm, subastas, wikidata
 from .geo import parsear_caja
 from .modelos import Candidato
+import requests
+
 from .red import nueva_sesion
 
 log = logging.getLogger("osintmaps")
@@ -338,7 +341,12 @@ def _limpiar_marcador(m: dict) -> dict | None:
 LIMPIADORES = {"marcas.json": _limpiar_marca, "marcadores.json": _limpiar_marcador}
 
 
-_AVIONES: dict[tuple, tuple[float, bytes]] = {}
+# Última respuesta de aviones por zona: (momento, contenido). De una en una, para que dos
+# peticiones simultáneas por la misma zona no salgan las dos a la red.
+_AVIONES: OrderedDict[tuple, tuple[float, bytes]] = OrderedDict()
+_CANDADO_AVIONES = threading.Lock()
+VIDA_AVIONES = 8.0       # segundos que se reutiliza una respuesta
+MAX_ZONAS_AVIONES = 32
 
 
 class _Servidor(http.server.SimpleHTTPRequestHandler):
@@ -388,18 +396,27 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
             self.send_error(400)
             return
         clave = (round(lat, 1), round(lon, 1), millas)
-        guardado = _AVIONES.get(clave)
-        if not guardado or time.monotonic() - guardado[0] > 8:      # como mucho una consulta cada 8 s por zona
-            try:
-                import requests
-                resp = requests.get(f"https://api.adsb.lol/v2/lat/{lat:.3f}/lon/{lon:.3f}/dist/{millas}", timeout=12)
-                resp.raise_for_status()
-                guardado = (time.monotonic(), resp.content)
-                _AVIONES.clear()
-                _AVIONES[clave] = guardado
-            except Exception:  # noqa: BLE001
-                self.send_error(502)
-                return
+        with _CANDADO_AVIONES:
+            ahora = time.monotonic()
+            guardado = _AVIONES.get(clave)
+            if not guardado or ahora - guardado[0] > VIDA_AVIONES:      # como mucho una consulta cada 8 s por zona
+                try:
+                    resp = requests.get(f"https://api.adsb.lol/v2/lat/{lat:.3f}/lon/{lon:.3f}/dist/{millas}", timeout=12)
+                    resp.raise_for_status()
+                except Exception:  # noqa: BLE001
+                    guardado = None
+                else:
+                    guardado = (time.monotonic(), resp.content)
+                    # Fuera las caducadas y, si aun así hay demasiadas zonas, la más antigua.
+                    for vieja in [k for k, v in _AVIONES.items() if ahora - v[0] > VIDA_AVIONES]:
+                        del _AVIONES[vieja]
+                    _AVIONES[clave] = guardado
+                    _AVIONES.move_to_end(clave)
+                    while len(_AVIONES) > MAX_ZONAS_AVIONES:
+                        _AVIONES.popitem(last=False)
+        if guardado is None:
+            self.send_error(502)
+            return
         self._responder_json(200, guardado[1])
 
     def do_GET(self) -> None:

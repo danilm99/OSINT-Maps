@@ -33,7 +33,7 @@ Probado de principio a fin con la provincia de Valencia (noviembre de 2026):
 | Candidatos | 4.297 |
 | Con nota de 40 o más | 331 |
 
-Todas las fuentes responden y el mapa funciona con datos reales. Hay 84
+Todas las fuentes responden y el mapa funciona con datos reales. Hay 87
 pruebas automáticas (`pytest`) que no necesitan internet.
 
 Recuentos reales de esa misma prueba: 390 cámaras en OpenStreetMap, 1.980
@@ -334,6 +334,9 @@ funciones cortas que hay debajo, y vuelve a ejecutar `buscar`.
   saturación; el programa reintenta y prueba otros servidores.
 - OpenStreetMap contesta despacio cuando hay varias capas encendidas: la
   primera carga de una zona puede tardar medio minuto.
+- Los edificios de Catastro solo se cargan muy de cerca (zoom 18) y en el
+  centro de una ciudad cada trozo tarda de 15 a 25 segundos: el servicio es
+  así de lento con muchos edificios.
 - Las subastas y la Lista Roja se leen de sus webs, que no tienen API: si
   cambian el diseño, esas dos capas dejarán de actualizarse hasta adaptarlas.
 - Street View va incrustado con una dirección que Google no documenta; puede

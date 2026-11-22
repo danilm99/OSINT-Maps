@@ -283,6 +283,51 @@ def test_el_servidor_guarda_los_marcadores_propios(servidor):
     assert requests.get(f"{url}/datos/marcas.json").json() == {}
 
 
+def test_el_servidor_pide_los_aviones_una_vez_por_zona(servidor, monkeypatch):
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    import requests
+    url, _ = servidor
+    salidas, candado = [], threading.Lock()
+
+    class Respuesta:
+        content = b'{"ac": []}'
+
+        def raise_for_status(self):
+            pass
+
+    pedir_de_verdad = requests.get
+
+    def a_la_red(direccion, **kw):
+        if "adsb.lol" not in direccion:
+            return pedir_de_verdad(direccion, **kw)
+        with candado:
+            salidas.append(direccion)
+        time.sleep(0.15)
+        if "/lat/10.000/" in direccion:
+            raise ConnectionError("sin red")
+        return Respuesta()
+
+    cli._AVIONES.clear()
+    monkeypatch.setattr(cli.requests, "get", a_la_red)
+    pedir = lambda lat: pedir_de_verdad(f"{url}/vivo/aviones?lat={lat}&lon=-0.37&dist=40", timeout=10)
+
+    # Seis peticiones a la vez por la misma zona: una sola sale a la red.
+    with ThreadPoolExecutor(6) as grupo:
+        respuestas = list(grupo.map(pedir, [39.47] * 6))
+    assert {r.status_code for r in respuestas} == {200} and respuestas[0].json() == {"ac": []}
+    assert len(salidas) == 1
+    # Otra zona no borra la primera: al volver a ella no se pregunta de nuevo.
+    assert pedir(41.0).status_code == 200 and pedir(39.47).status_code == 200
+    assert len(salidas) == 2
+    # Si el servicio falla se dice, y no se guarda nada; los parámetros malos se rechazan.
+    assert pedir(10.0).status_code == 502
+    assert pedir_de_verdad(f"{url}/vivo/aviones?lat=norte&lon=0", timeout=10).status_code == 400
+    assert len(cli._AVIONES) == 2
+
+
 def test_paquete_autonomo(red_simulada, tmp_path, capsys):
     salida = tmp_path / "datos"
     cli.main(["buscar", "--municipios", "46900", "--salida", str(salida), "--cache", str(tmp_path / "cache")])

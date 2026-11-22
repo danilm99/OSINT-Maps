@@ -597,7 +597,14 @@ document.addEventListener("visibilitychange", () => {
 /* ---------- Mapa ---------- */
 const vista = leerLocal("osintmaps.vista.v1", {}) || {};
 // tolerance: margen en píxeles alrededor de cada punto que también cuenta como clic.
-const mapa = L.map("mapa", { preferCanvas: true, renderer: L.canvas({ tolerance: 8 }), zoomControl: false }).setView([40.2, -3.6], 6);
+/* La dirección de la página puede traer una posición (#mapa=zoom/latitud/longitud): si la
+   trae, manda sobre el encuadre guardado y sobre el de los datos, para que un enlace
+   copiado lleve siempre al mismo sitio. Vale una vez: al arrancar. */
+const enLaURL = /^#mapa=(\d{1,2})\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)$/.exec(location.hash);
+let vistaDeLaURL = enLaURL && Math.abs(+enLaURL[2]) <= 90 && Math.abs(+enLaURL[3]) <= 180
+  ? { centro: [+enLaURL[2], +enLaURL[3]], zoom: Math.min(20, +enLaURL[1]) } : null;
+const mapa = L.map("mapa", { preferCanvas: true, renderer: L.canvas({ tolerance: 8 }), zoomControl: false })
+  .setView(vistaDeLaURL ? vistaDeLaURL.centro : [40.2, -3.6], vistaDeLaURL ? vistaDeLaURL.zoom : 6);
 L.control.zoom({ position: "bottomright" }).addTo(mapa);
 L.control.scale({ imperial: false, position: "topleft" }).addTo(mapa);
 
@@ -755,8 +762,10 @@ function cargar(geojson) {
 
   $("vacio").hidden = true; $("filtros").hidden = false; $("pie").hidden = false;
   const limites = L.latLngBounds(candidatos.map((c) => [c.lat, c.lon]));
-  // Se recupera el encuadre de la última vez si sigue cayendo sobre los datos.
-  if (Array.isArray(vista.centro) && limites.pad(0.5).contains(vista.centro)) mapa.setView(vista.centro, vista.zoom || 10);
+  // Si la dirección de la página traía una posición, se respeta. Si no, se recupera el
+  // encuadre de la última vez si sigue cayendo sobre los datos.
+  if (vistaDeLaURL) vistaDeLaURL = null;
+  else if (Array.isArray(vista.centro) && limites.pad(0.5).contains(vista.centro)) mapa.setView(vista.centro, vista.zoom || 10);
   else mapa.fitBounds(limites.pad(0.05));
   filtrar();
 }
@@ -1210,7 +1219,11 @@ function pedirParcelas() {
     const caja = [i * PASO_LAT, j * PASO_LON, (i + 1) * PASO_LAT, (j + 1) * PASO_LON].map((v) => v.toFixed(6)).join(",");
     encolarCatastro(() => fetch(`${WFS_PARCELAS}?service=wfs&version=2&request=getfeature&Typenames=cp.cadastralparcel&SRSname=EPSG::4326&bbox=${caja}`)
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error(r.status))))
-      .then((xml) => { if (/ExceptionReport/.test(xml.slice(0, 400))) throw new Error("catastro"); tesela.parcelas = leerParcelas(xml); tesela.estado = "lista"; })
+      .then((xml) => {
+        // «No records» (el mar, por ejemplo) es un vacío de verdad; cualquier otro informe de error, un fallo.
+        if (/ExceptionReport/.test(xml.slice(0, 600)) && !/No records/i.test(xml)) throw new Error("catastro");
+        tesela.parcelas = leerParcelas(xml); tesela.estado = "lista";
+      })
       .catch(() => { tesela.estado = "fallo"; }));
   }
 }

@@ -279,3 +279,45 @@ def test_subastas(monkeypatch, tmp_path):
     antes = len(pedidos)
     assert len(subastas.buscar(None, tmp_path, "46")) == 2
     assert len(pedidos) == antes + 2
+
+
+def test_subastas_no_guarda_una_lectura_a_medias(monkeypatch, tmp_path):
+    """Si Catastro no contesta, la subasta no se da por leída: se reintenta entera la próxima vez."""
+    red_subastas(monkeypatch)
+    simulada, catastro_caido = subastas.pedir, {"si": True}
+
+    def pedir(sesion, metodo, url, **kw):
+        if url.endswith("Consulta_CPMRC") and catastro_caido["si"]:
+            raise ConnectionError("Catastro no responde")
+        return simulada(sesion, metodo, url, **kw)
+
+    monkeypatch.setattr(subastas, "pedir", pedir)
+    assert subastas.buscar(None, tmp_path, "46") == []
+    assert list(tmp_path.glob("*.json")) == []            # nada en la caché
+    catastro_caido["si"] = False
+    assert len(subastas.buscar(None, tmp_path, "46")) == 2
+    assert len(list(tmp_path.glob("*.json"))) == 2
+
+
+def test_subastas_distingue_dato_malo_de_servicio_caido(monkeypatch):
+    import requests
+
+    class Rechazo:
+        status_code = 400
+
+    def rechaza(*a, **kw):
+        raise requests.HTTPError("HTTP 400", response=Rechazo())
+
+    monkeypatch.setattr(subastas, "pedir", rechaza)
+    # Catastro rechaza la referencia y CartoCiudad la dirección: el bien no se puede situar, y eso sí es definitivo.
+    assert subastas._coordenadas(None, {"Referencia catastral": "5823501YJ2752D0001AB", "Dirección": "x", "Localidad": "y"}) is None
+
+    class Saturado:
+        status_code = 503
+
+    def saturado(*a, **kw):
+        raise requests.HTTPError("HTTP 503", response=Saturado())
+
+    monkeypatch.setattr(subastas, "pedir", saturado)
+    with pytest.raises(subastas.ServicioCaido):
+        subastas._coordenadas(None, {"Referencia catastral": "5823501YJ2752D0001AB"})
