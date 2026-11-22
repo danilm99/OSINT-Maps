@@ -71,9 +71,11 @@ class Teselas(torch.utils.data.Dataset):
                 torch.from_numpy(np.ascontiguousarray(cuenta)))
 
 
-def crear_modelo():
+def crear_modelo(pesos: str | None = "imagenet"):
+    """La red: una U-Net sobre ResNet-34. Para entrenar parte de lo aprendido con fotos corrientes (ImageNet);
+    para usar un modelo ya entrenado no hace falta bajarse eso (pesos=None)."""
     import segmentation_models_pytorch as smp
-    return smp.Unet("resnet34", encoder_weights="imagenet", in_channels=4, classes=len(CLASES))
+    return smp.Unet("resnet34", encoder_weights=pesos, in_channels=4, classes=len(CLASES))
 
 
 def perdida(salida, y, cuenta, peso):

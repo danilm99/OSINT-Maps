@@ -111,12 +111,12 @@ def trazar(mascara: np.ndarray, confianza: np.ndarray, minimo_px: float) -> list
     return salida
 
 
-def medir_entorno(prob: np.ndarray, huella_px: np.ndarray | None) -> dict:
+def medir_entorno(prob: np.ndarray, huella_px: np.ndarray | None, corte: dict) -> dict:
     """Cierre y accesos alrededor del contorno. `prob` es (clases, alto, ancho) a 30 cm; `huella_px`, su máscara."""
     n = {c: i for i, c in enumerate(CLASES)}
     if huella_px is None or not huella_px.any():
         return {}
-    barrera = cv2.dilate(((prob[n["muro"]] > 0.5) | (prob[n["valla"]] > 0.5) | (prob[n["seto"]] > 0.5)).astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+    barrera = cv2.dilate(((prob[n["muro"]] > corte["muro"]) | (prob[n["valla"]] > corte["valla"]) | (prob[n["seto"]] > corte["seto"])).astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
     ys, xs = np.nonzero(huella_px)
     cy, cx, alto = ys.mean(), xs.mean(), prob.shape[1]
     pasos = np.arange(0, int(120 / (PIXEL * 2)))                    # hasta 120 m, de píxel en píxel
@@ -128,7 +128,7 @@ def medir_entorno(prob: np.ndarray, huella_px: np.ndarray | None) -> dict:
         dentro = np.flatnonzero(huella_px[py, px])
         salida = dentro[-1] + 3 if len(dentro) else 0
         tapados += bool(barrera[py[salida:], px[salida:]].any())
-    via = ((prob[n["camino"]] > 0.5) | (prob[n["senda"]] > 0.5) | (prob[n["carretera"]] > 0.5)).astype(np.uint8)
+    via = ((prob[n["camino"]] > corte["camino"]) | (prob[n["senda"]] > corte["senda"]) | (prob[n["carretera"]] > corte["carretera"])).astype(np.uint8)
     lejos = cv2.dilate(huella_px.astype(np.uint8), np.ones((133, 133), np.uint8))      # 20 m
     cerca = cv2.dilate(huella_px.astype(np.uint8), np.ones((53, 53), np.uint8))        # 8 m
     cuenta, _, datos, _ = cv2.connectedComponentsWithStats(via & lejos & (1 - cerca), connectivity=8)
@@ -197,7 +197,7 @@ def predecir(modelo, dispositivo, rgb: np.ndarray, irg: np.ndarray, media, desv)
     return torch.nn.functional.avg_pool2d(prob[None], 2)[0].cpu().numpy()          # a 30 cm: basta y va cuatro veces más rápido
 
 
-def analizar(modelo, dispositivo, media, desv, bajado: dict, huella, nombre_modelo: str) -> dict | None:
+def analizar(modelo, dispositivo, media, desv, bajado: dict, huella, nombre_modelo: str, corte: dict) -> dict | None:
     sitio, x0, y0 = bajado["sitio"], bajado["x0"], bajado["y0"]
     if bajado["rgb"] is None or bajado["irg"] is None or bajado["rgb"].std() < 4:
         return None
@@ -207,7 +207,7 @@ def analizar(modelo, dispositivo, media, desv, bajado: dict, huella, nombre_mode
     lineas, largos = [], {}
     for clase in LINEALES:
         c = CLASES.index(clase)
-        for puntos, confianza in trazar(prob[c] > 0.5, prob[c], LARGO_MIN_M[clase] / paso):
+        for puntos, confianza in trazar(prob[c] > corte[clase], prob[c], LARGO_MIN_M[clase] / paso):
             ux, uy = x0 + (puntos[:, 0] + 0.5) * paso, y1 - (puntos[:, 1] + 0.5) * paso
             largo = float(np.hypot(np.diff(ux), np.diff(uy)).sum())
             if largo < 3:
@@ -228,11 +228,20 @@ def analizar(modelo, dispositivo, media, desv, bajado: dict, huella, nombre_mode
         if dentro.sum() >= 20:
             medio = (VENTANA // 2, VENTANA // 2)
             salida.update(medir_huella(cv2.resize(bajado["rgb"], medio, interpolation=cv2.INTER_AREA), cv2.resize(bajado["irg"], medio, interpolation=cv2.INTER_AREA), dentro))
-            salida.update(medir_entorno(prob, dentro))
+            salida.update(medir_entorno(prob, dentro, corte))
             if bajado["altura"]:
                 salida.update({"altura_m": bajado["altura"]["altura_mediana_m"], "en_pie_pct": bajado["altura"]["pct_en_pie"]})
             salida["estado"] = veredicto(salida)
     return salida
+
+
+def cortes_de(base: Path, modelo: str) -> dict:
+    """A partir de qué probabilidad se da por detectada cada clase: lo que eligió calibrar.py, o 0,5."""
+    corte = {c: 0.5 for c in CLASES}
+    fichero = base / "modelos" / f"{modelo}-umbrales.json"
+    if fichero.exists():
+        corte.update({c: v["corte"] for c, v in json.loads(fichero.read_text(encoding="utf-8"))["elegido"].items()})
+    return corte
 
 
 def compacto(r: dict) -> dict:
@@ -267,8 +276,11 @@ def empaquetar(base: Path, datos: Path) -> None:
         (destino / f.name).write_text(texto, encoding="utf-8")
     # Lo que acertó el modelo en las teselas que no vio al entrenar: la web lo enseña junto a lo detectado.
     fiabilidad = {}
-    cifras = base / "modelos" / f"{modelo}.json"
-    if modelo and cifras.exists():
+    cifras, calibrado = base / "modelos" / f"{modelo}.json", base / "modelos" / f"{modelo}-umbrales.json"
+    if modelo and calibrado.exists():                                           # medido con el corte que de verdad se usa
+        elegido = json.loads(calibrado.read_text(encoding="utf-8"))["elegido"]
+        fiabilidad = {c: {"precision": round(100 * v["precision"]), "alcance": round(100 * v["alcance"])} for c, v in elegido.items() if c in LINEALES}
+    elif modelo and cifras.exists():
         diario = json.loads(cifras.read_text(encoding="utf-8"))               # una entrada por vuelta de entrenamiento
         medido = max(diario, key=lambda d: d["nota"])["clases"] if diario else {}   # la vuelta que se guardó: la de mejor nota
         fiabilidad = {c: {"precision": round(100 * v["precision"]), "alcance": round(100 * v["alcance"])} for c, v in medido.items() if c in LINEALES and v.get("pixeles")}
@@ -299,6 +311,8 @@ def main() -> None:
     modelo.load_state_dict(guardado["modelo"])
     modelo.to(dispositivo).eval()
     media, desv = np.array(guardado["media"], np.float32), np.array(guardado["desv"], np.float32)
+    corte = cortes_de(base, args.modelo)
+    print("cortes:", corte, flush=True)
     sitios = json.loads((datos / "candidatos.geojson").read_text(encoding="utf-8"))["features"]
     sitios.sort(key=lambda s: -float(s["properties"].get("puntuacion") or 0))
     if args.cuantos:
@@ -316,7 +330,7 @@ def main() -> None:
             tanda = faltan[k:k + 12]
             for bajado in hilos.map(lambda s: bajar_sitio(sesion, mallas, s, huellas.get(s["properties"]["id"]), not args.sin_altura), tanda):
                 try:
-                    r = analizar(modelo, dispositivo, media, desv, bajado, huellas.get(bajado["sitio"]["properties"]["id"]), args.modelo)
+                    r = analizar(modelo, dispositivo, media, desv, bajado, huellas.get(bajado["sitio"]["properties"]["id"]), args.modelo, corte)
                 except Exception as e:                                  # un sitio raro no debe parar la noche
                     print("  fallo en", bajado["sitio"]["properties"]["id"], repr(e)[:200], flush=True)
                     r = None
