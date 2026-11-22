@@ -193,6 +193,9 @@ function arcgis(servicios) {
 }
 const CAMPOS_NOMBRE = ["nombre", "nom", "denominacion", "denominaci", "descripcio", "descripcion", "titulo", "name", "direccion", "adreca", "emplazamiento", "situacion", "texto"];
 const CAMPOS_FUERA = /^(objectid|fid|shape.*|x|y|gid|globalid|st_.*|angulo|anggra)$/i;
+const CAMPO_BONITO = { idcamara: "Cámara n.º", tipocamara: "Tipo", descripcio: "Descripción", adreca: "Dirección", direccion: "Dirección", denominaci: "Nombre",
+  nom: "Nombre", nombre: "Nombre", tipus: "Tipo", tipo: "Tipo", estat: "Estado", estado: "Estado", districte: "Distrito", distrito: "Distrito", barri: "Barrio", barrio: "Barrio",
+  superficie: "Superficie", refcat: "Referencia catastral", any: "Año", data: "Fecha", fecha: "Fecha", observacio: "Observaciones", observaciones: "Observaciones" };
 function elementoGeoJSON(f, prefijo) {
   const g = f.geometry, p = f.properties || {};
   if (!g) return null;
@@ -210,7 +213,7 @@ function elementoGeoJSON(f, prefijo) {
   const clave = Object.keys(p).find((k) => CAMPOS_NOMBRE.includes(k.toLowerCase()) && limpio(p[k]));
   e.nombre = clave ? limpio(p[clave]).slice(0, 120) : "";
   e.datos = Object.entries(p).filter(([k, v]) => !CAMPOS_FUERA.test(k) && limpio(v) && typeof v !== "object")
-    .map(([k, v]) => [k.replace(/_/g, " ").replace(/^./, (x) => x.toUpperCase()), /^https:\/\//.test(v) ? v : limpio(v).slice(0, 500)]);
+    .map(([k, v]) => [CAMPO_BONITO[k.toLowerCase()] || k.replace(/_/g, " ").replace(/^./, (x) => x.toUpperCase()), /^https:\/\//.test(v) ? v : limpio(v).slice(0, 500)]);
   // Las cámaras municipales traen su página con la imagen en directo.
   const web = Object.values(p).find((v) => typeof v === "string" && /^https:\/\/camaras\.valencia\.es\//.test(v));
   if (web) e.marco = web;
@@ -635,7 +638,7 @@ function abrirElemento(e, mover) {
   const imagen = el("img", { alt: "", loading: "lazy", referrerPolicy: "no-referrer" });
   imagen.src = e.imagen ? (e.enDirecto ? conReloj(e.imagen) : e.imagen) : urlOrto(e.lat, e.lon, lado, null, 800);
   imagen.addEventListener("error", () => { if (e.imagen && !imagen.dataset.respaldo) { imagen.dataset.respaldo = "1"; imagen.src = urlOrto(e.lat, e.lon, lado, null, 800); rotulo.textContent = "Ortofoto de hoy"; } });
-  const rotulo = el("span", { textContent: e.imagen ? (e.enDirecto ? "Imagen en directo" : "Foto") : "Ortofoto de hoy" });
+  const rotulo = el("span", { textContent: e.imagen ? (e.enDirecto ? "Imagen en directo" : "Foto") : e.marco ? "Pulsa para ver la cámara en directo" : "Ortofoto de hoy" });
   portada.append(imagen, rotulo);
   portada.addEventListener("click", () => abrirVisor(e, e.imagen || e.marco ? "imagen" : "ortofoto"));
 
