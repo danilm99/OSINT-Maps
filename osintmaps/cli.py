@@ -787,7 +787,7 @@ def cmd_publicar(args: argparse.Namespace) -> int:
             f"Web publicada el {time.strftime('%Y-%m-%d %H:%M')}", carpeta=sitio)
         git("push", "-q", "--force", repo, "gh-pages", carpeta=sitio)
     _decir(f"Publicado en la rama gh-pages de {repo} ({len(copiados)} ficheros de datos{', con tus notas' if args.con_notas else ''}).")
-    _decir("La primera vez hay que activar GitHub Pages en el repositorio: Settings → Pages → Branch: gh-pages.")
+    _decir("La primera vez hay que activar GitHub Pages en el repositorio: Settings, Pages, Branch: gh-pages.")
     _decir("Una web en GitHub Pages la puede abrir cualquiera que tenga la dirección.")
     return 0
 
