@@ -247,7 +247,7 @@ window.addEventListener("resize", () => { if (en3D() && mapa3d) mapa3d.resize();
    Cómo se pinta. MapLibre deja añadir una «capa a medida»: en cada fotograma llama a `render` con
    la matriz que lleva un punto del mapa a la pantalla, y ahí se dibujan los triángulos a mano. */
 const MALLA_ICV = ["Sur", "Centro", "Norte", "Ademuz"].map((zona) => `https://gvagis.icv.gva.es/server/rest/services/Malla3D_${zona}/SceneServer/layers/0`);
-const LADO_MUNDO = 40075016.685578488, RADIO_TIERRA = 6378137;       // el mapa entero mide eso de lado, en los metros de la proyección
+const LADO_MUNDO = 40075016.685578488;       // el mapa entero mide eso de lado, en los metros de la proyección
 let malla = null;
 const quiereMalla = () => leerLocal("osintmaps.malla.v1", true) !== false;
 
@@ -280,16 +280,16 @@ function capaMalla() {
   const nodo = (arbol, i) => { const p = pagina(arbol, Math.floor(i / POR_PAGINA)); return (p && p[i % POR_PAGINA]) || null; };
 
   /* Lo que se necesita de un nodo, calculado una sola vez. Las coordenadas del mapa van de 0 a 1
-     (0,0 arriba a la izquierda); una altura en metros se pasa a esas unidades con `porMetro`. */
+     (0,0 arriba a la izquierda); una altura en metros se pasa a esas unidades con `vista.metro`. */
   const medidas = (n) => {
     if (n.m) return n.m;
     const c = n.obb.center, h = n.obb.halfSize;
-    return (n.m = { x: 0.5 + c[0] / LADO_MUNDO, y: 0.5 - c[1] / LADO_MUNDO, alto: c[2], porMetro: Math.cosh(c[1] / RADIO_TIERRA) / LADO_MUNDO,
+    return (n.m = { x: 0.5 + c[0] / LADO_MUNDO, y: 0.5 - c[1] / LADO_MUNDO, alto: c[2],
       radio: Math.hypot(h[0], h[1], h[2]) / LADO_MUNDO, aguanta: n.lodThreshold ? Math.sqrt(n.lodThreshold * 4 / Math.PI) : 0 });
   };
   /* Diámetro del nodo en pantalla, en píxeles; -1 si queda fuera de la vista. */
   const tamano = (n) => {
-    const m = medidas(n), M = vista.M, z = (m.alto - vista.base) * m.porMetro;
+    const m = medidas(n), M = vista.M, z = (m.alto - vista.base) * vista.metro;
     const d = Math.hypot(m.x - vista.ojo[0], m.y - vista.ojo[1], z - vista.ojo[2]);
     if (d <= m.radio) return Infinity;                                         // la cámara está dentro del nodo
     const w = M[3] * m.x + M[7] * m.y + M[11] * z + M[15];
@@ -344,7 +344,11 @@ function capaMalla() {
       if (gl) porSubir.push({ clave, n, datos, foto });
       else if (foto) foto.close();
     }).catch(() => { fallidos.set(clave, Date.now() + 30000); })
-      .finally(() => { bajando.delete(clave); repintar(); });
+      .finally(() => { bajando.delete(clave); siguiente(); repintar(); });
+  };
+  /* Empieza las descargas que quepan, lo más grande en pantalla primero. Se llama en cada fotograma y cada vez que termina una. */
+  const siguiente = () => {
+    while (bajando.size < A_LA_VEZ && cola.length) { const falta = cola.shift(); if (!bajando.has(falta.clave) && !listos.has(falta.clave)) pedir(falta); }
   };
   /* Pasa un nodo recién bajado a la tarjeta gráfica. El fichero de triángulos trae: cuántos vértices (4 bytes),
      otro número que no hace falta (4 bytes), las posiciones (x, y, z respecto al centro del nodo) y luego,
@@ -403,7 +407,10 @@ function capaMalla() {
       const det = a * (e * k - f * h) - b * (d * k - f * g) + c * (d * h - e * g);
       if (!det) return;
       const lienzo = mapaGL.getCanvas(), campo = (mapaGL.getVerticalFieldOfView ? mapaGL.getVerticalFieldOfView() : 36.87) * Math.PI / 180;
-      vista = { M, base: (mapaGL.transform && mapaGL.transform.elevation) || 0, ancho: lienzo.clientWidth, alto: lienzo.clientHeight,
+      /* Alturas: la matriz de MapLibre 5 las quiere desde el nivel del mar, en unidades del mapa a la latitud del centro
+         (las versiones anteriores las contaban desde el suelo del centro de la vista). */
+      vista = { M, base: datos.defaultProjectionData ? 0 : (mapaGL.transform && mapaGL.transform.elevation) || 0,
+        metro: 1 / (LADO_MUNDO * Math.cos(mapaGL.getCenter().lat * Math.PI / 180)), ancho: lienzo.clientWidth, alto: lienzo.clientHeight,
         focal: lienzo.clientHeight / (2 * Math.tan(campo / 2)), pasoW: Math.hypot(g, h, k),
         ojo: [(p * (e * k - f * h) - b * (q * k - f * r) + c * (q * h - e * r)) / det, (a * (q * k - f * r) - p * (d * k - f * g) + c * (d * r - q * g)) / det,
           (a * (e * r - q * h) - b * (d * r - q * g) + p * (d * h - e * g)) / det] };
@@ -413,7 +420,7 @@ function capaMalla() {
       for (const recien of porSubir.splice(0, 2)) subir(recien);
       if (porSubir.length) repintar();
       cola.sort((x, y) => y.px - x.px);
-      for (const falta of cola) { if (bajando.size >= A_LA_VEZ) break; pedir(falta); }
+      siguiente();
 
       if (gl2) gl.bindVertexArray(null);
       gl.useProgram(programa);
@@ -426,9 +433,9 @@ function capaMalla() {
       const F = new Float32Array(16), lado = 1 / LADO_MUNDO;
       for (const t of lista) {
         // Matriz del mapa por la del nodo (ponerlo en su sitio y pasar sus metros a unidades del mapa).
-        const m = t.m, z = (m.alto - vista.base) * m.porMetro;
+        const m = t.m, z = (m.alto - vista.base) * vista.metro;
         for (let j = 0; j < 4; j += 1) {
-          F[j] = M[j] * lado; F[4 + j] = -M[4 + j] * lado; F[8 + j] = M[8 + j] * m.porMetro;
+          F[j] = M[j] * lado; F[4 + j] = -M[4 + j] * lado; F[8 + j] = M[8 + j] * vista.metro;
           F[12 + j] = M[j] * m.x + M[4 + j] * m.y + M[8 + j] * z + M[12 + j];
         }
         gl.uniformMatrix4fv(uMatriz, false, F);
