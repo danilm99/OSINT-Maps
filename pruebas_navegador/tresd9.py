@@ -1,0 +1,37 @@
+exec(open("maps9.py", encoding="utf-8").read())
+errores = []
+with sync_playwright() as p:
+    b = p.chromium.launch(args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--enable-webgl"])
+    for nombre, vp in (("escritorio", {"width": 1360, "height": 860}), ("movil", {"width": 390, "height": 800})):
+        vistos9.clear()
+        ctx = b.new_context(viewport=vp, has_touch=(nombre == "movil")); pg = ctx.new_page(); pg.route("**/*", ruta)
+        pg.on("console", lambda m: errores.append(f"{nombre} {m.type}: {m.text[:300]}") if m.type in ("error", "warning") and "ERR_FAILED" not in m.text and "GPU stall" not in m.text and "GL Driver" not in m.text else None)
+        pg.on("pageerror", lambda e: errores.append(f"{nombre} EXC: {e}"))
+        pg.goto("http://127.0.0.1:8779/"); pg.wait_for_selector("#lista li"); pg.wait_for_timeout(600)
+        pg.evaluate(f"mapa.setView([{LAT}, {LON}], 16, {{animate: false}})"); pg.wait_for_timeout(400)
+        print(nombre, "webgl:", pg.evaluate("!!document.createElement('canvas').getContext('webgl2')"))
+        pg.evaluate("for (const id of ['gasolineras']) { const c = document.getElementById('dato-' + id); c.checked = true; c.dispatchEvent(new Event('change')); }; 0"); pg.wait_for_timeout(900)
+        pg.click("#boton-3d"); pg.wait_for_timeout(5000)
+        print(nombre, "en 3D:", pg.evaluate("en3D()"), "| maplibre:", pg.evaluate("typeof maplibregl + ' ' + (window.maplibregl ? maplibregl.getVersion ? maplibregl.getVersion() : '' : '')"), "| lienzo:", pg.evaluate("!!document.querySelector('#vista3d canvas')"),
+              "| estilo cargado:", pg.evaluate("mapa3d && mapa3d.isStyleLoaded()"), "| botón:", pg.inner_text("#boton-3d"), "| aviso:", (pg.inner_text("#aviso-3d") if pg.is_visible("#aviso-3d") else "")[:60])
+        print(nombre, "  cámara:", pg.evaluate("JSON.stringify({z: +mapa3d.getZoom().toFixed(1), p: mapa3d.getPitch(), c: [+mapa3d.getCenter().lat.toFixed(4), +mapa3d.getCenter().lng.toFixed(4)]})"), "| relieve:", pg.evaluate("JSON.stringify(mapa3d.getTerrain())"), "| teselas de relieve pedidas:", vistos9.get("relieve"))
+        print(nombre, "  puntos:", pg.evaluate("(mapa3d.getSource('puntos').serialize().data.features || []).length"), "| clases:", pg.evaluate("[...new Set(mapa3d.getSource('puntos').serialize().data.features.map(f => f.properties.clase))].join(',')"),
+              "| fondo plano quitado:", pg.evaluate("!mapa.hasLayer(fondoActual)"), "| mapa plano oculto:", pg.evaluate("getComputedStyle(document.getElementById('mapa')).visibility"))
+        pg.screenshot(path=f"{nombre}-3d.png")
+        # mover la vista 3D mueve el mapa plano; abrir un punto; una ruta
+        pg.evaluate(f"mapa3d.jumpTo({{ center: [{LON + 0.01}, {LAT + 0.01}], zoom: 14.2 }}); 0"); pg.wait_for_timeout(700)
+        print(nombre, "  el plano sigue a la vista:", pg.evaluate("mapa.getCenter().lat.toFixed(3) + ',' + mapa.getCenter().lng.toFixed(3) + ' z' + mapa.getZoom()"))
+        pg.evaluate("abrirDesde3D({ clase: 'sitio', id: candidatos[0].id }); 0"); pg.wait_for_timeout(400)
+        print(nombre, "  ficha de sitio:", pg.is_visible("#ficha"), "| elegido:", pg.evaluate("mapa3d.getSource('elegido').serialize().data.features.length"))
+        pg.evaluate(f"rutaDesde(L.latLng({LAT - 0.0004}, {LON - 0.0008})); rutaHasta(L.latLng({LAT + 0.0005}, {LON + 0.0005}), 'Destino'); 0"); pg.wait_for_timeout(2500)
+        print(nombre, "  ruta en 3D:", pg.evaluate("mapa3d.getSource('ruta').serialize().data.features.map(f => f.geometry.type).join(',')"), "| la vista va a la ruta:", pg.evaluate("mapa3d.getCenter().lat.toFixed(3)"))
+        print(nombre, "  cálculo:", pg.evaluate("JSON.stringify(Object.fromEntries(Object.entries(ruta.calculo).map(([k, v]) => [k, v.estado])))"), "| firma:", pg.evaluate("firma3d.slice(-60)"), "| plano:", pg.evaluate("mapa.getCenter().lat.toFixed(4)"))
+        pg.evaluate("quitarRuta(); 0")
+        pg.evaluate("document.getElementById('boton-3d').click()"); pg.wait_for_timeout(600)
+        print(nombre, "de vuelta a 2D:", pg.evaluate("!en3D()"), "| fondo puesto:", pg.evaluate("mapa.hasLayer(fondoActual)"), "| botón:", pg.inner_text("#boton-3d"), "| visible:", pg.evaluate("getComputedStyle(document.getElementById('mapa')).visibility"))
+        pg.evaluate("document.getElementById('boton-3d').click()"); pg.wait_for_timeout(1500)
+        print(nombre, "segunda vez (sin volver a bajar la biblioteca):", pg.evaluate("en3D()"), pg.evaluate("document.querySelectorAll('script[src*=maplibre]').length"))
+        pg.evaluate("document.getElementById('boton-3d').click()"); pg.wait_for_timeout(300)
+        ctx.close()
+    b.close()
+print("ERRORES:", errores or "ninguno")
