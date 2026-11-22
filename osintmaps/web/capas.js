@@ -34,11 +34,13 @@ for (const [id, [nombre, capa]] of Object.entries(FONDOS_NUEVOS)) {
 mapa.createPane("superpuesto").style.zIndex = 260;
 mapa.getPane("superpuesto").style.pointerEvents = "none";
 const SUPERPUESTAS = {
-  rotulos: ["Calles y nombres sobre la foto", L.tileLayer(wmts("https://www.ign.es/wmts/ign-base", "IGNBaseOrto", "png"), { pane: "superpuesto", maxZoom: 20, maxNativeZoom: 18 })],
+  rotulos: ["Calles y nombres sobre la foto", L.tileLayer(wmts("https://www.ign.es/wmts/ign-base", "IGNBaseOrto", "png"), { pane: "superpuesto", maxZoom: 20, maxNativeZoom: 18, crossOrigin: "anonymous" })],
   tren: ["Red ferroviaria (OpenRailwayMap)", L.tileLayer("https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png", { pane: "superpuesto", maxZoom: 20, maxNativeZoom: 19, attribution: "OpenRailwayMap CC BY-SA" })],
   antiguo: ["Mapa de 1915-1960, translúcido", L.tileLayer(wmts("https://www.ign.es/wmts/primera-edicion-mtn", "mtn50-edicion1", "jpeg"), { pane: "superpuesto", opacity: 0.6, maxZoom: 20, maxNativeZoom: 15 })],
   sombras: ["Relieve LiDAR, translúcido", L.tileLayer(wmts("https://wmts-mapa-lidar.idee.es/lidar", "EL.GridCoverageDSM", "png"), { pane: "superpuesto", opacity: 0.55, maxZoom: 20, maxNativeZoom: 17 })],
 };
+// El servicio del IGN devuelve de vez en cuando una tesela entera de un solo color (un azul liso): se oculta.
+SUPERPUESTAS.rotulos[1].on("tileload", (ev) => { if (esImagenLisa(ev.tile)) ev.tile.style.visibility = "hidden"; });
 {
   const guardadas = leerLocal("osintmaps.superpuestas.v1", ["rotulos"]) || [];
   const recordar = () => guardarLocal("osintmaps.superpuestas.v1", Object.keys(SUPERPUESTAS).filter((id) => $(`sup-${id}`).checked));
