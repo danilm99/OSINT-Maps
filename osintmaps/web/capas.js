@@ -270,7 +270,7 @@ function deOSM(condiciones, consulta = "nwr") {
 /* id, grupo, nombre de la capa, nombre de uno de sus elementos, color, zoom mínimo, condiciones y lo demás
    (`buscar`: las palabras con las que el buscador ofrece «… cerca de aquí»). */
 const capaOSM = (id, grupo, nombre, uno, color, zoom, condiciones, extra = {}) =>
-  Object.assign({ id, grupo, nombre, uno, color, zoom, tipo: "osm", titulo: () => uno }, deOSM(condiciones, extra.consulta), extra);
+  Object.assign({ id, grupo, nombre, uno, color, zoom, tipo: "osm", titulo: () => uno, condiciones }, deOSM(condiciones, extra.consulta), extra);
 
 const CAPAS_VIGILANCIA_MAS = [
   capaOSM("barreras", "Vigilancia", "Barreras, tornos y controles de paso", "Barrera o control de paso", "#9f1239", 16,
@@ -1236,7 +1236,7 @@ function marcarSeleccion(e) {
   } else { marcaSeleccion.setLatLng([e.lat, e.lon]).addTo(mapa); mapa.removeLayer(chinchetaLugar); }
 }
 function alSoltarElemento() { mapa.removeLayer(marcaSeleccion); mapa.removeLayer(chinchetaLugar); }
-function cerrarElemento() { soltarElemento(); mostrarLista(); if (candidatos.length) filtrar(); }
+function cerrarElemento() { soltarElemento(); mostrarLista(); if (candidatos.length) filtrar(); if (busquedaCerca) pintarBusquedaCerca(); }
 
 const conReloj = (url) => url + (url.includes("?") ? "&" : "?") + "t=" + Math.floor(Date.now() / 30000);
 const posicion = (e) => `${e.lat.toFixed(6)},${e.lon.toFixed(6)}`;
@@ -1933,6 +1933,26 @@ const filaDeLugar = (e) => {
 const grupoCerca = L.layerGroup().addTo(mapa);
 let busquedaCerca = null;      // { capa, centro, elementos }
 function quitarBusquedaCerca() { busquedaCerca = null; grupoCerca.clearLayers(); }
+/* Lo más cercano de una capa de OpenStreetMap se pregunta a dos sitios a la vez. Photon contesta en
+   décimas de segundo, pero solo con el nombre y la dirección; Overpass trae todas las etiquetas (el
+   horario, para decir «abierto» o «cerrado») y a ratos tarda medio minuto. Se enseña lo primero que
+   llega y, si después llega lo completo, se cambia por ello. */
+function cercaPorPhoton(capa, centro, radio) {
+  const filtros = [];
+  for (const condicion of capa.condiciones || []) {
+    const pares = Object.entries(condicion);
+    if (pares.length !== 1) return null;      // «esto y además aquello» no se le puede pedir
+    const [clave, valor] = pares[0];
+    if (valor === true) filtros.push(clave); else if (valor[0] === "~") return null; else for (const v of valor.split("|")) filtros.push(`${clave}:${v}`);
+  }
+  if (!filtros.length || filtros.length > 24) return null;
+  const consulta = new URLSearchParams({ lat: centro.lat.toFixed(5), lon: centro.lng.toFixed(5), radius: Math.max(1, radio / 1000).toFixed(1), limit: "50" });
+  for (const f of filtros) consulta.append("osm_tag", f);
+  return pedirJ(`https://photon.komoot.io/reverse?${consulta}`, null, 12000).then((j) => (j.features || []).map((f) => {
+    const l = lugarDePhoton(f);
+    return l && Object.assign(l, { id: l.osm || l.id, suelto: false, nombre: (f.properties || {}).name || tipoDeEtiquetas({ [f.properties.osm_key]: f.properties.osm_value }) || capa.uno });
+  }).filter(Boolean));
+}
 function buscarCerca(capa, radioPedido) {
   const centro = mapa.getCenter(), turno = ++turnoBusqueda;
   const radio = radioPedido || Math.round(Math.min(6000, Math.max(900, mapa.distance(centro, mapa.getBounds().getNorthEast()) * 1.1)));
@@ -1941,34 +1961,50 @@ function buscarCerca(capa, radioPedido) {
   $("buscar-texto").value = corto(capa);
   desplegarPanel();
   pintarResultados([[`${capa.nombre}: buscando lo más cercano…`, []]], true);
-  let pedido;
+  let encuadrado = false;
+  const mostrar = (elementos, completo) => {
+    if (turno !== turnoBusqueda) return;
+    const lista = elementos.map((e) => Object.assign(e, { capa: capa.id, lejos: mapa.distance(centro, [e.lat, e.lon]) })).sort((a, b) => a.lejos - b.lejos).slice(0, 60);
+    grupoCerca.clearLayers();
+    busquedaCerca = { capa, centro, radio, elementos: lista, completo };
+    if (capa.tipo === "osm" || capa.tipo === "api") for (const e of lista) dibujar(capa, e).addTo(grupoCerca);
+    if (lista.length && !encuadrado) { encuadrado = true; mapa.fitBounds(L.latLngBounds(lista.slice(0, 8).map((e) => [e.lat, e.lon])).extend(centro).pad(0.2), { maxZoom: 17 }); }
+    if (!$("ficha-elemento").hidden || panelOcupado()) return;      // (se está mirando ya la ficha de uno: la lista se repinta al volver)
+    pintarBusquedaCerca();
+  };
+  const sinNada = () => {
+    if (turno !== turnoBusqueda) return;
+    // Si cerca no hay nada, se prueba una vez más lejos antes de decir que no hay.
+    if (capa.tipo !== "vivo" && capa.tipo !== "fija" && radio < 20000) buscarCerca(capa, Math.min(25000, radio * 4)); else mostrar([], true);
+  };
+  const fallo = () => { if (turno === turnoBusqueda && !busquedaCerca) pintarResultados([[`${capa.nombre}: el servicio no ha respondido. Prueba otra vez en un momento.`, []]], true); };
   if (capa.tipo === "osm") {
-    pedido = overpass(`[out:json][timeout:25];(${capa.ql.map((q) => `${q}(around:${radio},${centro.lat.toFixed(5)},${centro.lng.toFixed(5)});`).join("")});out center tags qt 300;`, null, true)
+    const rapido = cercaPorPhoton(capa, centro, radio);
+    let hayRapido = false, acabados = 0;
+    const completo = overpass(`[out:json][timeout:25];(${capa.ql.map((q) => `${q}(around:${radio},${centro.lat.toFixed(5)},${centro.lng.toFixed(5)});`).join("")});out center tags qt 300;`, null, true)
       .then((j) => (j.elements || []).filter((x) => capa.es(x.tags || {})).map((x) => elementoOSM(x, capa)).filter(Boolean));
-  } else if (capa.tipo === "api") {
+    let llegoCompleto = false;
+    if (rapido) rapido.then((lista) => { acabados++; if (!llegoCompleto && lista.length) { hayRapido = true; mostrar(lista, false); } }, () => { acabados++; });
+    completo.then((lista) => { llegoCompleto = true; if (lista.length) mostrar(lista, true); else if (!hayRapido) sinNada(); else if (busquedaCerca) busquedaCerca.completo = true; },
+      () => { if (!hayRapido) { if (rapido) rapido.then((lista) => { if (!lista.length) fallo(); }, fallo); else fallo(); } });
+    return;
+  }
+  let pedido;
+  if (capa.tipo === "api") {
     const dLat = radio / 111320, dLon = dLat / Math.cos((centro.lat * Math.PI) / 180);
     pedido = capa.pedir({ s: centro.lat - dLat, n: centro.lat + dLat, o: centro.lng - dLon, e: centro.lng + dLon });
   } else {      // lo que va «en vivo» o ya está descargado: se enciende la capa y se lista lo que trae
     if (!capasActivas.has(capa.id)) { const casilla = $(`dato-${capa.id}`); casilla.checked = true; conmutarCapa(capa, true); }
     pedido = (capa.tipo === "vivo" ? capa.pedir() : Promise.resolve([...estado[capa.id].elementos.values()]));
   }
-  pedido.then((elementos) => {
-    if (turno !== turnoBusqueda) return;
-    const lista = elementos.map((e) => Object.assign(e, { capa: capa.id, lejos: mapa.distance(centro, [e.lat, e.lon]) })).sort((a, b) => a.lejos - b.lejos).slice(0, 60);
-    // Si cerca no hay nada, se prueba una vez más lejos antes de decir que no hay.
-    if (!lista.length && capa.tipo !== "vivo" && capa.tipo !== "fija" && radio < 20000) { buscarCerca(capa, Math.min(25000, radio * 4)); return; }
-    busquedaCerca = { capa, centro, radio, elementos: lista };
-    if (capa.tipo === "osm" || capa.tipo === "api") for (const e of lista) dibujar(capa, e).addTo(grupoCerca);
-    if (lista.length) mapa.fitBounds(L.latLngBounds(lista.slice(0, 8).map((e) => [e.lat, e.lon])).extend(centro).pad(0.2), { maxZoom: 17 });
-    pintarBusquedaCerca();
-  }).catch(() => { if (turno === turnoBusqueda) pintarResultados([[`${capa.nombre}: el servicio no ha respondido. Prueba otra vez en un momento.`, []]], true); });
+  pedido.then((elementos) => (elementos.length ? mostrar(elementos, true) : sinNada()), fallo);
 }
 function pintarBusquedaCerca() {
   const { capa, elementos, radio } = busquedaCerca;
   const filas = elementos.map((e) => {
     const h = e.etiquetas && e.etiquetas.opening_hours ? horarioOSM(e.etiquetas.opening_hours) : null;
     return { color: e.color || capa.color, icono: capa.icono || capa.id, forma: capa.forma, titulo: e.nombre, derecha: metrosLegibles(e.lejos),
-      detalle: [h ? (h.siempre ? "Abierto las 24 horas" : (h.abierto ? "Abierto" : "Cerrado") + (h.cambio ? `, ${h.cambio}` : "")) : "", e.etiquetas ? [e.etiquetas["addr:street"], e.etiquetas["addr:housenumber"]].filter(Boolean).join(" ") : ""].filter(Boolean).join(" · "),
+      detalle: [h ? (h.siempre ? "Abierto las 24 horas" : (h.abierto ? "Abierto" : "Cerrado") + (h.cambio ? `, ${h.cambio}` : "")) : "", e.etiquetas ? [e.etiquetas["addr:street"], e.etiquetas["addr:housenumber"]].filter(Boolean).join(" ") : (e.detalle || "").split(" · ").slice(1, 3).join(" · ")].filter(Boolean).join(" · "),
       clase: h ? (h.abierto ? "abierto" : "cerrado") : "", ir: () => abrirElemento(e, true) };
   });
   pintarResultados([[elementos.length ? `${capa.nombre}: ${elementos.length === 60 ? "los 60 más cercanos" : `${elementos.length} a menos de ${metrosLegibles(radio)}`}` : `${capa.nombre}: no hay ninguno a menos de ${metrosLegibles(radio)}`, filas]], true);
