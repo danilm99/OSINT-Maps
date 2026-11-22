@@ -1,0 +1,1 @@
+{"type": "FeatureCollection", "features": [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [-0.497812, 39.586615]}, "properties": {"id": "subasta-S1-1", "nombre": "Inmueble (Vivienda) en subasta", "direccion": "Calle Mayor 1", "situado_por": "parcela", "url": "https://subastas.boe.es/detalleSubasta.php?idSub=S1", "valor_subasta": "50.000,00 \u20ac"}}]}
