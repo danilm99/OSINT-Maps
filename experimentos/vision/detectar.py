@@ -184,7 +184,8 @@ def predecir(modelo, dispositivo, rgb: np.ndarray, irg: np.ndarray, media, desv)
     veces = torch.zeros((1, VENTANA, VENTANA), device=dispositivo)
     rampa = torch.minimum(torch.arange(1, 513, device=dispositivo), torch.arange(512, 0, -1, device=dispositivo)).float().clamp(max=64) / 64
     peso = (rampa[:, None] * rampa[None, :])[None]                 # los bordes de cada recorte cuentan menos
-    esquinas = [(a, b) for a in range(0, VENTANA - 511, 384) for b in range(0, VENTANA - 511, 384)]
+    pasos = sorted({*range(0, VENTANA - 512, 384), VENTANA - 512})    # el último recorte acaba justo en el borde
+    esquinas = [(a, b) for a in pasos for b in pasos]
     with torch.no_grad(), torch.autocast("cuda", enabled=dispositivo.type == "cuda"):
         for k in range(0, len(esquinas), 8):
             lote = esquinas[k:k + 8]
@@ -215,6 +216,7 @@ def analizar(modelo, dispositivo, media, desv, bajado: dict, huella, nombre_mode
             lineas.append({"c": clase, "p": round(confianza, 2), "g": [[round(float(a), 6), round(float(b), 6)] for a, b in zip(lo, la)]})
             largos[clase] = largos.get(clase, 0.0) + largo
     salida = {"id": sitio["properties"]["id"], "imagen": IMAGEN, "modelo": nombre_modelo, "fecha": time.strftime("%Y-%m-%d"),
+              "centro": [round(float(c), 6) for c in sitio["geometry"]["coordinates"][:2]],
               "largo_m": {k: round(v) for k, v in largos.items()}, "lineas": lineas}
     if huella is not None:
         en_utm = shapely.transform(huella, lambda c: np.column_stack(a_utm(c[:, 0], c[:, 1])))
@@ -233,20 +235,46 @@ def analizar(modelo, dispositivo, media, desv, bajado: dict, huella, nombre_mode
     return salida
 
 
+def compacto(r: dict) -> dict:
+    """Las líneas de un sitio en poco sitio. Cada coordenada, en millonésimas de grado (unos 10 cm) contadas
+    desde el centro del sitio; cada punto, como salto desde el anterior. Así casi todo son números de dos o
+    tres cifras y el fichero pesa la cuarta parte que con las coordenadas enteras."""
+    lon0, lat0 = r.get("centro") or (r["lineas"][0]["g"][0] if r["lineas"] else (0.0, 0.0))
+    lineas = []
+    for l in r["lineas"]:
+        ex = ey = 0
+        saltos = []
+        for lon, lat in l["g"]:
+            x, y = round((lon - lon0) * 1e6), round((lat - lat0) * 1e6)
+            saltos += [x - ex, y - ey]
+            ex, ey = x, y
+        lineas.append([l["c"], round(l["p"] * 100), saltos])
+    return {"imagen": r["imagen"], "modelo": r["modelo"], "o": [lon0, lat0], "l": lineas}
+
+
 def empaquetar(base: Path, datos: Path) -> None:
     """Junta lo calculado en lo que publica la web: un resumen de todos y un fichero de líneas por sitio."""
     origen = base / "resultados" / IMAGEN
     destino = datos / "vision"
     destino.mkdir(parents=True, exist_ok=True)
-    resumen, modelo = {}, ""
+    resumen, modelo, peso = {}, "", 0
     for f in sorted(origen.glob("*.json")):
         r = json.loads(f.read_text(encoding="utf-8"))
         modelo = r.get("modelo", modelo)
-        resumen[r["id"]] = {k: r[k] for k in ("estado", "altura_m", "en_pie_pct", "vegetacion_pct", "cerrado_pct", "accesos", "largo_m") if r.get(k) is not None}
-        (destino / f.name).write_text(json.dumps({"imagen": r["imagen"], "modelo": r["modelo"], "lineas": r["lineas"]}, separators=(",", ":")), encoding="utf-8")
-    (datos / "revision.json").write_text(json.dumps({"imagen": IMAGEN, "vuelo": "primavera de 2025", "modelo": modelo, "hecho": time.strftime("%Y-%m-%d"), "sitios": resumen},
-                                                    separators=(",", ":")), encoding="utf-8")
-    print(f"empaquetados {len(resumen)} sitios en {datos / 'revision.json'} y {destino}", flush=True)
+        resumen[r["id"]] = {k: r[k] for k in ("estado", "altura_m", "en_pie_pct", "vegetacion_pct", "cerrado_pct", "accesos", "largo_m") if r.get(k) not in (None, {})}
+        texto = json.dumps(compacto(r), separators=(",", ":"))
+        peso += len(texto)
+        (destino / f.name).write_text(texto, encoding="utf-8")
+    # Lo que acertó el modelo en las teselas que no vio al entrenar: la web lo enseña junto a lo detectado.
+    fiabilidad = {}
+    cifras = base / "modelos" / f"{modelo}.json"
+    if modelo and cifras.exists():
+        diario = json.loads(cifras.read_text(encoding="utf-8"))               # una entrada por vuelta de entrenamiento
+        medido = max(diario, key=lambda d: d["nota"])["clases"] if diario else {}   # la vuelta que se guardó: la de mejor nota
+        fiabilidad = {c: {"precision": round(100 * v["precision"]), "alcance": round(100 * v["alcance"])} for c, v in medido.items() if c in LINEALES and v.get("pixeles")}
+    (datos / "revision.json").write_text(json.dumps({"imagen": IMAGEN, "vuelo": "2025", "modelo": modelo, "hecho": time.strftime("%Y-%m-%d"), "radio_m": round(VENTANA * PIXEL / 2),
+                                                     "fiabilidad": fiabilidad, "sitios": resumen}, separators=(",", ":")), encoding="utf-8")
+    print(f"empaquetados {len(resumen)} sitios en {datos / 'revision.json'} y {destino} ({peso / 1e6:.1f} MB de líneas)", flush=True)
 
 
 def main() -> None:

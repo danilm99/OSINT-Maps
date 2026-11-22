@@ -390,6 +390,9 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
 
     def translate_path(self, path: str) -> str:
         limpio = path.split("?", 1)[0].split("#", 1)[0]
+        if limpio.startswith(f"/datos/{CARPETA_VISION}/"):
+            # La única subcarpeta que se sirve: las líneas detectadas alrededor de cada sitio.
+            return str(self.carpeta_datos / CARPETA_VISION / Path(limpio).name)
         if limpio.startswith("/datos/"):
             # Solo el nombre del fichero: impide salirse de la carpeta con "../".
             return str(self.carpeta_datos / Path(limpio).name)
@@ -704,17 +707,23 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
         ruta = carpeta_datos / f"capa-{nombre}.geojson"
         if ruta.exists():
             capas[nombre] = json.loads(ruta.read_text(encoding="utf-8"))
+    revision = None
+    ruta_revision = carpeta_datos / "revision.json"
+    if ruta_revision.exists():
+        revision = json.loads(ruta_revision.read_text(encoding="utf-8"))
+        revision["sitios"] = {k: v for k, v in revision.get("sitios", {}).items() if k in ids}
     incrustado = (f"<script>window.OSINT_DATOS={_json_para_script(datos)};"
                   f"window.OSINT_HUELLAS={_json_para_script(huellas)};"
                   f"window.OSINT_CAMARAS={_json_para_script(camaras)};"
-                  f"window.OSINT_CAPAS={_json_para_script(capas)};</script>")
+                  f"window.OSINT_CAPAS={_json_para_script(capas)};"
+                  + (f"window.OSINT_REVISION={_json_para_script(revision)};" if revision else "") + "</script>")
     pagina = pagina.replace(marca, incrustado, 1)
     # Los datos van dentro: sobra el trozo que los pide por adelantado al servidor.
     antes, hay, resto = pagina.partition("<!--PRONTO-->")
     if hay and "<!--/PRONTO-->" in resto:
         pagina = antes + resto.split("<!--/PRONTO-->", 1)[1]
     # El resto del programa del visor va en un fichero aparte: dentro también.
-    for fichero in ("iconos.js", "capas.js", "herramientas.js", "rutas.js", "tresd.js"):
+    for fichero in ("iconos.js", "capas.js", "herramientas.js", "rutas.js", "aire.js", "tresd.js"):
         etiqueta = f'<script src="{fichero}"></script>'
         if etiqueta in pagina:
             codigo = (CARPETA_WEB / fichero).read_text(encoding="utf-8").replace("</script", "<\\/script")
@@ -727,7 +736,10 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
 # --------------------------------------------------------------------------
 
 # Lo que se copia de la carpeta de datos a la web. Las notas (marcas y marcadores propios) solo si se pide.
-DATOS_DEL_SITIO = ("candidatos.geojson", "huellas.geojson", "camaras.geojson", *(f"capa-{n}.geojson" for n in CAPAS_EXTRA))
+DATOS_DEL_SITIO = ("candidatos.geojson", "huellas.geojson", "camaras.geojson", *(f"capa-{n}.geojson" for n in CAPAS_EXTRA), "revision.json")
+# Lo que un programa aparte ha visto en la foto aérea alrededor de cada sitio (experimentos/vision):
+# revision.json es el resumen y en esta subcarpeta va un fichero de líneas por sitio.
+CARPETA_VISION = "vision"
 NOTAS_DEL_SITIO = tuple(LIMPIADORES)
 
 
@@ -763,6 +775,12 @@ def crear_sitio(destino: Path, carpeta_datos: Path | None, con_notas: bool = Fal
             if origen.is_file():
                 shutil.copy2(origen, destino / "datos" / nombre)
                 copiados.append(nombre)
+        lineas = sorted((carpeta_datos / CARPETA_VISION).glob("*.json")) if "revision.json" in copiados else []
+        if lineas:
+            (destino / "datos" / CARPETA_VISION).mkdir(exist_ok=True)
+            for origen in lineas:
+                shutil.copy2(origen, destino / "datos" / CARPETA_VISION / origen.name)
+            copiados.append(f"{CARPETA_VISION}/ ({len(lineas)} sitios)")
     return copiados
 
 

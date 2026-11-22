@@ -101,7 +101,7 @@ def leer_osm(pbf: Path) -> dict:
     return {"clase": np.array(clases, np.uint8), "ancho": np.array(anchos, np.float32), "cuenta": np.array(cuentas, np.int32), "xy": np.column_stack([x, y])}
 
 
-def elegir_teselas(rasgos: dict, cuantas: int, candidatos: Path | None, semilla: int = 7) -> list[tuple[int, int]]:
+def elegir_teselas(rasgos: dict, cuantas: int, candidatos: Path | None, semilla: int = 7, parte_sitios: float = 0.1) -> list[tuple[int, int]]:
     """Reparte las teselas por clases: se cae sobre un punto de una vía de esa clase, elegida al azar."""
     azar = random.Random(semilla)
     reparto = {"valla": 0.27, "muro": 0.27, "senda": 0.14, "camino": 0.14, "seto": 0.04, "acequia": 0.04}
@@ -122,7 +122,7 @@ def elegir_teselas(rasgos: dict, cuantas: int, candidatos: Path | None, semilla:
         sitios = json.loads(candidatos.read_text(encoding="utf-8"))["features"]
         azar.shuffle(sitios)
         a_utm = Transformer.from_crs(4326, 25830, always_xy=True).transform
-        for s in sitios[: int(cuantas * 0.1)]:
+        for s in sitios[: int(cuantas * parte_sitios)]:
             x, y = a_utm(*s["geometry"]["coordinates"][:2])
             elegidas.add((int(x // TESELA_M) + azar.choice((-1, 0, 1)), int(y // TESELA_M) + azar.choice((-1, 0, 1))))
     return sorted(elegidas)
@@ -209,6 +209,9 @@ def main() -> None:
     ap.add_argument("--carpeta", default="cache/_vision"); ap.add_argument("--datos", default="datos")
     ap.add_argument("--teselas", type=int, default=4000); ap.add_argument("--hilos", type=int, default=4)
     ap.add_argument("--pbf", default="", help="extracto de OSM ya bajado (si no, se baja de Geofabrik)")
+    ap.add_argument("--ampliar", type=int, default=0, help="añadir unas N teselas más a las ya elegidas")
+    ap.add_argument("--semilla", type=int, default=11, help="con --ampliar: otra semilla da otras teselas")
+    ap.add_argument("--parte-sitios", type=float, default=0.1, help="con --ampliar: qué parte cae junto a los sitios del mapa")
     args = ap.parse_args()
     no_dormir()
     base = Path(args.carpeta)
@@ -237,6 +240,14 @@ def main() -> None:
     if not lista.exists():
         lista.write_text(json.dumps(elegir_teselas(rasgos, args.teselas, Path(args.datos) / "candidatos.geojson")), encoding="utf-8")
     teselas = [tuple(t) for t in json.loads(lista.read_text(encoding="utf-8"))]
+    if args.ampliar:
+        # El recuadro de la provincia coge trozos de Alicante y Castellón que esta foto no cubre: una de cada
+        # cuatro teselas de la primera tanda salió en blanco. En vez de afinar el recuadro, se piden más.
+        ya = set(teselas)
+        nuevas = [t for t in elegir_teselas(rasgos, args.ampliar, Path(args.datos) / "candidatos.geojson", args.semilla, args.parte_sitios) if t not in ya]
+        teselas += nuevas
+        lista.write_text(json.dumps(teselas), encoding="utf-8")
+        print(f"   ampliación: {len(nuevas)} teselas nuevas", flush=True)
     print(f"3/5 {len(teselas)} teselas elegidas", flush=True)
 
     cuenta = {"ya": 0, "ok": 0, "vacía": 0, "fallo": 0}
