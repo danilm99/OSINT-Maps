@@ -1,0 +1,35 @@
+exec(open("maps9.py", encoding="utf-8").read())
+errores = []
+def filas(pg): return pg.evaluate("[...document.querySelectorAll('#resultados-extra li')].map(l => l.className.includes('rotulo') ? '[' + l.textContent + ']' : l.querySelector('b') ? l.querySelector('b').textContent + ' | ' + l.querySelector('small').textContent + ' | ' + l.querySelector('em').textContent : '(acciones)').join(' ;; ')")
+with sync_playwright() as p:
+    b = p.chromium.launch()
+    ctx = b.new_context(viewport={"width": 1360, "height": 860}); pg = ctx.new_page(); pg.route("**/*", ruta)
+    pg.on("console", lambda m: errores.append(m.text[:300]) if m.type == "error" and "ERR_FAILED" not in m.text else None)
+    pg.on("pageerror", lambda e: errores.append(f"EXC: {e}"))
+    pg.goto("http://127.0.0.1:8779/"); pg.wait_for_selector("#lista li"); pg.wait_for_timeout(600)
+    pg.evaluate(f"mapa.setView([{LAT}, {LON}], 16, {{animate: false}})"); pg.wait_for_timeout(400)
+    # 1. Photon rápido, Overpass lento: primero la lista corta, luego la completa
+    ESCENA.update(photon="cerca", overpass="lento")
+    pg.evaluate("buscarCerca(CAPA.farmacias); 0"); pg.wait_for_timeout(600)
+    print("a los 0,6 s:", filas(pg), "| dibujados:", pg.evaluate("grupoCerca.getLayers().length"), "| completo:", pg.evaluate("busquedaCerca && busquedaCerca.completo"))
+    print("  photon:", vistos9.get("photon-cerca", "")[-90:])
+    pg.wait_for_timeout(1800)
+    print("a los 2,4 s:", filas(pg), "| dibujados:", pg.evaluate("grupoCerca.getLayers().length"), "| completo:", pg.evaluate("busquedaCerca && busquedaCerca.completo"))
+    # 2. Overpass caído: se queda lo de Photon, sin aviso de fallo
+    ESCENA.update(photon="cerca", overpass="caido")
+    pg.evaluate("buscarCerca(CAPA.farmacias); 0"); pg.wait_for_timeout(2500)
+    print("con Overpass caído:", filas(pg)[:200])
+    pg.evaluate("[...document.querySelectorAll('#resultados-extra li button')].find(b => b.textContent.includes('Farmacia Norte')).click()"); pg.wait_for_timeout(900)
+    print("  ficha desde Photon:", pg.inner_text("#ficha-elemento h2"), "|", pg.inner_text("#ficha-elemento .lugar")[:40], "| pide etiquetas:", "node/601" in vistos9.get("osm-api", ""), "| negocio:", pg.inner_text("#ficha-elemento .negocio").replace("\n", " / ")[:80])
+    pg.evaluate("cerrarElemento()"); pg.wait_for_timeout(300)
+    print("  al volver:", pg.evaluate("document.querySelectorAll('#resultados-extra li button').length"), "filas")
+    # 3. los dos caídos: aviso
+    ESCENA.update(photon="caido", overpass="caido")
+    pg.evaluate("buscarCerca(CAPA.farmacias); 0"); pg.wait_for_timeout(2500)
+    print("todo caído:", filas(pg)[:120])
+    # 4. sin Photon (condición con dos claves): solo Overpass
+    ESCENA.update(photon="cerca", overpass="bien"); vistos9.pop("photon-cerca", None)
+    pg.evaluate("buscarCerca(CAPA.arboles); 0"); pg.wait_for_timeout(1500)
+    print("capa sin Photon: preguntó a Photon:", "photon-cerca" in vistos9, "|", filas(pg)[:90])
+    b.close()
+print("ERRORES:", errores or "ninguno")
