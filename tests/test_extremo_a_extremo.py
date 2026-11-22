@@ -7,10 +7,10 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from osintmaps import cli
-from osintmaps.fuentes import camaras, catastro, osm, wikidata
+from osintmaps.fuentes import camaras, catastro, dgt, listaroja, osm, wikidata
 
 from .conftest import FEED
-from .test_fuentes_abiertas import RESPUESTA_CAMARAS, RESPUESTA_OSM, _fila
+from .test_fuentes_abiertas import PAGINA_LISTA_ROJA, RESPUESTA_CAMARAS, RESPUESTA_OSM, XML_DGT, _fila, red_subastas
 
 
 class Respuesta:
@@ -44,6 +44,10 @@ def red_simulada(monkeypatch, zip_municipio):
 
     monkeypatch.setattr(osm, "pedir", overpass)
     monkeypatch.setattr(camaras, "pedir", overpass_camaras)
+    # Capas extra: Lista Roja, cámaras de la DGT y subastas.
+    monkeypatch.setattr(listaroja, "pedir", lambda *a, **kw: type("R", (), {"text": PAGINA_LISTA_ROJA})())
+    monkeypatch.setattr(dgt, "pedir", lambda *a, **kw: type("R", (), {"content": XML_DGT})())
+    llamadas["subastas"] = red_subastas(monkeypatch)
     monkeypatch.setattr(wikidata, "pedir", sparql)
     monkeypatch.setattr(wikidata.time, "sleep", lambda s: None)
     return llamadas
@@ -135,6 +139,30 @@ def test_las_camaras_caidas_no_tumban_la_busqueda(red_simulada, monkeypatch, tmp
     salida = tmp_path / "datos"
     assert cli.main(["buscar", "--municipios", "46900", "--salida", str(salida), "--cache", str(tmp_path / "cache")]) == 0
     assert (salida / "candidatos.geojson").exists() and not (salida / "camaras.geojson").exists()
+
+
+def test_buscar_descarga_las_capas_extra(red_simulada, monkeypatch, tmp_path):
+    salida = tmp_path / "datos"
+    cli.main(["buscar", "--municipios", "46900", "--salida", str(salida), "--cache", str(tmp_path / "cache")])
+    leer = lambda nombre: json.loads((salida / f"capa-{nombre}.geojson").read_text(encoding="utf-8"))["features"]
+    assert [f["properties"]["nombre"] for f in leer("listaroja")] == ["Torre de Prueba"]
+    assert leer("dgt")[0]["properties"]["imagen"].endswith("176130.jpg")
+    assert len(leer("subastas")) == 2 and leer("subastas")[0]["geometry"]["coordinates"] == [-0.2501, 39.1601]
+
+    # «capas» las refresca sin repetir la búsqueda; una fuente caída conserva su fichero.
+    def roto(*a, **kw):
+        raise ConnectionError("sin red")
+
+    monkeypatch.setattr(dgt, "pedir", roto)
+    (salida / "capa-listaroja.geojson").unlink()
+    assert cli.main(["capas", "--provincia", "46", "--salida", str(salida), "--cache", str(tmp_path / "cache")]) == 0
+    assert len(leer("listaroja")) == 1 and len(leer("dgt")) == 1
+    assert cli.main(["capas", "--solo", "inventada", "--salida", str(salida)]) == 2
+
+    # Con --sin-capas no se tocan.
+    otra = tmp_path / "otra"
+    cli.main(["buscar", "--municipios", "46900", "--sin-capas", "--sin-camaras", "--salida", str(otra), "--cache", str(tmp_path / "cache")])
+    assert not list(otra.glob("capa-*.geojson"))
 
 
 def test_sin_zona_avisa(capsys):
@@ -255,6 +283,51 @@ def test_el_servidor_guarda_los_marcadores_propios(servidor):
     assert requests.get(f"{url}/datos/marcas.json").json() == {}
 
 
+def test_el_servidor_pide_los_aviones_una_vez_por_zona(servidor, monkeypatch):
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    import requests
+    url, _ = servidor
+    salidas, candado = [], threading.Lock()
+
+    class Respuesta:
+        content = b'{"ac": []}'
+
+        def raise_for_status(self):
+            pass
+
+    pedir_de_verdad = requests.get
+
+    def a_la_red(direccion, **kw):
+        if "adsb.lol" not in direccion:
+            return pedir_de_verdad(direccion, **kw)
+        with candado:
+            salidas.append(direccion)
+        time.sleep(0.15)
+        if "/lat/10.000/" in direccion:
+            raise ConnectionError("sin red")
+        return Respuesta()
+
+    cli._AVIONES.clear()
+    monkeypatch.setattr(cli.requests, "get", a_la_red)
+    pedir = lambda lat: pedir_de_verdad(f"{url}/vivo/aviones?lat={lat}&lon=-0.37&dist=40", timeout=10)
+
+    # Seis peticiones a la vez por la misma zona: una sola sale a la red.
+    with ThreadPoolExecutor(6) as grupo:
+        respuestas = list(grupo.map(pedir, [39.47] * 6))
+    assert {r.status_code for r in respuestas} == {200} and respuestas[0].json() == {"ac": []}
+    assert len(salidas) == 1
+    # Otra zona no borra la primera: al volver a ella no se pregunta de nuevo.
+    assert pedir(41.0).status_code == 200 and pedir(39.47).status_code == 200
+    assert len(salidas) == 2
+    # Si el servicio falla se dice, y no se guarda nada; los parámetros malos se rechazan.
+    assert pedir(10.0).status_code == 502
+    assert pedir_de_verdad(f"{url}/vivo/aviones?lat=norte&lon=0", timeout=10).status_code == 400
+    assert len(cli._AVIONES) == 2
+
+
 def test_paquete_autonomo(red_simulada, tmp_path, capsys):
     salida = tmp_path / "datos"
     cli.main(["buscar", "--municipios", "46900", "--salida", str(salida), "--cache", str(tmp_path / "cache")])
@@ -269,6 +342,10 @@ def test_paquete_autonomo(red_simulada, tmp_path, capsys):
     assert "<!--DATOS_INCRUSTADOS-->" not in html
     assert "window.OSINT_DATOS=" in html and "window.OSINT_HUELLAS=" in html
     incrustadas = html.split("window.OSINT_CAMARAS=")[1].split(";</script>")[0].split(";window.")[0]
+    capas = json.loads(html.split("window.OSINT_CAPAS=")[1].split(";</script>")[0].replace("<\\/", "</"))
+    assert set(capas) == {"listaroja", "dgt", "subastas"}
+    # El resto del programa del visor también va dentro: no queda ningún fichero suelto por cargar.
+    assert '<script src="capas.js">' not in html and "function abrirElemento" in html
     assert len(json.loads(incrustadas.replace("<\\/", "</"))["features"]) == 2
     assert "</script><script>alert(1)" not in html
     incrustado = html.split("window.OSINT_DATOS=")[1].split(";window.OSINT_HUELLAS=")[0]

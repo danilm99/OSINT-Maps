@@ -1,22 +1,25 @@
 # OSINT Maps
 
-Un mapa para cruzar fuentes abiertas sobre el terreno, en España. Junta en una
-sola vista:
+Un mapa para cruzar fuentes abiertas sobre el terreno, en España: se elige qué
+capas ver, se busca en todas a la vez y cualquier cosa del mapa abre su ficha
+con datos e imágenes sin salir de la página.
 
 - **Sitios abandonados**, sacados de Catastro, OpenStreetMap y Wikidata y
   ordenados por interés.
-- **Cámaras de vigilancia** dibujadas en OpenStreetMap, con su tipo y hacia
-  dónde miran.
-- **Marcadores propios**: puntos que pones tú (sitio, cámara, acceso, aviso,
-  nota), con su nota.
-- **Parcelas, suelo público, vallas y caminos**, para leer el terreno.
-- **Ortofotos del IGN** de hoy y de cada vuelo desde 1956.
+- **Más de veinte capas de datos**: cámaras (OpenStreetMap, DGT y València),
+  patrimonio en riesgo, inmuebles en subasta, solares, ferrocarril, túneles,
+  energía, antenas, industria, farolas, edificios de Catastro con su estado y
+  su año, artículos de Wikipedia, fotos, aviones en vuelo.
+- **Imágenes dentro de la página**: ortofoto de cada año desde 1956, Street
+  View, fotos a pie de calle de Panoramax, fotos de Wikimedia Commons, las
+  últimas pasadas del satélite Sentinel-2 y cámaras de tráfico en directo.
+- **Ficha de cualquier punto**: dirección, parcela catastral y su uso, altitud,
+  tiempo, sol y luna, y qué hay alrededor.
+- **Marcadores propios** con nota, y **parcelas, vallas y caminos** para leer
+  el terreno.
 
 Herramienta personal: funciona en tu ordenador y los datos se quedan en él.
-
-No usa imágenes de Google: sus condiciones no permiten analizarlas en masa.
-Google Maps, Street View y Google Earth aparecen solo como enlaces para
-comprobar cada punto a mano, y se exporta un KML para abrirlo en Google Earth.
+Todo lo que usa es gratuito y no pide cuenta ni clave.
 
 ## Estado
 
@@ -30,12 +33,12 @@ Probado de principio a fin con la provincia de Valencia (noviembre de 2026):
 | Candidatos | 4.297 |
 | Con nota de 40 o más | 331 |
 
-Todas las fuentes responden y el mapa funciona con ortofotos reales. Hay 80
+Todas las fuentes responden y el mapa funciona con datos reales. Hay 87
 pruebas automáticas (`pytest`) que no necesitan internet.
 
-Las cámaras y los marcadores propios están probados con datos simulados y en
-el navegador; el recuento real de cámaras de la provincia depende de lo que
-haya dibujado en OpenStreetMap.
+Recuentos reales de esa misma prueba: 390 cámaras en OpenStreetMap, 1.980
+cámaras de la DGT (toda España), 1.969 fichas de Hispania Nostra (toda
+España) y 49 inmuebles en subasta en la provincia.
 
 Lo que hay que saber antes de fiarse de los resultados:
 
@@ -85,6 +88,7 @@ los cambios que hagas en el código se apliquen sin reinstalar.
 ```bash
 osintmaps buscar --provincia 46 --fotos 200    # genera los datos en datos/
 osintmaps servir                               # abre el mapa en el navegador
+osintmaps capas --provincia 46                 # refresca Lista Roja, DGT y subastas
 ```
 
 En Windows, el mapa también se abre con doble clic en `abrir-mapa.bat`.
@@ -134,16 +138,63 @@ medio minuto por sitio.
 - **Revisión rápida** con el teclado: `→` siguiente, `←` anterior, `F`
   favorito, `V` visitado, `X` descartar (pasa solo al siguiente), `Esc` lista.
 
+### Capas de datos
+
+En *Capas* se enciende lo que se quiera ver. Cada capa se carga sola para la
+zona que hay en pantalla; las que tienen muchos elementos esperan a que se
+acerque el mapa, y lo dicen.
+
+| Grupo | Capas | De dónde salen |
+|---|---|---|
+| Vigilancia | Cámaras, cámaras de tráfico de la DGT y de València, policía | OpenStreetMap, DGT, Ajuntament de València |
+| Abandono y patrimonio | Lista Roja, Verde y Negra; inmuebles en subasta; abandonado en OSM; solares y edificios a rehabilitar; BIC y BRL; refugios antiaéreos; militar; lugares históricos | Hispania Nostra, BOE, OpenStreetMap, Ajuntament de València |
+| Infraestructura | Ferrocarril (en magenta lo que está en desuso), túneles y puentes, muros, energía, antenas, industria, canteras, farolas | OpenStreetMap |
+| Fotos y artículos | Wikipedia, fotos de Commons, fotos a pie de calle | Wikimedia, Panoramax |
+| Catastro | Edificios con su estado (en uso, deficiente, ruina), año y uso | Catastro |
+| En vivo | Aviones en vuelo, cada 10 segundos | adsb.lol, a través de `osintmaps servir` |
+
+Tres de ellas no se piden al momento, sino que se descargan a la carpeta de
+datos: la Lista Roja, las cámaras de la DGT y las subastas. Lo hace `osintmaps
+buscar`, y `osintmaps capas --provincia 46` las refresca sin repetir la
+búsqueda (las subastas cambian cada semana).
+
+De las subastas sale lo único que hay abierto sobre si algo está en venta y
+ocupado: cada ficha trae el valor, la fecha de cierre y la «situación
+posesoria» cuando el juzgado la indica.
+
+### Ficha, visor y buscador
+
+- **Ficha**: al tocar cualquier elemento, o con botón derecho y *¿Qué hay
+  aquí?* en cualquier punto. Trae los datos del elemento y, del punto, la
+  dirección, la parcela catastral con su uso y año, la altitud, el tiempo, la
+  hora de salida y puesta de sol y la luna. *Analizar 200 m alrededor* cuenta
+  cámaras, farolas, vallas, puertas y la comisaría más cercana.
+- **Visor**: los botones *Por años*, *A pie de calle*, *Fotos cerca* y
+  *Satélite* abren las imágenes a pantalla completa. La ortofoto se pide al
+  IGN a la máxima resolución que tiene (15 a 50 cm por píxel según la zona y
+  el año). Sentinel-2 son 10 m por píxel: vale para ver si algo ha cambiado
+  este mes, no para ver detalle.
+- **Buscador**: una sola caja para los sitios, lo cargado en las capas, tus
+  marcadores, calles y lugares (Nominatim), coordenadas (`39.47, -0.37`) y
+  referencias catastrales.
+- **Fondos**: ortofoto del IGN, satélite de Esri (otra fecha), Sentinel-2,
+  callejero, relieve LiDAR (se ven edificios y muros bajo los árboles) y los
+  mapas de 1870 a 1960. Encima se pueden poner los nombres de las calles, la
+  red ferroviaria o el mapa antiguo translúcido.
+- La dirección de la página guarda dónde se está mirando: se puede copiar y
+  volver al mismo sitio.
+
 ### Cámaras
 
 Círculos rojos. Al acercar el mapa, las que tienen la orientación anotada
-enseñan un abanico hacia donde miran. Al tocar una sale lo que OpenStreetMap
-sabe de ella (tipo, qué vigila, zona, montaje, orientación, operador), un
-enlace a su ficha en OSM y *Guardar entre mis marcadores*.
+enseñan un abanico hacia donde miran. Su ficha dice lo que OpenStreetMap sabe
+de ella (tipo, qué vigila, zona, montaje, orientación, operador) y permite
+guardarla entre tus marcadores. Las de tráfico de la DGT y de València enseñan
+además la imagen en directo.
 
 `osintmaps buscar` descarga las de la zona buscada a `datos/camaras.geojson`
-(`--sin-camaras` lo evita). El botón *Cargar cámaras de esta zona* trae al
-momento las de lo que se ve en pantalla, sin repetir la búsqueda.
+(`--sin-camaras` lo evita). Fuera de esa zona se cargan solas al acercar el
+mapa.
 
 Es un dato colaborativo y muy incompleto: en la mayoría de los pueblos no hay
 ninguna dibujada. Sirve como punto de partida, y lo que veas tú se añade con
@@ -151,8 +202,9 @@ un marcador propio de tipo cámara.
 
 ### Marcadores propios
 
-Rombos de color. Se crean de tres maneras: el botón *Añadir marcador* y un
-clic en el sitio, el botón derecho del ratón, o mantener pulsado en el móvil.
+Rombos de color. Se crean con el botón *Añadir marcador* y un clic en el
+sitio, con *Añadir un marcador aquí* del menú del botón derecho (en el móvil,
+mantener pulsado), o con *Guardar como marcador* desde cualquier ficha.
 
 Cada uno tiene un tipo (sitio, cámara, acceso, aviso, nota) y una nota de
 hasta 500 caracteres. Con su ficha abierta se arrastra para moverlo. Borrar
@@ -218,6 +270,9 @@ Todo queda en la carpeta `datos/`, que no se sube a git:
 | `candidatos.kml` | Para Google Earth, con una carpeta por categoría |
 | `resumen.json` | Fecha, parámetros y recuentos de la ejecución |
 | `camaras.geojson` | Cámaras de OpenStreetMap de la zona buscada |
+| `capa-listaroja.geojson` | Lista Roja, Verde y Negra de Hispania Nostra |
+| `capa-dgt.geojson` | Cámaras de tráfico de la DGT |
+| `capa-subastas.geojson` | Inmuebles en subasta de la provincia |
 | `marcas.json` | Tus marcas y notas sobre los sitios (lo escribe el mapa) |
 | `marcadores.json` | Tus marcadores propios (lo escribe el mapa) |
 | `mapa.html` | El mapa autónomo (lo escribe `osintmaps paquete`) |
@@ -277,7 +332,19 @@ funciones cortas que hay debajo, y vuelve a ejecutar `buscar`.
   pueden colarse sitios de provincias vecinas cerca del límite.
 - El servidor principal de Overpass (OSM) a veces responde con un error por
   saturación; el programa reintenta y prueba otros servidores.
-- La Lista Roja de Hispania Nostra no está integrada (no tiene API pública).
+- OpenStreetMap contesta despacio cuando hay varias capas encendidas: la
+  primera carga de una zona puede tardar medio minuto.
+- Los edificios de Catastro solo se cargan muy de cerca (zoom 18) y en el
+  centro de una ciudad cada trozo tarda de 15 a 25 segundos: el servicio es
+  así de lento con muchos edificios.
+- Las subastas y la Lista Roja se leen de sus webs, que no tienen API: si
+  cambian el diseño, esas dos capas dejarán de actualizarse hasta adaptarlas.
+- Street View va incrustado con una dirección que Google no documenta; puede
+  dejar de funcionar sin aviso. Las imágenes de Sentinel-2 dependen de un
+  servidor de demostración (titiler.xyz).
+- Las capas de València solo cubren el término municipal.
+- Los aviones y las imágenes en directo no funcionan en el `mapa.html`
+  autónomo: necesitan `osintmaps servir`.
 
 ## Estructura del código
 
@@ -289,6 +356,9 @@ osintmaps/
     catastro.py     índice de municipios, lectura del GML, agrupación
     osm.py          consulta Overpass y clasificación de etiquetas
     camaras.py      cámaras de vigilancia de OpenStreetMap
+    listaroja.py    patrimonio en riesgo (Hispania Nostra)
+    dgt.py          cámaras de tráfico de la DGT
+    subastas.py     inmuebles en subasta (BOE)
     wikidata.py     consulta SPARQL
   fusion.py         une candidatos que son el mismo sitio
   puntuacion.py     la nota y sus pesos
@@ -298,7 +368,8 @@ osintmaps/
     sentinel.py     vegetación con Sentinel-2 (experimental)
   exportar.py       GeoJSON, CSV, KML
   red.py, geo.py    utilidades de red y de coordenadas
-  web/index.html    el mapa (un solo fichero, sin compilación)
+  web/index.html    el mapa: sitios, fichas, marcas, marcadores y accesos
+  web/capas.js      capas de datos, ficha general, visor, buscador y menú
 tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
 ```
 
@@ -308,5 +379,10 @@ tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
 - OpenStreetMap: © colaboradores de OpenStreetMap, licencia ODbL.
 - Wikidata: CC0. Fotos: Wikimedia Commons, cada una con su licencia.
 - Ortofotos: PNOA, CC BY 4.0 scne.es. Sentinel-2: Copernicus, vía Earth Search.
+- Mapas antiguos, relieve y callejero: IGN, CC BY 4.0. Satélite alternativo: Esri.
+- Cámaras de tráfico: DGT y Ajuntament de València. Solares y patrimonio de
+  València: geoportal municipal. Subastas: Portal de Subastas del BOE.
+- Patrimonio en riesgo: Hispania Nostra. Fotos de calle: Panoramax. Aviones:
+  adsb.lol. Tiempo y altitud: Open-Meteo. Direcciones: CartoCiudad y Nominatim.
 
 `datos/` y `cache/` no se suben al repositorio.

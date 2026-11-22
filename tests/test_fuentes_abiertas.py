@@ -2,7 +2,7 @@
 
 import pytest
 
-from osintmaps.fuentes import camaras, osm, wikidata
+from osintmaps.fuentes import camaras, dgt, listaroja, osm, subastas, wikidata
 
 
 @pytest.mark.parametrize("tags, esperado", [
@@ -190,3 +190,134 @@ def test_camaras_usa_la_cache_y_prueba_otro_servidor(monkeypatch, tmp_path):
     assert pedidos == list(osm.SERVIDORES[:2])
     assert len(camaras.buscar(None, tmp_path, caja=(-0.7, 39.5, -0.6, 39.6))) == 2     # de la caché
     assert len(pedidos) == 2
+
+
+# ---------- Capas extra: Lista Roja, DGT y subastas ----------
+
+PAGINA_LISTA_ROJA = """
+<script> var marker = []; function initMap() {
+var contentString_274 = "<div class=\\"info-window\\"> <h5>Torre de Prueba</h5> <div class=\\"info-content\\">Villa (Valencia) Se cae a trozos...<br><br><a href=\\"https:\\/\\/listaroja.hispanianostra.org\\/ficha\\/torre-de-prueba\\/\\" target=\\"_blank\\">Ver en detalle</a></div> </div>";
+marker[274] = new google.maps.Marker({ position: {lat: 39.5466, lng: -0.6721}, map: map, zIndex: 0, icon: 'https://listaroja.hispanianostra.org/wp-content/uploads/hispania_icon1.png' });
+infowindow[274] = new google.maps.InfoWindow({ content: contentString_274 });
+var contentString_9 = "<div class=\\"info-window\\"> <h5>Mal situada</h5> <div class=\\"info-content\\">Fuera</div> </div>";
+marker[9] = new google.maps.Marker({ position: {lat: 0.0, lng: 0.0}, map: map, icon: 'x/hispania_icon2.png' });
+} </script>
+"""
+
+XML_DGT = b"""<?xml version="1.0" encoding="UTF-8"?>
+<d2:payload xmlns:d2="http://levelC/schema/3/d2Payload" xmlns:ns2="http://levelC/schema/3/device" xmlns:loc="http://levelC/schema/3/locationReferencing" xmlns:lse="x" xmlns:fse="y">
+ <ns2:device id="176130"><ns2:typeOfDevice>camera</ns2:typeOfDevice>
+  <ns2:pointLocation><loc:roadName>A-7</loc:roadName><loc:roadDestination>ALICANTE</loc:roadDestination>
+   <loc:latitude>39.4321</loc:latitude><loc:longitude>-0.4567</loc:longitude><lse:kilometerPoint>325.3</lse:kilometerPoint><lse:province>VALENCIA</lse:province></ns2:pointLocation>
+  <fse:deviceUrl>https://etraffic.dgt.es/camarasEtraffic/176130.jpg</fse:deviceUrl></ns2:device>
+ <ns2:device id="2"><ns2:typeOfDevice>camera</ns2:typeOfDevice><ns2:pointLocation><loc:roadName>N-340</loc:roadName></ns2:pointLocation></ns2:device>
+</d2:payload>"""
+
+LISTADO_BOE = '<a href="./detalleSubasta.php?idSub=SUB-JA-2026-1&amp;idBus=x">a</a> <a href="./detalleSubasta.php?idSub=SUB-JA-2026-1&amp;idBus=x">b</a> <a href="./detalleSubasta.php?idSub=SUB-AT-2026-26R2&amp;idBus=x">c</a>'
+GENERAL_BOE = "<table><tr><th>Fecha de conclusi&#xF3;n</th><td>10-12-2026 18:00:00 CET (ISO: 2026-12-10T18:00:00+01:00)</td></tr><tr><th>Valor subasta</th><td>50.000,00 &#x20AC;</td></tr></table>"
+BIENES_BOE = """<div id="idBloqueLote1"><div><h3>Datos del bien subastado</h3><div>
+<h4>Bien 1 - Inmueble (Vivienda)</h4><table><tr><th>Descripci&#xF3;n</th><td>PISO</td></tr><tr><th>Referencia catastral</th><td>5823501YJ2752D0001AB</td></tr>
+<tr><th>Direcci&#xF3;n</th><td>Plaza Mayor, 6</td></tr><tr><th>Localidad</th><td>CULLERA</td></tr><tr><th>Situaci&#xF3;n posesoria</th><td>No consta</td></tr></table></div>
+<div><h4>Bien 2 - Inmueble (Garaje)</h4><table><tr><th>Direcci&#xF3;n</th><td>Calle Sin Sitio, 1</td></tr><tr><th>Localidad</th><td>CULLERA</td></tr></table></div></div></div>"""
+
+
+def test_listaroja_parsear():
+    fichas = listaroja.parsear(PAGINA_LISTA_ROJA)
+    assert fichas == [{"id": "listaroja-274", "nombre": "Torre de Prueba", "lat": 39.5466, "lon": -0.6721,
+                       "resumen": "Villa (Valencia) Se cae a trozos...",
+                       "url": "https://listaroja.hispanianostra.org/ficha/torre-de-prueba/", "lista": "verde"}]
+
+
+def test_dgt_parsear():
+    assert dgt.parsear(XML_DGT) == [{"id": "dgt-176130", "lat": 39.4321, "lon": -0.4567, "nombre": "A-7 km 325.3", "carretera": "A-7",
+                                     "pk": "325.3", "provincia": "Valencia", "destino": "Alicante",
+                                     "imagen": "https://etraffic.dgt.es/camarasEtraffic/176130.jpg"}]
+
+
+def red_subastas(monkeypatch):
+    """Simula el portal del BOE, Catastro y CartoCiudad. Devuelve las direcciones pedidas."""
+    pedidos = []
+
+    class Respuesta:
+        def __init__(self, texto="", datos=None):
+            self.text, self._datos = texto, datos
+
+        def json(self):
+            return self._datos
+
+    def pedir(sesion, metodo, url, **kw):
+        q = kw.get("params") or {}
+        pedidos.append((url.rsplit("/", 1)[-1], q.get("ver") or q.get("dato[2]") or q.get("RefCat") or q.get("q")))
+        if url.endswith("subastas_ava.php"):
+            return Respuesta(LISTADO_BOE if q["dato[2]"] == "EJ" else "")
+        if url.endswith("detalleSubasta.php"):
+            return Respuesta(GENERAL_BOE if q["ver"] == "1" else BIENES_BOE)
+        if url.endswith("Consulta_CPMRC"):
+            return Respuesta(datos={"Consulta_CPMRCResult": {"coordenadas": {"coord": [{"geo": {"xcen": "-0.2501", "ycen": "39.1601"}}]}}})
+        return Respuesta(datos={"lat": 39.0, "lng": -0.3, "type": "Municipio"})      # CartoCiudad solo acierta el municipio
+
+    monkeypatch.setattr(subastas, "pedir", pedir)
+    monkeypatch.setattr(subastas.time, "sleep", lambda s: None)
+    return pedidos
+
+
+def test_subastas(monkeypatch, tmp_path):
+    pedidos = red_subastas(monkeypatch)
+    assert subastas.ids_del_listado(LISTADO_BOE) == ["SUB-JA-2026-1", "SUB-AT-2026-26R2"]
+    assert [b["titulo"] for b in subastas.bienes_de_la_pagina(BIENES_BOE)] == ["Bien 1 - Inmueble (Vivienda)", "Bien 2 - Inmueble (Garaje)"]
+
+    puntos = subastas.buscar(None, tmp_path, "46")
+    # Dos subastas con los mismos bienes: de cada una se sitúa el que trae referencia catastral;
+    # el garaje, del que CartoCiudad solo encuentra el municipio, se deja fuera.
+    assert [p["id"] for p in puntos] == ["subasta-SUB-JA-2026-1-1", "subasta-SUB-AT-2026-26R2-1"]
+    assert puntos[0] == {"id": "subasta-SUB-JA-2026-1-1", "lat": 39.1601, "lon": -0.2501, "nombre": "Inmueble (Vivienda) en subasta",
+                         "subasta": "SUB-JA-2026-1", "url": "https://subastas.boe.es/detalleSubasta.php?idSub=SUB-JA-2026-1",
+                         "situado_por": "parcela", "direccion": "Plaza Mayor, 6", "localidad": "CULLERA",
+                         "refcat": "5823501YJ2752D0001AB", "descripcion": "PISO", "situacion_posesoria": "No consta",
+                         "fin": "10-12-2026 18:00:00 CET", "valor_subasta": "50.000,00 €"}
+    # La segunda vez sale de la caché: solo se vuelve a pedir el listado.
+    antes = len(pedidos)
+    assert len(subastas.buscar(None, tmp_path, "46")) == 2
+    assert len(pedidos) == antes + 2
+
+
+def test_subastas_no_guarda_una_lectura_a_medias(monkeypatch, tmp_path):
+    """Si Catastro no contesta, la subasta no se da por leída: se reintenta entera la próxima vez."""
+    red_subastas(monkeypatch)
+    simulada, catastro_caido = subastas.pedir, {"si": True}
+
+    def pedir(sesion, metodo, url, **kw):
+        if url.endswith("Consulta_CPMRC") and catastro_caido["si"]:
+            raise ConnectionError("Catastro no responde")
+        return simulada(sesion, metodo, url, **kw)
+
+    monkeypatch.setattr(subastas, "pedir", pedir)
+    assert subastas.buscar(None, tmp_path, "46") == []
+    assert list(tmp_path.glob("*.json")) == []            # nada en la caché
+    catastro_caido["si"] = False
+    assert len(subastas.buscar(None, tmp_path, "46")) == 2
+    assert len(list(tmp_path.glob("*.json"))) == 2
+
+
+def test_subastas_distingue_dato_malo_de_servicio_caido(monkeypatch):
+    import requests
+
+    class Rechazo:
+        status_code = 400
+
+    def rechaza(*a, **kw):
+        raise requests.HTTPError("HTTP 400", response=Rechazo())
+
+    monkeypatch.setattr(subastas, "pedir", rechaza)
+    # Catastro rechaza la referencia y CartoCiudad la dirección: el bien no se puede situar, y eso sí es definitivo.
+    assert subastas._coordenadas(None, {"Referencia catastral": "5823501YJ2752D0001AB", "Dirección": "x", "Localidad": "y"}) is None
+
+    class Saturado:
+        status_code = 503
+
+    def saturado(*a, **kw):
+        raise requests.HTTPError("HTTP 503", response=Saturado())
+
+    monkeypatch.setattr(subastas, "pedir", saturado)
+    with pytest.raises(subastas.ServicioCaido):
+        subastas._coordenadas(None, {"Referencia catastral": "5823501YJ2752D0001AB"})

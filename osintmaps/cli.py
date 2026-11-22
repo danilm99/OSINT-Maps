@@ -2,6 +2,7 @@
 
     osintmaps municipios 46                 lista municipios de una provincia
     osintmaps buscar --provincia 46         ejecuta la búsqueda completa
+    osintmaps capas --provincia 46          refresca las capas extra (Lista Roja, DGT, subastas)
     osintmaps miniaturas --top 50           baja ortofotos de los mejores
     osintmaps servir                        abre el mapa en el navegador
     osintmaps paquete                       mapa en un solo HTML, para llevar
@@ -17,15 +18,19 @@ import logging
 import sys
 import tempfile
 import threading
+import time
 import webbrowser
+from collections import OrderedDict
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from . import __version__, exportar, fusion, osint, puntuacion
 from .fuentes import camaras as fuente_camaras
-from .fuentes import catastro, osm, wikidata
+from .fuentes import catastro, dgt, listaroja, osm, subastas, wikidata
 from .geo import parsear_caja
 from .modelos import Candidato
+import requests
+
 from .red import nueva_sesion
 
 log = logging.getLogger("osintmaps")
@@ -52,6 +57,57 @@ def _caja_de_candidatos(candidatos: list[Candidato]):
 # --------------------------------------------------------------------------
 # municipios
 # --------------------------------------------------------------------------
+
+# Capas extra: cada una va a datos/capa-<nombre>.geojson y el visor la enseña si existe.
+CAPAS_EXTRA = ("listaroja", "dgt", "subastas")
+
+
+def _geojson_de_puntos(puntos: list[dict]) -> dict:
+    return {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "geometry": {"type": "Point", "coordinates": [p["lon"], p["lat"]]},
+         "properties": {k: v for k, v in p.items() if k not in ("lat", "lon")}}
+        for p in puntos]}
+
+
+def descargar_capas(sesion, salida: Path, cache: Path, provincia: str | None, *,
+                    usar_cache: bool = True, solo: tuple[str, ...] = CAPAS_EXTRA) -> dict[str, int]:
+    """Descarga las capas extra. Una que falle se salta: conserva su fichero anterior."""
+    fuentes = {
+        "listaroja": ("Lista Roja del Patrimonio", lambda: listaroja.buscar(sesion)),
+        "dgt": ("Cámaras de la DGT", lambda: dgt.buscar(sesion)),
+    }
+    if provincia:
+        fuentes["subastas"] = ("Inmuebles en subasta (BOE)", lambda: subastas.buscar(
+            sesion, cache / "subastas", provincia, usar_cache=usar_cache, avisar=_decir))
+    salida.mkdir(parents=True, exist_ok=True)
+    hechas: dict[str, int] = {}
+    for nombre, (titulo, obtener) in fuentes.items():
+        if nombre not in solo:
+            continue
+        try:
+            puntos = obtener()
+        except Exception as exc:  # noqa: BLE001
+            log.error("%s falló y se continúa sin ella: %s", titulo, exc)
+            continue
+        (salida / f"capa-{nombre}.geojson").write_text(
+            json.dumps(_geojson_de_puntos(puntos), ensure_ascii=False), encoding="utf-8")
+        hechas[nombre] = len(puntos)
+        _decir(f"{titulo}: {len(puntos)}.")
+    return hechas
+
+
+def cmd_capas(args: argparse.Namespace) -> int:
+    solo = tuple(x.strip() for x in args.solo.split(",")) if args.solo else CAPAS_EXTRA
+    desconocidas = set(solo) - set(CAPAS_EXTRA)
+    if desconocidas:
+        _decir(f"Capas desconocidas: {', '.join(sorted(desconocidas))}. Las que hay: {', '.join(CAPAS_EXTRA)}.")
+        return 2
+    if "subastas" in solo and not args.provincia:
+        _decir("Sin --provincia no se buscan subastas (el resto de capas son de toda España).")
+    hechas = descargar_capas(nueva_sesion(), Path(args.salida), Path(args.cache), args.provincia,
+                             usar_cache=not args.refrescar, solo=solo)
+    return 0 if hechas else 1
+
 
 def cmd_municipios(args: argparse.Namespace) -> int:
     municipios = catastro.listar_municipios(nueva_sesion(), args.provincia)
@@ -209,6 +265,9 @@ def cmd_buscar(args: argparse.Namespace) -> int:
     # 7) Salida.
     parametros = {k: v for k, v in vars(args).items() if k not in ("func", "orden")}
     resumen = exportar.escribir_todo(candidatos, Path(args.salida), parametros, camaras=camaras)
+    if not args.sin_capas:
+        provincia = args.provincia or (codigos[0][:2] if codigos else None)
+        descargar_capas(sesion, Path(args.salida), cache, provincia, usar_cache=usar_cache)
 
     _decir(f"\n{resumen['total']} candidatos ({resumen['varias_fuentes']} confirmados por varias fuentes).")
     _decir("Por categoría: " + ", ".join(f"{k} {v}" for k, v in resumen["por_categoria"].items()))
@@ -282,6 +341,14 @@ def _limpiar_marcador(m: dict) -> dict | None:
 LIMPIADORES = {"marcas.json": _limpiar_marca, "marcadores.json": _limpiar_marcador}
 
 
+# Última respuesta de aviones por zona: (momento, contenido). De una en una, para que dos
+# peticiones simultáneas por la misma zona no salgan las dos a la red.
+_AVIONES: OrderedDict[tuple, tuple[float, bytes]] = OrderedDict()
+_CANDADO_AVIONES = threading.Lock()
+VIDA_AVIONES = 8.0       # segundos que se reutiliza una respuesta
+MAX_ZONAS_AVIONES = 32
+
+
 class _Servidor(http.server.SimpleHTTPRequestHandler):
     """Sirve el visor web y, bajo /datos/, la carpeta de resultados.
 
@@ -316,7 +383,46 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         nombre = self.path.split("?", 1)[0].removeprefix("/datos/")
         return nombre if nombre in LIMPIADORES else None
 
+    def _aviones(self) -> None:
+        """Aviones en vuelo cerca de un punto. El servicio (adsb.lol) no admite que
+        una página web le pregunte directamente, así que pregunta el servidor."""
+        try:
+            q = parse_qs(urlparse(self.path).query)
+            lat, lon = float(q["lat"][0]), float(q["lon"][0])
+            millas = max(1, min(250, int(float(q.get("dist", ["60"])[0]))))
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                raise ValueError
+        except (KeyError, ValueError, IndexError):
+            self.send_error(400)
+            return
+        clave = (round(lat, 1), round(lon, 1), millas)
+        with _CANDADO_AVIONES:
+            ahora = time.monotonic()
+            guardado = _AVIONES.get(clave)
+            if not guardado or ahora - guardado[0] > VIDA_AVIONES:      # como mucho una consulta cada 8 s por zona
+                try:
+                    resp = requests.get(f"https://api.adsb.lol/v2/lat/{lat:.3f}/lon/{lon:.3f}/dist/{millas}", timeout=12)
+                    resp.raise_for_status()
+                except Exception:  # noqa: BLE001
+                    guardado = None
+                else:
+                    guardado = (time.monotonic(), resp.content)
+                    # Fuera las caducadas y, si aun así hay demasiadas zonas, la más antigua.
+                    for vieja in [k for k, v in _AVIONES.items() if ahora - v[0] > VIDA_AVIONES]:
+                        del _AVIONES[vieja]
+                    _AVIONES[clave] = guardado
+                    _AVIONES.move_to_end(clave)
+                    while len(_AVIONES) > MAX_ZONAS_AVIONES:
+                        _AVIONES.popitem(last=False)
+        if guardado is None:
+            self.send_error(502)
+            return
+        self._responder_json(200, guardado[1])
+
     def do_GET(self) -> None:
+        if urlparse(self.path).path == "/vivo/aviones":
+            self._aviones()
+            return
         # Si el fichero aún no existe se responde con un objeto vacío en vez de un
         # 404: así el visor sabe que puede guardar aquí.
         nombre = self._fichero_editable()
@@ -457,10 +563,23 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
     ruta_camaras = carpeta_datos / "camaras.geojson"
     if ruta_camaras.exists():
         camaras = json.loads(ruta_camaras.read_text(encoding="utf-8"))
+    capas = {}
+    for nombre in CAPAS_EXTRA:
+        ruta = carpeta_datos / f"capa-{nombre}.geojson"
+        if ruta.exists():
+            capas[nombre] = json.loads(ruta.read_text(encoding="utf-8"))
     incrustado = (f"<script>window.OSINT_DATOS={_json_para_script(datos)};"
                   f"window.OSINT_HUELLAS={_json_para_script(huellas)};"
-                  f"window.OSINT_CAMARAS={_json_para_script(camaras)};</script>")
-    return pagina.replace(marca, incrustado, 1)
+                  f"window.OSINT_CAMARAS={_json_para_script(camaras)};"
+                  f"window.OSINT_CAPAS={_json_para_script(capas)};</script>")
+    pagina = pagina.replace(marca, incrustado, 1)
+    # El resto del programa del visor va en un fichero aparte: dentro también.
+    for fichero in ("capas.js",):
+        etiqueta = f'<script src="{fichero}"></script>'
+        if etiqueta in pagina:
+            codigo = (CARPETA_WEB / fichero).read_text(encoding="utf-8").replace("</script", "<\\/script")
+            pagina = pagina.replace(etiqueta, f"<script>\n{codigo}\n</script>", 1)
+    return pagina
 
 
 def cmd_paquete(args: argparse.Namespace) -> int:
@@ -481,7 +600,7 @@ def cmd_paquete(args: argparse.Namespace) -> int:
 def crear_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="osintmaps",
-        description="Buscador de lugares abandonados a partir de datos abiertos.",
+        description="Mapa OSINT: sitios abandonados, cámaras y más capas de datos abiertos, en un visor web.",
     )
     parser.add_argument("--version", action="version", version=f"osintmaps {__version__}")
     sub = parser.add_subparsers(dest="orden", required=True)
@@ -507,6 +626,8 @@ def crear_parser() -> argparse.ArgumentParser:
     fuentes.add_argument("--sin-osm", action="store_true")
     fuentes.add_argument("--sin-wikidata", action="store_true")
     fuentes.add_argument("--sin-camaras", action="store_true", help="no descarga las cámaras de vigilancia de OSM")
+    fuentes.add_argument("--sin-capas", action="store_true",
+                         help="no descarga las capas extra (Lista Roja, cámaras DGT, subastas)")
     extras = p.add_argument_group("extras (sobre los N mejores)")
     extras.add_argument("--fotos", type=int, default=0, metavar="N",
                         help="busca fotos cercanas en Wikimedia Commons")
@@ -517,6 +638,14 @@ def crear_parser() -> argparse.ArgumentParser:
     p.add_argument("--refrescar", action="store_true", help="ignora la caché de OSM y Wikidata")
     p.add_argument("-v", "--verbose", action="store_true", help="muestra el avance municipio a municipio")
     p.set_defaults(func=cmd_buscar)
+
+    p = sub.add_parser("capas", help="descarga solo las capas extra: Lista Roja, cámaras DGT y subastas")
+    p.add_argument("--provincia", help="código de provincia de 2 cifras, para las subastas")
+    p.add_argument("--solo", help=f"lista separada por comas: {', '.join(CAPAS_EXTRA)}")
+    p.add_argument("--salida", default="datos", help="carpeta de resultados (datos)")
+    p.add_argument("--cache", default="cache", help="carpeta de descargas (cache)")
+    p.add_argument("--refrescar", action="store_true", help="vuelve a leer las subastas ya guardadas")
+    p.set_defaults(func=cmd_capas)
 
     p = sub.add_parser("miniaturas", help="descarga ortofotos PNOA de los mejores candidatos")
     p.add_argument("--top", type=int, default=50)
