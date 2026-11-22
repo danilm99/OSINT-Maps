@@ -253,6 +253,7 @@ function elegirOpcion(k) {
 }
 /* La tarjeta sobre el mapa: el resumen, por si el panel está recogido o se está mirando otra ficha. */
 function pintarTarjetaRuta() {
+  cuidarPantalla();
   if (!hayRuta()) { ponerTarjeta(); return; }
   const quitar = botonTarjeta("Quitar", quitarRuta), ver = botonTarjeta($("ficha-ruta").hidden ? "Ver la ruta" : "Pasos", abrirRuta);
   const c = calculoActual(), op = opcionActual(), nombreModo = MODOS_RUTA.find((m) => m[0] === ruta.modo)[1].toLowerCase();
@@ -411,6 +412,23 @@ function tarjetaDeOpcion(op, k, elegida) {
   caja.append(lista);
   return caja;
 }
+
+/* Mientras hay una ruta que sale de «tu posición», se pide al aparato que no apague la pantalla: quien va
+   andando con el móvil en la mano no tiene que ir tocándola. El permiso se pierde al cambiar de
+   aplicación, así que se vuelve a pedir al volver. */
+let pantallaDespierta = null, pidiendoPantalla = false, pantallaNegada = false;
+function cuidarPantalla() {
+  const hace = !!(ruta.origen && ruta.origen.yo && ruta.destino && ruta.destino.ll) && !document.hidden;
+  if (hace && !pantallaDespierta && !pidiendoPantalla && !pantallaNegada && navigator.wakeLock) {
+    pidiendoPantalla = true;
+    navigator.wakeLock.request("screen").then((cierre) => {
+      pidiendoPantalla = false; pantallaDespierta = cierre;
+      cierre.addEventListener("release", () => { if (pantallaDespierta === cierre) pantallaDespierta = null; });
+      cuidarPantalla();      // por si mientras se pedía dejó de hacer falta
+    }, () => { pidiendoPantalla = false; pantallaNegada = true; });      // el aparato no lo permite (batería baja, por ejemplo): no se insiste
+  } else if (!hace && pantallaDespierta) { const cierre = pantallaDespierta; pantallaDespierta = null; cierre.release().catch(() => {}); }
+}
+document.addEventListener("visibilitychange", () => { pantallaNegada = false; cuidarPantalla(); });
 
 /* ====================== 4. Seguir la posición ======================
    Si la ruta sale de «tu posición», cada vez que el aparato dice dónde está se mira cuánto queda

@@ -27,7 +27,14 @@ self.addEventListener("fetch", (ev) => {
     // navegador se fía de la suya unos minutos y, tras publicar una versión, podría mezclar ficheros de dos.
     ev.respondWith(fetch(pedido, { cache: "no-cache" })
       .then((respuesta) => {
-        if (respuesta.ok) { const copia = respuesta.clone(); caches.open(PROPIO).then((c) => c.put(pedido, copia)); }
+        if (respuesta.ok) {
+          const copia = respuesta.clone();
+          caches.open(PROPIO).then(async (c) => {
+            // Los programas llevan una marca de versión en la dirección (capas.js?v=…): al guardar uno nuevo se tira el anterior.
+            if (url.search.startsWith("?v=")) for (const vieja of await c.keys()) { const u = new URL(vieja.url); if (u.pathname === url.pathname && u.search !== url.search) c.delete(vieja); }
+            c.put(pedido, copia);
+          });
+        }
         return respuesta;
       })
       .catch(() => caches.match(pedido, { ignoreSearch: true }).then((copia) => copia || Response.error())));

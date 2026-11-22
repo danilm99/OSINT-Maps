@@ -1917,6 +1917,12 @@ function sugerirLugares(texto) {
     .then(([photon, carto]) => sinRepetidos(/\d/.test(texto) ? carto.concat(photon) : photon.concat(carto)));
 }
 
+/* Lo que está cerca de lo que se mira (a menos de 30 km), delante; dentro de cada grupo se respeta el orden
+   en que lo dio el callejero. Así «estación del norte» no empieza por la de otra ciudad. */
+function cercaPrimero(lista) {
+  const centro = mapa.getCenter(), lejos = (l) => mapa.distance(centro, [l.lat, l.lon]) > 30000;
+  return lista.filter((l) => !lejos(l)).concat(lista.filter(lejos));
+}
 /* Abre un lugar del buscador: si es grande (una ciudad, un barrio) se encuadra; si no, se va a él. */
 function irALugar(e) {
   recordarReciente(e);
@@ -2109,7 +2115,7 @@ function buscarTodo(texto, conNominatim) {
   }
   const pintar = () => pintarResultados([["Ir a", directos], ["Cerca de aquí", cerca],
     [lugares.estado === "buscando" ? "Buscando lugares y direcciones…" : lugares.estado === "nada" && !cerca.length && !enCapas.length && !directos.length ? "No se ha encontrado ningún lugar con ese nombre" : "Lugares y direcciones",
-      lugares.lista.slice(0, 9).map(filaDeLugar), lugares.estado === "buscando" || (lugares.estado === "nada" && !cerca.length && !enCapas.length && !directos.length) ? "aviso" : ""],
+      cercaPrimero(lugares.lista).slice(0, 9).map(filaDeLugar), lugares.estado === "buscando" || (lugares.estado === "nada" && !cerca.length && !enCapas.length && !directos.length) ? "aviso" : ""],
     ["En tus datos y en las capas encendidas", enCapas]]);
   pintar();
   if (refcat) {

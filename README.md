@@ -312,8 +312,8 @@ minuto. Lo que sí se puede es no esperar dos veces por lo mismo:
   transporte público (Transitous) salen varios viajes con sus líneas en su
   color, los transbordos, las paradas intermedias y si el vehículo va ya
   comunicando su posición; se puede pedir para otra hora o «llegar a las».
-  Si la ruta sale de tu posición y te mueves, dice cuánto queda y la vuelve a
-  calcular cuando te sales de ella.
+  Si la ruta sale de tu posición y te mueves, dice cuánto queda, la vuelve a
+  calcular cuando te sales de ella y pide al móvil que no apague la pantalla.
 - **Medir**: botón derecho, *Medir distancia desde aquí*, y cada clic añade
   un tramo. Escape termina.
 - La ficha de un punto enseña la **foto de fachada de Catastro** cuando la
