@@ -230,7 +230,10 @@ if (/^https?:$/.test(location.protocol)) {
             border-radius: 8px; padding: 8px 12px; font-weight: 600; }
   #anadir[aria-pressed=true] { background: var(--jalon); border-color: var(--jalon); color: #fff; }
   #boton-3d { position: absolute; right: 10px; bottom: 184px; z-index: 800; border: 1px solid var(--linea); background: var(--papel); border-radius: 8px; padding: 8px 12px; font-weight: 600; }
-  #boton-3d[aria-pressed=true], #cerca[aria-pressed=true] { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+  #boton-malla { position: absolute; right: 10px; bottom: 228px; z-index: 800; border: 1px solid var(--linea); background: var(--papel); border-radius: 8px; padding: 8px 12px; font-weight: 600;
+    display: inline-flex; align-items: center; box-shadow: 0 1px 3px rgba(23,36,46,.28); }
+  #mapa-zona:not(.en-3d) #boton-malla { display: none; }
+  #boton-3d[aria-pressed=true], #cerca[aria-pressed=true], #boton-malla[aria-pressed=true] { background: #1a73e8; border-color: #1a73e8; color: #fff; }
   #anadir, #cerca, #boton-3d { display: inline-flex; align-items: center; gap: 7px; box-shadow: 0 1px 3px rgba(23,36,46,.28); }
   #anadir [data-icono], #cerca [data-icono], #boton-3d [data-icono] { display: inline-flex; flex: none; }
   /* Vista en 3D: ocupa el sitio del mapa; los botones y el buscador siguen encima. */
@@ -581,7 +584,7 @@ if (/^https?:$/.test(location.protocol)) {
     /* El crédito de las imágenes, en una sola línea que se corta: en una pantalla pequeña taparía los botones. */
     .leaflet-control-attribution { font-size: 10px; max-width: 100vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     /* Con la hoja en alto apenas queda una franja de mapa, la del buscador: lo demás que flota se aparta. */
-    #panel.alta ~ #mapa-zona :is(.leaflet-bottom, .leaflet-top, #tira-capas, #anadir, #cerca, #boton-3d, #tarjeta-mapa, #aviso-capas, #leyenda, #aviso-3d, .maplibregl-control-container) { display: none !important; }
+    #panel.alta ~ #mapa-zona :is(.leaflet-bottom, .leaflet-top, #tira-capas, #anadir, #cerca, #boton-3d, #boton-malla, #tarjeta-mapa, #aviso-capas, #leyenda, #aviso-3d, .maplibregl-control-container) { display: none !important; }
     /* Con la ficha de la ruta a la vista en la hoja, sobra la tarjeta del mapa: dice lo mismo. */
     #panel:not(.plegado):has(#ficha-ruta:not([hidden])) ~ #mapa-zona #tarjeta-mapa { display: none; }
     #ficha-ruta h2 { display: none; }
@@ -609,6 +612,7 @@ if (/^https?:$/.test(location.protocol)) {
     #cerca { right: 8px; bottom: 36px; }
     #anadir { right: 8px; bottom: 88px; }
     #boton-3d { right: 8px; bottom: 140px; }
+    #boton-malla { right: 8px; bottom: 192px; padding: 11px; border-radius: 23px; min-width: 46px; justify-content: center; }
     #anadir, #cerca, #boton-3d { padding: 11px; border-radius: 23px; min-width: 46px; justify-content: center; }
     #anadir:not(.avisa) .rotulo, #cerca:not(.avisa) .rotulo { display: none; }
     #boton-3d [data-icono] { display: none; }
@@ -725,6 +729,7 @@ if (/^https?:$/.test(location.protocol)) {
   <button id="anadir" type="button" aria-pressed="false" data-nombre="Añadir marcador" title="Añadir marcador"><span data-icono="marcador_nuevo"></span><span class="rotulo">Añadir marcador</span></button>
   <button id="cerca" type="button" aria-pressed="false" data-nombre="Mi posición" title="Mi posición"><span data-icono="mi_posicion"></span><span class="rotulo">Mi posición</span></button>
   <button id="boton-3d" type="button" aria-pressed="false" title="Ver en 3D: relieve, foto aérea y edificios"><span data-icono="tres_d"></span><span class="rotulo">3D</span></button>
+  <button id="boton-malla" type="button" aria-pressed="true" title="Quitar la maqueta fotográfica"><span class="rotulo">Real</span></button>
   <div id="vista3d" hidden></div>
   <div id="leyenda" hidden></div>
   <div id="aviso-capas" role="status" hidden></div>
