@@ -80,7 +80,7 @@ function colorSobre(fondo) {
 }
 
 /* Tamaño según lo cerca que se mira: de lejos, un punto; de cerca, la ficha con su icono. */
-const radioSimbolo = (zoom) => (zoom >= 16 ? 12 : zoom >= 14 ? 10.5 : zoom >= 12 ? 8.5 : zoom >= 10 ? 6 : 4.5);
+const radioSimbolo = (zoom) => (zoom >= 17 ? 12 : zoom >= 16 ? 11 : zoom >= 15 ? 10 : zoom >= 14 ? 9 : zoom >= 13 ? 8 : zoom >= 11 ? 6 : 4.5);
 const CON_ICONO = 8;      // por debajo de este radio no cabe el dibujo
 
 /* Un punto del mapa dibujado en el lienzo como una ficha con su icono. Es un
