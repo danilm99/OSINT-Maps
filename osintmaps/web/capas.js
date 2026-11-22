@@ -214,10 +214,22 @@ function elementoGeoJSON(f, prefijo) {
   return e;
 }
 
+/* Wikipedia y Commons entregan los datos de una lista de páginas por tandas:
+   hay que seguir pidiendo mientras la respuesta diga «continue» y juntar los trozos. */
+async function consultaWiki(sitio, parametros, tandas = 5) {
+  const paginas = {};
+  let sigue = {};
+  for (let k = 0; k < tandas; k++) {
+    const j = await pedirJ(`https://${sitio}/w/api.php?${new URLSearchParams(Object.assign({ action: "query", format: "json", origin: "*" }, parametros, sigue))}`);
+    for (const [id, p] of Object.entries((j.query || {}).pages || {})) paginas[id] = Object.assign(paginas[id] || {}, p);
+    if (!j.continue) break;
+    sigue = j.continue;
+  }
+  return Object.values(paginas);
+}
 function pedirWikipedia(caja) {
-  const q = new URLSearchParams({ action: "query", generator: "geosearch", ggsbbox: `${caja.n}|${caja.o}|${caja.s}|${caja.e}`, ggslimit: "200",
-    prop: "coordinates|pageimages|description", piprop: "thumbnail", pithumbsize: "800", colimit: "200", pilimit: "200", format: "json", origin: "*" });
-  return pedirJ(`https://es.wikipedia.org/w/api.php?${q}`).then((j) => Object.values((j.query || {}).pages || {}).filter((p) => p.coordinates).map((p) => ({
+  return consultaWiki("es.wikipedia.org", { generator: "geosearch", ggsbbox: `${caja.n}|${caja.o}|${caja.s}|${caja.e}`, ggslimit: "200",
+    prop: "coordinates|pageimages|description", piprop: "thumbnail", pithumbsize: "960", colimit: "max", pilimit: "max" }).then((paginas) => paginas.filter((p) => p.coordinates).map((p) => ({
     id: `wikipedia/${p.pageid}`, lat: p.coordinates[0].lat, lon: p.coordinates[0].lon, nombre: p.title, imagen: (p.thumbnail || {}).source,
     url: `https://es.wikipedia.org/?curid=${p.pageid}`, pagina: p.pageid, datos: p.description ? [["Qué es", p.description]] : [] })));
 }
@@ -230,11 +242,11 @@ function fotoCommons(p) {
     fecha: limpio((m.DateTimeOriginal || {}).value).slice(0, 10) };
 }
 // Wikimedia solo sirve las miniaturas en unos anchos fijos (250, 500, 960, 1280, 1920...).
-const PEDIDO_COMMONS = { action: "query", generator: "geosearch", ggsnamespace: "6", prop: "imageinfo|coordinates", iiprop: "url|extmetadata|mime",
-  iiurlwidth: "1280", iiextmetadatafilter: "Artist|LicenseShortName|DateTimeOriginal", format: "json", origin: "*" };
+const PEDIDO_COMMONS = { generator: "geosearch", ggsnamespace: "6", prop: "imageinfo|coordinates", iiprop: "url|extmetadata|mime", colimit: "max",
+  iiurlwidth: "1280", iiextmetadatafilter: "Artist|LicenseShortName|DateTimeOriginal" };
 function pedirCommons(caja) {
-  const q = new URLSearchParams(Object.assign({ ggsbbox: `${caja.n}|${caja.o}|${caja.s}|${caja.e}`, ggslimit: "200" }, PEDIDO_COMMONS));
-  return pedirJ(`https://commons.wikimedia.org/w/api.php?${q}`).then((j) => Object.values((j.query || {}).pages || {}).map(fotoCommons).filter((f) => f && f.lat != null)
+  return consultaWiki("commons.wikimedia.org", Object.assign({ ggsbbox: `${caja.n}|${caja.o}|${caja.s}|${caja.e}`, ggslimit: "200" }, PEDIDO_COMMONS))
+    .then((paginas) => paginas.map(fotoCommons).filter((f) => f && f.lat != null)
     .map((f) => Object.assign(f, { datos: [["Autor", f.autor], ["Fecha", f.fecha], ["Licencia", f.licencia]] })));
 }
 function fotoPanoramax(f) {
@@ -657,8 +669,8 @@ function abrirElemento(e, mover) {
   if (e.pagina) {      // artículo de Wikipedia: su primer párrafo
     const resumen = el("p", { className: "pendiente", textContent: "Cargando el artículo…" });
     partes.push(bloque("De Wikipedia", resumen));
-    pedirJ(`https://es.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&pageids=${e.pagina}&format=json&origin=*`)
-      .then((j) => { resumen.className = ""; resumen.textContent = (Object.values(j.query.pages)[0].extract || "Sin resumen.").slice(0, 1400); })
+    consultaWiki("es.wikipedia.org", { prop: "extracts", exintro: "1", explaintext: "1", pageids: String(e.pagina) })
+      .then((paginas) => { resumen.className = ""; resumen.textContent = ((paginas[0] || {}).extract || "Sin resumen.").slice(0, 1400); })
       .catch(() => { resumen.textContent = "No se pudo cargar el artículo."; });
   }
   if (e.autor || e.licencia) partes.push(el("p", { className: "ayuda", textContent: [e.autor && `Autor: ${e.autor}`, e.licencia && `Licencia: ${e.licencia}`].filter(Boolean).join(". ") }));
@@ -763,10 +775,9 @@ function abrirVisor(e, pestana) {
     },
     fotos() {
       mensaje("Buscando fotos en Wikimedia Commons a menos de 600 m…");
-      const q = new URLSearchParams(Object.assign({ ggscoord: `${e.lat}|${e.lon}`, ggsradius: "600", ggslimit: "60" }, PEDIDO_COMMONS, { iiurlwidth: "1920" }));
-      pedirJ(`https://commons.wikimedia.org/w/api.php?${q}`).then((j) => {
+      consultaWiki("commons.wikimedia.org", Object.assign({ ggscoord: `${e.lat}|${e.lon}`, ggsradius: "600", ggslimit: "60" }, PEDIDO_COMMONS, { iiurlwidth: "1920" })).then((paginas) => {
         if (!visor || visor.nodo !== nodo) return;
-        const fotos = Object.values((j.query || {}).pages || {}).map(fotoCommons).filter(Boolean).sort((a, b) => (a.lat != null ? metros(e, a) : 1e9) - (b.lat != null ? metros(e, b) : 1e9));
+        const fotos = paginas.map(fotoCommons).filter(Boolean).sort((a, b) => (a.lat != null ? metros(e, a) : 1e9) - (b.lat != null ? metros(e, b) : 1e9));
         if (!fotos.length) { mensaje("No hay fotos libres de este sitio en Wikimedia Commons."); return; }
         fotos.forEach((f, k) => {
           const b = chip("", () => foto(f.imagen, [f.nombre, f.autor, f.fecha, f.licencia, f.lat != null && `a ${Math.round(metros(e, f))} m`].filter(Boolean).join(" · "), f.url), tira);
@@ -925,3 +936,28 @@ $("buscar-texto").addEventListener("keydown", (ev) => {
   });
 }
 pintarEstadoCapas();
+
+/* Las fichas de los sitios abandonados y de los marcadores propios también
+   llevan los botones del visor: se añaden al abrirlas. */
+function filaDeVistas(e) {
+  const fila = el("div", { className: "vistas" });
+  for (const [texto, pestana] of [["Por años", "ortofoto"], ["A pie de calle", "calle"], ["Fotos cerca", "fotos"], ["Satélite", "satelite"]]) {
+    const b = el("button", { type: "button", textContent: texto });
+    b.addEventListener("click", () => abrirVisor(e, pestana));
+    fila.append(b);
+  }
+  return fila;
+}
+{
+  const fichaOriginal = abrirFicha, marcadorOriginal = abrirMarcador;
+  abrirFicha = function (c, mover) {
+    fichaOriginal(c, mover);
+    const ancla = $("ficha").querySelector(".lugar");
+    if (ancla && seleccion === c) ancla.after(filaDeVistas({ lat: c.lat, lon: c.lon, nombre: tituloDe(c), superficie: c.p.superficie_m2 }));
+  };
+  abrirMarcador = function (id) {
+    marcadorOriginal(id);
+    const m = marcadores[id], ancla = $("ficha-marcador").querySelector(".lugar");
+    if (m && ancla && marcadorAbierto === id && !$("ficha-marcador").querySelector(".vistas")) ancla.after(filaDeVistas({ lat: m.lat, lon: m.lng, nombre: m.note || "Marcador" }));
+  };
+}
