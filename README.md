@@ -205,7 +205,7 @@ primera vez se sigue el del sistema. En modo oscuro los mapas dibujados
   marcadores, calles y lugares (Nominatim), coordenadas (`39.47, -0.37`) y
   referencias catastrales.
 - **Fondos**: ortofoto del IGN, satélite de Esri (otra fecha), Sentinel-2,
-  callejero, mapas oscuro y claro de CARTO, relieve LiDAR (se ven edificios y
+  callejero, mapas oscuro y claro de Esri, relieve LiDAR (se ven edificios y
   muros bajo los árboles), luces nocturnas desde satélite y los mapas de 1870
   a 1960. Encima se pueden poner los nombres de las calles, la red
   ferroviaria, el mapa antiguo translúcido o el radar de lluvia del momento.
@@ -427,6 +427,6 @@ tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
 - Patrimonio en riesgo: Hispania Nostra. Fotos de calle: Panoramax. Aviones:
   adsb.lol. Trenes: Renfe. Tiempo y altitud: Open-Meteo. Direcciones:
   CartoCiudad y Nominatim. Rutas: OSRM de FOSSGIS. Lluvia: RainViewer. Mapas
-  oscuro y claro: CARTO. Luces nocturnas: NASA Black Marble.
+  oscuro y claro: Esri. Luces nocturnas: NASA Black Marble.
 
 `datos/` y `cache/` no se suben al repositorio.

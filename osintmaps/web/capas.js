@@ -16,8 +16,11 @@ const wmts = (base, capa, formato) =>
   `&Format=image/${formato}&TileMatrix={z}&TileCol={x}&TileRow={y}`;
 
 const FONDOS_NUEVOS = {
-  carto_oscuro: ["Mapa oscuro (CARTO)", L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { subdomains: "abcd", maxZoom: 20, attribution: "OpenStreetMap, CARTO" })],
-  carto_claro: ["Mapa claro (CARTO)", L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", { subdomains: "abcd", maxZoom: 20, attribution: "OpenStreetMap, CARTO" })],
+  // Mapas sobrios para que lo que resalte sean los símbolos. (Los de CARTO se probaron y ahora piden clave.)
+  gris_oscuro: ["Mapa oscuro (Esri)", L.featureGroup(["Base", "Reference"].map((parte) => L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_${parte}/MapServer/tile/{z}/{y}/{x}`,
+    { maxZoom: 20, maxNativeZoom: 16, attribution: "Esri, HERE, Garmin, OpenStreetMap" })))],
+  gris_claro: ["Mapa claro (Esri)", L.featureGroup(["Base", "Reference"].map((parte) => L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_${parte}/MapServer/tile/{z}/{y}/{x}`,
+    { maxZoom: 20, maxNativeZoom: 16, attribution: "Esri, HERE, Garmin, OpenStreetMap" })))],
   noche: ["Luces de noche desde satélite (2016)", L.tileLayer("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png",
     { maxZoom: 20, maxNativeZoom: 8, attribution: "NASA Black Marble" })],
   esri: ["Satélite (Esri, otra fecha)", L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
