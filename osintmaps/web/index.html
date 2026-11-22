@@ -345,6 +345,8 @@ try {
   #leyenda .clave i { flex: 0 0 26px; height: 12px; display: block; }
   #leyenda .aviso { color: var(--tinta-suave); font-size: 12.5px; margin-top: 3px; }
   #leyenda .estado { font-weight: 600; }
+  #leyenda .plegar-leyenda { border: 0; background: none; padding: 0; font-weight: 600; color: var(--tinta-suave); text-align: left; justify-self: start; }
+  #leyenda .plegar-leyenda:hover { color: var(--tinta); }
   .ficha-parcela { font: 14px/1.4 "Barlow", system-ui, sans-serif; color: var(--tinta); min-width: 220px; max-width: 290px; }
   .ficha-parcela h4 { font: 600 18px/1.15 "Barlow Condensed", sans-serif; margin: 0 0 4px; }
   .ficha-parcela p { margin: 4px 0; }
@@ -839,6 +841,7 @@ function cargar(geojson) {
     .filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lon));
   for (const c of candidatos) {
     c.marcador = simbolo([c.lat, c.lon], estiloMarcador(c));
+    c.marcador.bindTooltip(() => el("span", { textContent: `${tituloDe(c)} · nota ${Math.round(c.p.puntuacion || 0)}` }), { direction: "top", offset: [0, -8] });
     // stopPropagation: el clic en un punto no debe contar además como clic en la parcela de debajo.
     c.marcador.on("click", (e) => { L.DomEvent.stopPropagation(e); abrirFicha(c, false); });
   }
@@ -1417,6 +1420,7 @@ function pintarAcceso() {
   pintarLeyenda();
 }
 
+let leyendaPlegada = leerLocal("osintmaps.leyenda.v1", false) === true;
 function pintarLeyenda() {
   const caja = $("leyenda"), filas = [];
   const clave = (estilo, texto) => { const i = el("i"); i.style.cssText = estilo; return el("div", { className: "clave" }, i, el("span", { textContent: texto })); };
@@ -1434,7 +1438,10 @@ function pintarLeyenda() {
   if (!filas.length) { caja.hidden = true; return; }
   if (estadoAcceso) filas.push(el("div", { className: "estado", textContent: estadoAcceso }));
   if ($("capa-parcelas").checked) filas.push(el("div", { className: "aviso", textContent: "Catastro no publica quién es el dueño. Toca una parcela para ver su uso. Que no haya valla dibujada no significa que no exista." }));
-  caja.replaceChildren(...filas);
+  const plegar = el("button", { type: "button", className: "plegar-leyenda", textContent: leyendaPlegada ? "Leyenda" : "Ocultar leyenda" });
+  plegar.setAttribute("aria-expanded", String(!leyendaPlegada));
+  plegar.addEventListener("click", () => { leyendaPlegada = !leyendaPlegada; guardarLocal("osintmaps.leyenda.v1", leyendaPlegada); pintarLeyenda(); });
+  caja.replaceChildren(plegar, ...(leyendaPlegada ? (estadoAcceso ? [el("div", { className: "estado", textContent: estadoAcceso })] : []) : filas));
   caja.hidden = false;
 }
 
@@ -1563,6 +1570,7 @@ function pintarCamaras() {
   const puntos = [];
   for (const c of camaras.values()) {
     const m = simbolo([c.lat, c.lon], { icono: "camaras", fondo: "#d90429" });
+    m.bindTooltip(() => el("span", { textContent: filasCamara(c)[0][1] }), { direction: "top", offset: [0, -8] });
     m.on("click", (e) => { L.DomEvent.stopPropagation(e); abrirCamara(c); });
     puntos.push(m);
   }

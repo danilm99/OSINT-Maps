@@ -6,10 +6,13 @@ con datos e imágenes sin salir de la página.
 
 - **Sitios abandonados**, sacados de Catastro, OpenStreetMap y Wikidata y
   ordenados por interés.
-- **Más de veinte capas de datos**: cámaras (OpenStreetMap, DGT y València),
-  patrimonio en riesgo, inmuebles en subasta, solares, ferrocarril, túneles,
-  energía, antenas, industria, farolas, edificios de Catastro con su estado y
-  su año, artículos de Wikipedia, fotos, aviones en vuelo.
+- **Más de treinta capas de datos**: cámaras (OpenStreetMap, DGT y València),
+  radares, patrimonio en riesgo, inmuebles en subasta, solares, descampados,
+  ferrocarril, túneles, energía, antenas, industria, agua, farolas, arte
+  urbano, miradores, edificios de Catastro con su estado y su año, artículos
+  de Wikipedia, fotos, aviones y trenes de Cercanías en vivo.
+- **Ruta y medición** dentro de la página: a pie o en coche entre dos puntos,
+  y distancias en línea recta.
 - **Imágenes dentro de la página**: ortofoto de cada año desde 1956, Street
   View, fotos a pie de calle de Panoramax, fotos de Wikimedia Commons, las
   últimas pasadas del satélite Sentinel-2 y cámaras de tráfico en directo.
@@ -33,7 +36,7 @@ Probado de principio a fin con la provincia de Valencia (noviembre de 2026):
 | Candidatos | 4.297 |
 | Con nota de 40 o más | 331 |
 
-Todas las fuentes responden y el mapa funciona con datos reales. Hay 87
+Todas las fuentes responden y el mapa funciona con datos reales. Hay 88
 pruebas automáticas (`pytest`) que no necesitan internet.
 
 Recuentos reales de esa misma prueba: 390 cámaras en OpenStreetMap, 1.980
@@ -146,12 +149,15 @@ acerque el mapa, y lo dicen.
 
 | Grupo | Capas | De dónde salen |
 |---|---|---|
-| Vigilancia | Cámaras, cámaras de tráfico de la DGT y de València, policía | OpenStreetMap, DGT, Ajuntament de València |
-| Abandono y patrimonio | Lista Roja, Verde y Negra; inmuebles en subasta; abandonado en OSM; solares y edificios a rehabilitar; BIC y BRL; refugios antiaéreos; militar; lugares históricos | Hispania Nostra, BOE, OpenStreetMap, Ajuntament de València |
-| Infraestructura | Ferrocarril (en magenta lo que está en desuso), túneles y puentes, muros, energía, antenas, industria, canteras, farolas | OpenStreetMap |
+| Vigilancia | Cámaras, cámaras de tráfico de la DGT y de València, radares de velocidad, policía | OpenStreetMap, DGT, Ajuntament de València |
+| Abandono y patrimonio | Lista Roja, Verde y Negra; inmuebles en subasta; abandonado en OSM; descampados y obras; solares y edificios a rehabilitar; BIC y BRL; refugios antiaéreos; militar; lugares históricos | Hispania Nostra, BOE, OpenStreetMap, Ajuntament de València |
+| Infraestructura | Ferrocarril (en magenta lo que está en desuso), túneles y puentes, muros, energía, antenas, industria, canteras, minas y cuevas, agua, farolas | OpenStreetMap |
+| A pie de calle | Arte urbano y murales, miradores | OpenStreetMap |
 | Fotos y artículos | Wikipedia, fotos de Commons, fotos a pie de calle | Wikimedia, Panoramax |
 | Catastro | Edificios con su estado (en uso, deficiente, ruina), año y uso | Catastro |
-| En vivo | Aviones en vuelo, cada 10 segundos | adsb.lol, a través de `osintmaps servir` |
+| En vivo | Aviones en vuelo y trenes de Cercanías | adsb.lol y Renfe, a través de `osintmaps servir` |
+
+Los grupos del panel se pliegan y dicen cuántas capas tienen encendidas.
 
 Tres de ellas no se piden al momento, sino que se descargan a la carpeta de
 datos: la Lista Roja, las cámaras de la DGT y las subastas. Lo hace `osintmaps
@@ -199,9 +205,21 @@ primera vez se sigue el del sistema. En modo oscuro los mapas dibujados
   marcadores, calles y lugares (Nominatim), coordenadas (`39.47, -0.37`) y
   referencias catastrales.
 - **Fondos**: ortofoto del IGN, satélite de Esri (otra fecha), Sentinel-2,
-  callejero, relieve LiDAR (se ven edificios y muros bajo los árboles) y los
-  mapas de 1870 a 1960. Encima se pueden poner los nombres de las calles, la
-  red ferroviaria o el mapa antiguo translúcido.
+  callejero, mapas oscuro y claro de CARTO, relieve LiDAR (se ven edificios y
+  muros bajo los árboles), luces nocturnas desde satélite y los mapas de 1870
+  a 1960. Encima se pueden poner los nombres de las calles, la red
+  ferroviaria, el mapa antiguo translúcido o el radar de lluvia del momento.
+- **Pestañas del panel**: *Sitios* es la lista de siempre; *En el mapa*
+  enumera lo que hay de las capas encendidas en lo que se ve, de más cerca a
+  más lejos, y lo guarda como GeoJSON; *Marcadores* es la lista de los tuyos.
+- **Ruta**: el botón *Ruta* de cualquier ficha traza el camino hasta ese
+  punto, a pie o en coche, con distancia y tiempo. El origen es tu posición
+  si el navegador la da, o el punto que elijas con botón derecho, *Ruta desde
+  aquí*. La calcula el servidor público de OpenStreetMap (OSRM).
+- **Medir**: botón derecho, *Medir distancia desde aquí*, y cada clic añade
+  un tramo. Escape termina.
+- La ficha de un punto enseña la **foto de fachada de Catastro** cuando la
+  parcela la tiene, y las de Hispania Nostra traen su foto y su resumen.
 - La dirección de la página guarda dónde se está mirando: se puede copiar y
   volver al mismo sitio.
 
@@ -392,6 +410,7 @@ osintmaps/
   web/iconos.js     iconos, símbolos del mapa y cambio de tema
   web/index.html    el mapa: sitios, fichas, marcas, marcadores y accesos
   web/capas.js      capas de datos, ficha general, visor, buscador y menú
+  web/herramientas.js  pestañas del panel, ruta, medición y exportación
 tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
 ```
 
@@ -406,6 +425,8 @@ tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
   València: geoportal municipal. Subastas: Portal de Subastas del BOE.
 - Iconos: Material Design Icons (Pictogrammers), Apache 2.0.
 - Patrimonio en riesgo: Hispania Nostra. Fotos de calle: Panoramax. Aviones:
-  adsb.lol. Tiempo y altitud: Open-Meteo. Direcciones: CartoCiudad y Nominatim.
+  adsb.lol. Trenes: Renfe. Tiempo y altitud: Open-Meteo. Direcciones:
+  CartoCiudad y Nominatim. Rutas: OSRM de FOSSGIS. Lluvia: RainViewer. Mapas
+  oscuro y claro: CARTO. Luces nocturnas: NASA Black Marble.
 
 `datos/` y `cache/` no se suben al repositorio.

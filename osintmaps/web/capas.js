@@ -151,7 +151,7 @@ const CAPAS = [
       ["Puja mínima", e.p.puja_minima], ["Depósito", e.p.deposito], ["Situación posesoria", e.p.situacion_posesoria], ["Visitable", e.p.visitable],
       ["Vivienda habitual", e.p.vivienda_habitual], ["Referencia catastral", e.p.refcat], ["Descripción", e.p.descripcion], ["Cargas", e.p.cargas],
       ["Situado por", { parcela: "la parcela catastral (exacto)", portal: "el portal (bastante exacto)", calle: "la calle (aproximado)" }[e.p.situado_por]], ["Subasta", e.p.subasta]] },
-  { id: "abandonado", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Abandonado o en ruinas (OSM, al momento)", color: "#c026d3", zoom: 13, tipo: "osm",
+  { id: "abandonado", pesada: true, forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Abandonado o en ruinas (OSM, al momento)", color: "#c026d3", zoom: 13, tipo: "osm",
     ql: ['nwr["abandoned"="yes"]', 'nwr["disused"="yes"]', 'nwr["ruins"="yes"]', 'nwr["building"="ruins"]', 'nwr["historic"="ruins"]', 'nwr[~"^abandoned:"~"."]'],
     es: (t) => t.abandoned === "yes" || t.disused === "yes" || t.ruins === "yes" || t.building === "ruins" || t.historic === "ruins" || Object.keys(t).some((k) => k.startsWith("abandoned:")),
     titulo: (t) => tituloOSM(t, "historic", "building", "man_made", "amenity") || "Abandonado" },
@@ -514,11 +514,15 @@ function actualizarCapas() {
       else capa.pedir(caja).then((elementos) => { incorporar(capa, elementos); fin(true); }, () => fin(false));
     }
   }
-  if (tandaOSM.length) pedirTandaOSM(tandaOSM);
+  // A OpenStreetMap se le pregunta por tandas pequeñas: así lo primero llega pronto y una capa
+  // lenta no deja a las demás esperando. Las que cuestan mucho al servidor van solas.
+  const ligeras = tandaOSM.filter((t) => !t.capa.pesada);
+  for (let k = 0; k < ligeras.length; k += CAPAS_POR_TANDA) pedirTandaOSM(ligeras.slice(k, k + CAPAS_POR_TANDA));
+  for (const una of tandaOSM.filter((t) => t.capa.pesada)) pedirTandaOSM([una]);
   pintarEstadoCapas();
 }
-/* Una sola consulta a OpenStreetMap para todas las capas que lo necesitan. */
-const TOPE_OSM = 8000;
+/* Una consulta a OpenStreetMap para varias capas a la vez. */
+const TOPE_OSM = 8000, CAPAS_POR_TANDA = 3;
 function pedirTandaOSM(tanda) {
   const cuerpo = tanda.map(({ capa, caja }) => capa.ql.map((q) => `${q}(${caja.s},${caja.o},${caja.n},${caja.e});`).join("")).join("");
   return overpass(`[out:json][timeout:40];(${cuerpo});out geom qt ${TOPE_OSM};`).then((j) => {
