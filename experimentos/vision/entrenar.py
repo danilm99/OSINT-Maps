@@ -145,7 +145,7 @@ def main() -> None:
             with torch.autocast("cuda", enabled=dispositivo.type == "cuda"):
                 error = perdida(modelo(x), y, cuenta, peso)
             escala.scale(error).backward(); escala.step(ajuste); escala.update(); ritmo.step()
-            suma += float(error)
+            suma += error.item()
         cifras = medir(modelo, examen, dispositivo)
         nota = float(np.mean([cifras[c]["f1"] for c in ("camino", "senda", "muro", "valla") if cifras[c]["pixeles"]] or [0]))
         diario.append({"vuelta": vuelta, "error": round(suma / max(len(aprender), 1), 4), "nota": round(nota, 4), "segundos": round(time.time() - t0), "clases": cifras})
