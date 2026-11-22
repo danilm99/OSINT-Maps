@@ -1335,7 +1335,9 @@ function rumboDe(c) {
 }
 function filasCamara(c) {
   const filas = [];
-  filas.push(["Tipo", (c.tipo ? textoCamara("tipo", c.tipo) : "Cámara") + (c.camara ? " " + textoCamara("camara", c.camara) : "")]);
+  // «Cámara fija», pero «Lector de matrículas (cámara fija)».
+  const esCamara = !c.tipo || c.tipo === "camera", clase = c.camara ? textoCamara("camara", c.camara) : "";
+  filas.push(["Tipo", esCamara ? `Cámara${clase ? " " + clase : ""}` : textoCamara("tipo", c.tipo) + (clase ? ` (cámara ${clase})` : "")]);
   if (c.vigila) filas.push(["Vigila", textoCamara("vigila", c.vigila)]);
   if (c.zona) filas.push(["Zona", textoCamara("zona", c.zona)]);
   if (c.montaje) filas.push(["Montaje", textoCamara("montaje", c.montaje)]);
