@@ -113,7 +113,8 @@ const CAPAS = [
     ql: ['nwr["amenity"="police"]', 'nwr["office"="security"]'], es: (t) => t.amenity === "police" || t.office === "security", titulo: () => "Policía" },
   // --- Abandono y patrimonio ---
   { id: "listaroja", grupo: "Abandono y patrimonio", nombre: "Lista Roja del Patrimonio", color: "#b3001b", zoom: 0, tipo: "fija",
-    filas: (e) => [["Resumen", e.p.resumen]] },
+    color_de: (p) => ({ verde: "#2f9e44", negra: "#111111" }[p.lista] || "#b3001b"),
+    filas: (e) => [["Lista", { roja: "Roja: en riesgo de perderse", verde: "Verde: estaba en la Roja y se ha recuperado", negra: "Negra: se ha perdido" }[e.p.lista]], ["Resumen", e.p.resumen]] },
   { id: "subastas", grupo: "Abandono y patrimonio", nombre: "Inmuebles en subasta (BOE)", color: "#7b2ff7", zoom: 0, tipo: "fija",
     filas: (e) => [["Dirección", e.p.direccion], ["Localidad", e.p.localidad], ["Termina", e.p.fin], ["Valor de subasta", e.p.valor_subasta], ["Tasación", e.p.tasacion],
       ["Puja mínima", e.p.puja_minima], ["Depósito", e.p.deposito], ["Situación posesoria", e.p.situacion_posesoria], ["Visitable", e.p.visitable],
@@ -480,6 +481,7 @@ function cargarCapaFija(capa, geojson) {
   const elementos = ((geojson && geojson.features) || []).filter((f) => f.geometry && f.properties).map((f) => {
     const p = f.properties, e = { id: String(p.id), lon: +f.geometry.coordinates[0], lat: +f.geometry.coordinates[1], nombre: p.nombre || capa.nombre, p, url: urlSegura(p.url) };
     e.datos = capa.filas ? capa.filas(e) : [];
+    if (capa.color_de) e.color = capa.color_de(p);
     if (p.imagen && urlSegura(p.imagen)) { e.imagen = p.imagen; e.enDirecto = !!capa.vivo; }
     return e;
   });

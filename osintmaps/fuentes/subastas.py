@@ -151,6 +151,10 @@ def buscar(sesion: requests.Session, carpeta_cache: Path, provincia: str, *, usa
             except Exception as exc:  # noqa: BLE001 - una subasta ilegible no detiene el resto
                 log.warning("Subasta %s omitida: %s", identificador, exc)
                 continue
+        for punto in guardado:
+            for campo in ("fin", "inicio"):      # «10-12-2026 18:00:00 CET (ISO: 2026-...)»: sobra la segunda mitad
+                if punto.get(campo):
+                    punto[campo] = punto[campo].split(" (ISO")[0]
         puntos += guardado
         if n % 20 == 0:
             avisar(f"  subastas: {n}/{len(ids)}")

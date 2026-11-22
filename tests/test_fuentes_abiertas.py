@@ -214,7 +214,7 @@ XML_DGT = b"""<?xml version="1.0" encoding="UTF-8"?>
 </d2:payload>"""
 
 LISTADO_BOE = '<a href="./detalleSubasta.php?idSub=SUB-JA-2026-1&amp;idBus=x">a</a> <a href="./detalleSubasta.php?idSub=SUB-JA-2026-1&amp;idBus=x">b</a> <a href="./detalleSubasta.php?idSub=SUB-AT-2026-26R2&amp;idBus=x">c</a>'
-GENERAL_BOE = "<table><tr><th>Fecha de conclusi&#xF3;n</th><td>10-12-2026 18:00:00 CET</td></tr><tr><th>Valor subasta</th><td>50.000,00 &#x20AC;</td></tr></table>"
+GENERAL_BOE = "<table><tr><th>Fecha de conclusi&#xF3;n</th><td>10-12-2026 18:00:00 CET (ISO: 2026-12-10T18:00:00+01:00)</td></tr><tr><th>Valor subasta</th><td>50.000,00 &#x20AC;</td></tr></table>"
 BIENES_BOE = """<div id="idBloqueLote1"><div><h3>Datos del bien subastado</h3><div>
 <h4>Bien 1 - Inmueble (Vivienda)</h4><table><tr><th>Descripci&#xF3;n</th><td>PISO</td></tr><tr><th>Referencia catastral</th><td>5823501YJ2752D0001AB</td></tr>
 <tr><th>Direcci&#xF3;n</th><td>Plaza Mayor, 6</td></tr><tr><th>Localidad</th><td>CULLERA</td></tr><tr><th>Situaci&#xF3;n posesoria</th><td>No consta</td></tr></table></div>
@@ -225,7 +225,7 @@ def test_listaroja_parsear():
     fichas = listaroja.parsear(PAGINA_LISTA_ROJA)
     assert fichas == [{"id": "listaroja-274", "nombre": "Torre de Prueba", "lat": 39.5466, "lon": -0.6721,
                        "resumen": "Villa (Valencia) Se cae a trozos...",
-                       "url": "https://listaroja.hispanianostra.org/ficha/torre-de-prueba/", "icono": "hispania_icon1"}]
+                       "url": "https://listaroja.hispanianostra.org/ficha/torre-de-prueba/", "lista": "verde"}]
 
 
 def test_dgt_parsear():

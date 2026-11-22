@@ -1,7 +1,7 @@
 """Lista Roja del Patrimonio (Hispania Nostra): patrimonio en riesgo de desaparecer.
 
 No tiene API. La portada de su web lleva dentro el mapa completo (unas 2.000
-fichas de toda España) como código de Google Maps: de ahí se sacan el nombre,
+fichas de toda España, contando las de la Lista Verde y la Lista Negra) como código de Google Maps: de ahí se sacan el nombre,
 el resumen, el enlace a la ficha y la posición de cada una.
 """
 
@@ -49,9 +49,10 @@ def parsear(pagina: str) -> list[dict]:
         enlace = _ENLACE.search(contenido)
         if enlace:
             ficha["url"] = enlace.group(1)
+        # El icono dice en cuál de las tres listas está: Roja (en riesgo), Verde
+        # (salió de la Roja porque se recuperó) o Negra (se perdió).
         icono = _ICONO.search(resto)
-        if icono:
-            ficha["icono"] = icono.group(1)
+        ficha["lista"] = {"hispania_icon1": "verde", "lista-negra": "negra"}.get(icono.group(1) if icono else "", "roja")
         fichas.append(ficha)
     return fichas
 
