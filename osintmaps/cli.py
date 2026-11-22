@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import argparse
 import functools
+import gzip
 import http.server
+import io
 import json
 import logging
 import sys
@@ -347,8 +349,33 @@ _AVIONES: OrderedDict[tuple, tuple[float, bytes]] = OrderedDict()
 _CANDADO_AVIONES = threading.Lock()
 _RELEVO: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
 _CANDADO_RELEVO = threading.Lock()
+_CANDADOS_RELEVO: dict[str, threading.Lock] = {}      # uno por clave, para la petición a la web de fuera
 VIDA_AVIONES = 8.0       # segundos que se reutiliza una respuesta
 MAX_ZONAS_AVIONES = 32
+
+
+# Ficheros que se sirven comprimidos, con su tipo.
+TIPOS_COMPRIMIBLES = {
+    ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8", ".geojson": "application/geo+json; charset=utf-8", ".svg": "image/svg+xml",
+    ".webmanifest": "application/manifest+json; charset=utf-8",
+}
+_COMPRIMIDOS: dict[str, tuple[int, int, bytes]] = {}      # ruta -> (fecha, tamaño, contenido comprimido)
+_CANDADO_COMPRIMIDOS = threading.Lock()
+
+
+def _comprimido(ruta: Path, info) -> bytes:
+    """El fichero comprimido con gzip. Se comprime una vez y se guarda en memoria
+    mientras el fichero no cambie (comprimir 6 MB cuesta unas décimas de segundo)."""
+    clave = str(ruta)
+    with _CANDADO_COMPRIMIDOS:
+        guardado = _COMPRIMIDOS.get(clave)
+        if guardado and guardado[:2] == (info.st_mtime_ns, info.st_size):
+            return guardado[2]
+    cuerpo = gzip.compress(ruta.read_bytes(), compresslevel=6)
+    with _CANDADO_COMPRIMIDOS:
+        _COMPRIMIDOS[clave] = (info.st_mtime_ns, info.st_size, cuerpo)
+    return cuerpo
 
 
 class _Servidor(http.server.SimpleHTTPRequestHandler):
@@ -369,11 +396,61 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         return super().translate_path(path)
 
     def end_headers(self) -> None:
-        # Los datos cambian al repetir la búsqueda: que el navegador no los guarde.
-        self.send_header("Cache-Control", "no-store")
+        # «no-cache» deja al navegador guardar el fichero, pero le obliga a preguntar cada vez
+        # si ha cambiado (ver send_head). Lo que no debe guardarse nunca (respuestas en vivo,
+        # lo que el usuario anota) marca _sin_guardar.
+        self.send_header("Cache-Control", "no-store" if getattr(self, "_sin_guardar", False) else "no-cache")
         super().end_headers()
 
+    def send_head(self):
+        """Sirve los ficheros de texto comprimidos y sin repetir lo que el navegador ya tiene.
+
+        Los datos son varios megas de JSON, que comprimido ocupa la sexta parte: en el
+        ordenador da igual, pero desde el móvil por la wifi se nota. Además cada fichero
+        lleva su fecha y una «etiqueta» (ETag) hecha con su fecha y su tamaño; el navegador
+        las manda de vuelta al recargar y, si coinciden, se le contesta «304: no ha
+        cambiado» sin volver a enviarlo.
+        """
+        self._sin_guardar = self._fichero_editable() is not None
+        ruta = Path(self.translate_path(self.path))
+        if ruta.is_dir() and urlparse(self.path).path.endswith("/"):
+            ruta = ruta / "index.html"       # la portada
+        if self._sin_guardar or ruta.suffix.lower() not in TIPOS_COMPRIMIBLES or not ruta.is_file():
+            return super().send_head()
+        try:
+            info = ruta.stat()
+        except OSError:
+            return super().send_head()
+        # Dos formas de preguntar «¿ha cambiado?»: por etiqueta o por fecha. Chrome solo usa la
+        # etiqueta con servidores HTTP/1.1 y este contesta en HTTP/1.0, así que se atienden las dos.
+        etiqueta = f'"{info.st_mtime_ns:x}-{info.st_size:x}"'
+        fecha = self.date_time_string(info.st_mtime)
+        la_tiene = self.headers.get("If-None-Match")
+        if la_tiene == etiqueta or (la_tiene is None and self.headers.get("If-Modified-Since") == fecha):
+            self.send_response(304)
+            self.send_header("ETag", etiqueta)
+            self.send_header("Last-Modified", fecha)
+            self.end_headers()
+            return None
+        comprimir = "gzip" in self.headers.get("Accept-Encoding", "") and info.st_size >= 1024
+        try:
+            cuerpo = _comprimido(ruta, info) if comprimir else ruta.read_bytes()
+        except OSError:
+            self.send_error(404)
+            return None
+        self.send_response(200)
+        self.send_header("Content-Type", TIPOS_COMPRIMIBLES[ruta.suffix.lower()])
+        if comprimir:
+            self.send_header("Content-Encoding", "gzip")
+        self.send_header("Vary", "Accept-Encoding")
+        self.send_header("Content-Length", str(len(cuerpo)))
+        self.send_header("ETag", etiqueta)
+        self.send_header("Last-Modified", fecha)
+        self.end_headers()
+        return io.BytesIO(cuerpo)
+
     def _responder_json(self, codigo: int, cuerpo: bytes) -> None:
+        self._sin_guardar = True
         self.send_response(codigo)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(cuerpo)))
@@ -424,10 +501,16 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
     def _relevo(self, clave: str, url: str, vida: float, convertir=None) -> None:
         """Devuelve como JSON lo que contesta un servicio que no deja que una página web le
         pregunte directamente. Guarda la respuesta `vida` segundos para no repetir la consulta."""
+        # Dos candados. El general solo se coge un instante, para tocar la tabla de respuestas
+        # guardadas. La petición a la web de fuera, que puede tardar 20 segundos, se hace con el
+        # candado de su propia clave: dos peticiones de lo mismo no salen dos veces, y una ficha
+        # lenta no deja esperando a los trenes ni a las demás fichas.
         with _CANDADO_RELEVO:
-            ahora = time.monotonic()
-            guardado = _RELEVO.get(clave)
-            if not guardado or ahora - guardado[0] > vida:
+            candado = _CANDADOS_RELEVO.setdefault(clave, threading.Lock())
+        with candado:
+            with _CANDADO_RELEVO:
+                guardado = _RELEVO.get(clave)
+            if not guardado or time.monotonic() - guardado[0] > vida:
                 try:
                     resp = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0 OSINT-Maps"})
                     resp.raise_for_status()
@@ -436,10 +519,16 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
                     guardado = None
                 else:
                     guardado = (time.monotonic(), contenido)
-                    _RELEVO[clave] = guardado
-                    _RELEVO.move_to_end(clave)
-                    while len(_RELEVO) > 300:
-                        _RELEVO.popitem(last=False)
+                with _CANDADO_RELEVO:
+                    if guardado is None:
+                        if clave not in _RELEVO:
+                            _CANDADOS_RELEVO.pop(clave, None)      # no se guardó nada: su candado tampoco
+                    else:
+                        _RELEVO[clave] = guardado
+                        _RELEVO.move_to_end(clave)
+                        while len(_RELEVO) > 300:
+                            vieja, _ = _RELEVO.popitem(last=False)
+                            _CANDADOS_RELEVO.pop(vieja, None)
         if guardado is None:
             self.send_error(502)
             return
@@ -454,7 +543,13 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         self._relevo(f"ficha:{url}", url, 86400, lambda resp: json.dumps(listaroja.detalle(resp.text)).encode("utf-8"))
 
     def do_GET(self) -> None:
+        self._sin_guardar = False
         ruta = urlparse(self.path).path
+        if ruta == "/vivo/hola":
+            # Así sabe el visor que detrás está este programa y no una web estática: puede
+            # guardar las notas en disco y pedir lo que una página sola no puede (aviones, trenes).
+            self._responder_json(200, json.dumps({"osintmaps": __version__}).encode("utf-8"))
+            return
         if ruta == "/vivo/aviones":
             self._aviones()
             return
@@ -614,13 +709,100 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
                   f"window.OSINT_CAMARAS={_json_para_script(camaras)};"
                   f"window.OSINT_CAPAS={_json_para_script(capas)};</script>")
     pagina = pagina.replace(marca, incrustado, 1)
+    # Los datos van dentro: sobra el trozo que los pide por adelantado al servidor.
+    antes, hay, resto = pagina.partition("<!--PRONTO-->")
+    if hay and "<!--/PRONTO-->" in resto:
+        pagina = antes + resto.split("<!--/PRONTO-->", 1)[1]
     # El resto del programa del visor va en un fichero aparte: dentro también.
-    for fichero in ("iconos.js", "capas.js", "herramientas.js"):
+    for fichero in ("iconos.js", "capas.js", "herramientas.js", "rutas.js", "tresd.js"):
         etiqueta = f'<script src="{fichero}"></script>'
         if etiqueta in pagina:
             codigo = (CARPETA_WEB / fichero).read_text(encoding="utf-8").replace("</script", "<\\/script")
             pagina = pagina.replace(etiqueta, f"<script>\n{codigo}\n</script>", 1)
     return pagina
+
+
+# --------------------------------------------------------------------------
+# sitio y publicar: la versión web, sin este ordenador
+# --------------------------------------------------------------------------
+
+# Lo que se copia de la carpeta de datos a la web. Las notas (marcas y marcadores propios) solo si se pide.
+DATOS_DEL_SITIO = ("candidatos.geojson", "huellas.geojson", "camaras.geojson", *(f"capa-{n}.geojson" for n in CAPAS_EXTRA))
+NOTAS_DEL_SITIO = tuple(LIMPIADORES)
+
+
+def crear_sitio(destino: Path, carpeta_datos: Path | None, con_notas: bool = False) -> list[str]:
+    """Deja en `destino` el visor como web estática: los ficheros del visor y, bajo datos/,
+    los resultados. Vale para cualquier alojamiento de páginas (GitHub Pages, por ejemplo):
+    no necesita ningún programa detrás. Devuelve los ficheros de datos que ha copiado."""
+    import shutil
+
+    destino.mkdir(parents=True, exist_ok=True)
+    for fichero in CARPETA_WEB.iterdir():
+        if fichero.is_file():
+            shutil.copy2(fichero, destino / fichero.name)
+    (destino / ".nojekyll").write_text("", encoding="utf-8")      # que GitHub no intente procesar la carpeta
+    # Un alojamiento de páginas deja que el navegador se quede cada fichero unos minutos sin volver a
+    # preguntar. Tras publicar una versión nueva, alguien podría recibir la página nueva con un
+    # programa de la anterior. Para evitarlo, la página pide cada programa con una marca de su
+    # contenido (capas.js?v=1a2b3c4d): si el contenido cambia, la dirección cambia y se baja de nuevo.
+    import hashlib
+    indice = destino / "index.html"
+    pagina = indice.read_text(encoding="utf-8")
+    for guion in sorted(destino.glob("*.js")):
+        etiqueta = f'<script src="{guion.name}"></script>'
+        if etiqueta in pagina:
+            marca = hashlib.sha256(guion.read_bytes()).hexdigest()[:10]
+            pagina = pagina.replace(etiqueta, f'<script src="{guion.name}?v={marca}"></script>')
+    indice.write_text(pagina, encoding="utf-8")
+    copiados = []
+    if carpeta_datos is not None:
+        (destino / "datos").mkdir(exist_ok=True)
+        for nombre in DATOS_DEL_SITIO + (NOTAS_DEL_SITIO if con_notas else ()):
+            origen = carpeta_datos / nombre
+            if origen.is_file():
+                shutil.copy2(origen, destino / "datos" / nombre)
+                copiados.append(nombre)
+    return copiados
+
+
+def cmd_sitio(args: argparse.Namespace) -> int:
+    destino = Path(args.salida)
+    datos = None if args.sin_datos else Path(args.datos)
+    copiados = crear_sitio(destino, datos, args.con_notas)
+    _decir(f"Web estática en {destino.resolve()} ({len(copiados)} ficheros de datos: {', '.join(copiados) or 'ninguno'}).")
+    _decir("Súbela a cualquier alojamiento de páginas, o usa «osintmaps publicar» para GitHub Pages.")
+    return 0
+
+
+def cmd_publicar(args: argparse.Namespace) -> int:
+    """Publica la web en la rama gh-pages del repositorio de GitHub (la que usa GitHub Pages).
+
+    La rama se rehace entera cada vez, con un solo commit: los datos pesan varios megas y así
+    el repositorio no crece con cada publicación.
+    """
+    import subprocess
+
+    def git(*orden: str, carpeta: Path | None = None) -> str:
+        r = subprocess.run(["git", *orden], cwd=carpeta, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r.returncode != 0:
+            raise RuntimeError(f"git {' '.join(orden[:2])} ha fallado: {(r.stderr or r.stdout).strip()[:300]}")
+        return r.stdout.strip()
+
+    repo = args.repo or git("remote", "get-url", "origin")
+    datos = None if args.sin_datos else Path(args.datos)
+    with tempfile.TemporaryDirectory(prefix="osintmaps-sitio-") as tmp:
+        sitio = Path(tmp)
+        copiados = crear_sitio(sitio, datos, args.con_notas)
+        git("init", "-q", "-b", "gh-pages", carpeta=sitio)
+        git("add", "-A", carpeta=sitio)
+        git("-c", "user.name=OSINT Maps", "-c", "user.email=osintmaps@users.noreply.github.com", "commit", "-q", "-m",
+            f"Web publicada el {time.strftime('%Y-%m-%d %H:%M')}", carpeta=sitio)
+        git("push", "-q", "--force", repo, "gh-pages", carpeta=sitio)
+    _decir(f"Publicado en la rama gh-pages de {repo} ({len(copiados)} ficheros de datos{', con tus notas' if args.con_notas else ''}).")
+    _decir("La primera vez hay que activar GitHub Pages en el repositorio: Settings, Pages, Branch: gh-pages.")
+    _decir("Una web en GitHub Pages la puede abrir cualquiera que tenga la dirección.")
+    return 0
 
 
 def cmd_paquete(args: argparse.Namespace) -> int:
@@ -701,6 +883,20 @@ def crear_parser() -> argparse.ArgumentParser:
     p.add_argument("--sin-navegador", action="store_true")
     p.add_argument("--red", action="store_true", help="lo abre a la red local, para usarlo desde el móvil")
     p.set_defaults(func=cmd_servir)
+
+    p = sub.add_parser("sitio", help="deja el mapa como web estática en una carpeta, para alojarla donde quieras")
+    p.add_argument("--salida", default="sitio", help="carpeta donde dejar la web (por defecto: sitio)")
+    p.add_argument("--datos", default="datos", help="carpeta con los resultados (por defecto: datos)")
+    p.add_argument("--sin-datos", action="store_true", help="solo el visor, sin ningún resultado")
+    p.add_argument("--con-notas", action="store_true", help="incluye también tus marcas y tus marcadores")
+    p.set_defaults(func=cmd_sitio)
+
+    p = sub.add_parser("publicar", help="publica la web en GitHub Pages (rama gh-pages del repositorio)")
+    p.add_argument("--datos", default="datos", help="carpeta con los resultados (por defecto: datos)")
+    p.add_argument("--sin-datos", action="store_true", help="solo el visor, sin ningún resultado")
+    p.add_argument("--con-notas", action="store_true", help="incluye también tus marcas y tus marcadores")
+    p.add_argument("--repo", default=None, help="dirección del repositorio (por defecto, el «origin» de esta carpeta)")
+    p.set_defaults(func=cmd_publicar)
 
     p = sub.add_parser("paquete", help="crea un único HTML con el mapa y los datos dentro")
     p.add_argument("--datos", default="datos")

@@ -225,6 +225,67 @@ def test_el_servidor_incorpora_solo_las_marcas_que_cambian(servidor):
     assert requests.get(f"{url}/datos/marcas.json").json() == {"cat-A": {"estado": "", "nota": ""}, **b}
 
 
+def test_el_servidor_comprime_y_no_repite_lo_que_el_navegador_ya_tiene(servidor):
+    import gzip
+    import http.client
+    import requests
+    url, carpeta = servidor
+    contenido = json.dumps({"type": "FeatureCollection", "features": [{"n": k, "texto": "abandonado " * 20} for k in range(200)]})
+    (carpeta / "candidatos.geojson").write_text(contenido, encoding="utf-8")
+
+    # Con http.client se ve lo que viaja de verdad (requests lo descomprime sin avisar).
+    def pedir(ruta, cabeceras):
+        conexion = http.client.HTTPConnection(url.removeprefix("http://"), timeout=10)
+        conexion.request("GET", ruta, headers=cabeceras)
+        r = conexion.getresponse()
+        cuerpo = r.read()
+        conexion.close()
+        return r, cuerpo
+
+    r, cuerpo = pedir("/datos/candidatos.geojson", {"Accept-Encoding": "gzip"})
+    assert r.status == 200 and r.getheader("Content-Encoding") == "gzip"
+    assert len(cuerpo) < len(contenido) / 5 and gzip.decompress(cuerpo).decode("utf-8") == contenido
+    assert r.getheader("Cache-Control") == "no-cache" and int(r.getheader("Content-Length")) == len(cuerpo)
+    etiqueta = r.getheader("ETag")
+    assert etiqueta
+
+    # Quien no admite compresión lo recibe tal cual.
+    r, cuerpo = pedir("/datos/candidatos.geojson", {})
+    assert r.status == 200 and r.getheader("Content-Encoding") is None and cuerpo.decode("utf-8") == contenido
+
+    # Si el navegador ya lo tiene y no ha cambiado: 304 y nada más.
+    r, cuerpo = pedir("/datos/candidatos.geojson", {"Accept-Encoding": "gzip", "If-None-Match": etiqueta})
+    assert r.status == 304 and cuerpo == b""
+
+    # Chrome, con un servidor HTTP/1.0 como este, pregunta por fecha en vez de por etiqueta.
+    fecha = pedir("/datos/candidatos.geojson", {})[0].getheader("Last-Modified")
+    assert fecha
+    r, cuerpo = pedir("/datos/candidatos.geojson", {"Accept-Encoding": "gzip", "If-Modified-Since": fecha})
+    assert r.status == 304 and cuerpo == b""
+    r, _ = pedir("/datos/candidatos.geojson", {"Accept-Encoding": "gzip", "If-Modified-Since": "Thu, 01 Jan 2015 00:00:00 GMT"})
+    assert r.status == 200
+
+    # Al repetir la búsqueda el fichero cambia: se manda el nuevo, con otra etiqueta.
+    (carpeta / "candidatos.geojson").write_text(contenido + " ", encoding="utf-8")
+    r, cuerpo = pedir("/datos/candidatos.geojson", {"Accept-Encoding": "gzip", "If-None-Match": etiqueta})
+    assert r.status == 200 and r.getheader("ETag") != etiqueta and gzip.decompress(cuerpo).decode("utf-8") == contenido + " "
+
+    # La portada y el programa del visor también van comprimidos.
+    for ruta in ("/", "/capas.js"):
+        r, cuerpo = pedir(ruta, {"Accept-Encoding": "gzip"})
+        assert r.status == 200 and r.getheader("Content-Encoding") == "gzip" and r.getheader("ETag"), ruta
+    assert gzip.decompress(pedir("/", {"Accept-Encoding": "gzip"})[1]).startswith(b"<!DOCTYPE html>")
+
+    # Lo que el usuario anota y lo que llega en vivo no se guarda nunca en el navegador.
+    requests.post(f"{url}/datos/marcas.json", json={"cat-A": {"estado": "favorito", "nota": ""}})
+    r, _ = pedir("/datos/marcas.json", {"Accept-Encoding": "gzip"})
+    assert r.status == 200 and r.getheader("Cache-Control") == "no-store" and r.getheader("ETag") is None
+    r, _ = pedir("/datos/marcadores.json", {})      # aún no existe: objeto vacío
+    assert r.status == 200 and r.getheader("Cache-Control") == "no-store"
+    # Un fichero que no existe sigue siendo un 404.
+    assert pedir("/datos/no-existe.geojson", {"Accept-Encoding": "gzip"})[0].status == 404
+
+
 def test_guardados_simultaneos_no_se_pisan(servidor):
     import requests
     from concurrent.futures import ThreadPoolExecutor
@@ -376,6 +437,112 @@ def test_el_servidor_hace_de_relevo_de_trenes_y_fichas(servidor, monkeypatch):
     assert pedir_de_verdad(f"{url}/vivo/ficha", params={"url": "https://listaroja.hispanianostra.org/ficha/caida/"}, timeout=10).status_code == 502
 
 
+def test_una_ficha_lenta_no_deja_esperando_a_los_trenes(servidor, monkeypatch):
+    import threading
+    import time
+
+    import requests
+    url, _ = servidor
+    pedidas, soltar = [], threading.Event()
+
+    class Respuesta:
+        def __init__(self, texto):
+            self.text, self.content = texto, texto.encode("utf-8")
+
+        def raise_for_status(self):
+            pass
+
+    pedir_de_verdad = requests.get
+
+    def a_la_red(direccion, **kw):
+        if "127.0.0.1" in direccion:
+            return pedir_de_verdad(direccion, **kw)
+        pedidas.append(direccion)
+        if "renfe" in direccion:
+            return Respuesta('{"entity": []}')
+        soltar.wait(10)      # la web de la ficha tarda en contestar
+        return Respuesta('<meta property="og:description" content="Torre">')
+
+    cli._RELEVO.clear()
+    cli._CANDADOS_RELEVO.clear()
+    monkeypatch.setattr(cli.requests, "get", a_la_red)
+    ficha = "https://listaroja.hispanianostra.org/ficha/lenta/"
+    respuestas = []
+    hilos = [threading.Thread(target=lambda: respuestas.append(pedir_de_verdad(f"{url}/vivo/ficha", params={"url": ficha}, timeout=15).json())) for _ in range(2)]
+    for h in hilos:
+        h.start()
+    time.sleep(0.3)      # las dos peticiones de la ficha ya están dentro, esperando a la web
+
+    # Mientras tanto los trenes contestan enseguida.
+    t0 = time.monotonic()
+    assert pedir_de_verdad(f"{url}/vivo/trenes", timeout=5).json() == {"entity": []}
+    assert time.monotonic() - t0 < 2
+
+    soltar.set()
+    for h in hilos:
+        h.join(15)
+    assert [r["descripcion"] for r in respuestas] == ["Torre", "Torre"]
+    # Y la misma ficha pedida dos veces a la vez solo sale una vez a la red.
+    assert len([p for p in pedidas if "lenta" in p]) == 1
+
+
+def test_el_servidor_se_identifica(servidor):
+    import requests
+    url, _ = servidor
+    r = requests.get(f"{url}/vivo/hola", timeout=10)
+    assert r.json() == {"osintmaps": cli.__version__} and r.headers["Cache-Control"] == "no-store"
+
+
+def test_sitio_estatico(tmp_path, capsys):
+    datos = tmp_path / "datos"
+    datos.mkdir()
+    for nombre in ("candidatos.geojson", "huellas.geojson", "camaras.geojson", "capa-dgt.geojson", "marcas.json", "marcadores.json", "otra-cosa.txt"):
+        (datos / nombre).write_text("{}", encoding="utf-8")
+
+    # Por defecto, los resultados sí y las notas personales no.
+    sitio = tmp_path / "sitio"
+    assert cli.main(["sitio", "--salida", str(sitio), "--datos", str(datos)]) == 0
+    assert {f.name for f in sitio.iterdir()} >= {"index.html", "capas.js", "iconos.js", "herramientas.js", "rutas.js", "tresd.js", "sw.js", "manifest.webmanifest", "icono-192.png", ".nojekyll", "datos"}
+    # Cada programa se pide con la marca de su contenido: una versión nueva no se mezcla con ficheros viejos del navegador.
+    import hashlib, re
+    pagina_sitio = (sitio / "index.html").read_text(encoding="utf-8")
+    marcas = dict(re.findall(r'<script src="(\w+\.js)\?v=([0-9a-f]{10})"></script>', pagina_sitio))
+    assert set(marcas) == {"iconos.js", "capas.js", "herramientas.js", "rutas.js", "tresd.js"}
+    assert all(hashlib.sha256((sitio / nombre).read_bytes()).hexdigest()[:10] == marca for nombre, marca in marcas.items())
+    assert '<script src="capas.js"></script>' in (cli.CARPETA_WEB / "index.html").read_text(encoding="utf-8")      # el original no se toca
+    assert sorted(f.name for f in (sitio / "datos").iterdir()) == ["camaras.geojson", "candidatos.geojson", "capa-dgt.geojson", "huellas.geojson"]
+    assert json.loads((sitio / "manifest.webmanifest").read_text(encoding="utf-8"))["start_url"] == "."      # relativo: vale en una subcarpeta
+    assert "ninguno" not in capsys.readouterr().out
+
+    con_notas = tmp_path / "con-notas"
+    cli.main(["sitio", "--salida", str(con_notas), "--datos", str(datos), "--con-notas"])
+    assert {"marcas.json", "marcadores.json"} <= {f.name for f in (con_notas / "datos").iterdir()}
+
+    solo_visor = tmp_path / "solo-visor"
+    cli.main(["sitio", "--salida", str(solo_visor), "--sin-datos"])
+    assert not (solo_visor / "datos").exists() and (solo_visor / "index.html").exists()
+
+
+def test_publicar_en_la_rama_de_paginas(tmp_path, capsys):
+    import subprocess
+    remoto = tmp_path / "remoto.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remoto)], check=True)
+    datos = tmp_path / "datos"
+    datos.mkdir()
+    (datos / "candidatos.geojson").write_text('{"type": "FeatureCollection", "features": []}', encoding="utf-8")
+    (datos / "marcadores.json").write_text('{"m1": {"lat": 1, "lng": 2}}', encoding="utf-8")
+
+    assert cli.main(["publicar", "--datos", str(datos), "--repo", str(remoto)]) == 0
+    listado = subprocess.run(["git", "--git-dir", str(remoto), "ls-tree", "-r", "--name-only", "gh-pages"], capture_output=True, text=True, check=True).stdout.split()
+    assert {"index.html", "sw.js", ".nojekyll", "datos/candidatos.geojson"} <= set(listado) and "datos/marcadores.json" not in listado
+
+    # Publicar otra vez rehace la rama: sigue habiendo un solo commit. Con --con-notas van también las notas.
+    assert cli.main(["publicar", "--datos", str(datos), "--repo", str(remoto), "--con-notas"]) == 0
+    assert subprocess.run(["git", "--git-dir", str(remoto), "rev-list", "--count", "gh-pages"], capture_output=True, text=True, check=True).stdout.strip() == "1"
+    listado = subprocess.run(["git", "--git-dir", str(remoto), "ls-tree", "-r", "--name-only", "gh-pages"], capture_output=True, text=True, check=True).stdout.split()
+    assert "datos/marcadores.json" in listado
+
+
 def test_paquete_autonomo(red_simulada, tmp_path, capsys):
     salida = tmp_path / "datos"
     cli.main(["buscar", "--municipios", "46900", "--salida", str(salida), "--cache", str(tmp_path / "cache")])
@@ -388,6 +555,7 @@ def test_paquete_autonomo(red_simulada, tmp_path, capsys):
     assert cli.main(["paquete", "--datos", str(salida), "--min-puntuacion", "40"]) == 0
     html = (salida / "mapa.html").read_text(encoding="utf-8")
     assert "<!--DATOS_INCRUSTADOS-->" not in html
+    assert "OSINT_PRONTO = {}" not in html and "<!--PRONTO-->" not in html      # con los datos dentro no hay nada que pedir por adelantado
     assert "window.OSINT_DATOS=" in html and "window.OSINT_HUELLAS=" in html
     incrustadas = html.split("window.OSINT_CAMARAS=")[1].split(";</script>")[0].split(";window.")[0]
     capas = json.loads(html.split("window.OSINT_CAPAS=")[1].split(";</script>")[0].replace("<\\/", "</"))
@@ -395,7 +563,10 @@ def test_paquete_autonomo(red_simulada, tmp_path, capsys):
     # El resto del programa del visor también va dentro: no queda ningún fichero suelto por cargar.
     assert '<script src="capas.js">' not in html and "function abrirElemento" in html
     assert '<script src="iconos.js">' not in html and "const Simbolo = L.CircleMarker.extend" in html
-    assert '<script src="herramientas.js">' not in html and "function calcularRuta" in html
+    assert '<script src="herramientas.js">' not in html and "function medirDesde" in html
+    assert '<script src="rutas.js">' not in html and "function calcularRuta" in html            # cómo llegar
+    assert '<script src="tresd.js">' not in html and "function entrar3D" in html               # la vista en 3D
+    assert html.index("function medirDesde") < html.index("function calcularRuta") < html.index("function entrar3D")      # en el orden en que se necesitan
     assert html.index("const Simbolo") < html.index("function abrirElemento")      # los iconos, antes que quien los usa
     assert len(json.loads(incrustadas.replace("<\\/", "</"))["features"]) == 2
     assert "</script><script>alert(1)" not in html
