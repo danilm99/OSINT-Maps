@@ -328,6 +328,54 @@ def test_el_servidor_pide_los_aviones_una_vez_por_zona(servidor, monkeypatch):
     assert len(cli._AVIONES) == 2
 
 
+def test_el_servidor_hace_de_relevo_de_trenes_y_fichas(servidor, monkeypatch):
+    import requests
+    url, _ = servidor
+    pedidas = []
+
+    class Respuesta:
+        def __init__(self, texto):
+            self.text, self.content = texto, texto.encode("utf-8")
+
+        def raise_for_status(self):
+            pass
+
+    pedir_de_verdad = requests.get
+
+    def a_la_red(direccion, **kw):
+        if "127.0.0.1" in direccion:
+            return pedir_de_verdad(direccion, **kw)
+        pedidas.append(direccion)
+        if "renfe" in direccion:
+            return Respuesta('{"entity": [{"vehicle": {"position": {"latitude": 39.46, "longitude": -0.37}}}]}')
+        if "/ficha/caida/" in direccion:
+            raise ConnectionError("sin red")
+        return Respuesta('<meta property="og:image" content="https://listaroja.hispanianostra.org/wp-content/uploads/2026/06/torre.jpeg">'
+                         '<meta property="og:description" content="Torre &amp; muralla">'
+                         '<img src="https://listaroja.hispanianostra.org/wp-content/uploads/2026/06/torre-150x150.jpeg">'
+                         '<a href="https://listaroja.hispanianostra.org/wp-content/uploads/2026/06/patio.jpg">foto</a>')
+
+    cli._RELEVO.clear()
+    monkeypatch.setattr(cli.requests, "get", a_la_red)
+    # Trenes: se pasa tal cual lo que publica Renfe y no se repite la consulta en unos segundos.
+    assert pedir_de_verdad(f"{url}/vivo/trenes", timeout=10).json()["entity"][0]["vehicle"]["position"]["latitude"] == 39.46
+    pedir_de_verdad(f"{url}/vivo/trenes", timeout=10)
+    assert len(pedidas) == 1
+
+    # Ficha de Hispania Nostra: foto principal, resumen y resto de fotos, sin miniaturas.
+    ficha = "https://listaroja.hispanianostra.org/ficha/torre/"
+    datos = pedir_de_verdad(f"{url}/vivo/ficha", params={"url": ficha}, timeout=10).json()
+    assert datos == {"imagen": "https://listaroja.hispanianostra.org/wp-content/uploads/2026/06/torre.jpeg", "descripcion": "Torre & muralla",
+                     "imagenes": ["https://listaroja.hispanianostra.org/wp-content/uploads/2026/06/torre.jpeg",
+                                  "https://listaroja.hispanianostra.org/wp-content/uploads/2026/06/patio.jpg"]}
+    # Solo se pregunta a esa web: cualquier otra dirección se rechaza sin salir a la red.
+    antes = len(pedidas)
+    assert pedir_de_verdad(f"{url}/vivo/ficha", params={"url": "https://example.com/ficha/"}, timeout=10).status_code == 400
+    assert pedir_de_verdad(f"{url}/vivo/ficha", params={"url": "http://listaroja.hispanianostra.org/ficha/x/"}, timeout=10).status_code == 400
+    assert len(pedidas) == antes
+    assert pedir_de_verdad(f"{url}/vivo/ficha", params={"url": "https://listaroja.hispanianostra.org/ficha/caida/"}, timeout=10).status_code == 502
+
+
 def test_paquete_autonomo(red_simulada, tmp_path, capsys):
     salida = tmp_path / "datos"
     cli.main(["buscar", "--municipios", "46900", "--salida", str(salida), "--cache", str(tmp_path / "cache")])
@@ -347,6 +395,7 @@ def test_paquete_autonomo(red_simulada, tmp_path, capsys):
     # El resto del programa del visor también va dentro: no queda ningún fichero suelto por cargar.
     assert '<script src="capas.js">' not in html and "function abrirElemento" in html
     assert '<script src="iconos.js">' not in html and "const Simbolo = L.CircleMarker.extend" in html
+    assert '<script src="herramientas.js">' not in html and "function calcularRuta" in html
     assert html.index("const Simbolo") < html.index("function abrirElemento")      # los iconos, antes que quien los usa
     assert len(json.loads(incrustadas.replace("<\\/", "</"))["features"]) == 2
     assert "</script><script>alert(1)" not in html

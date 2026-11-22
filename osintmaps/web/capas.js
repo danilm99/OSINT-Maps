@@ -16,6 +16,10 @@ const wmts = (base, capa, formato) =>
   `&Format=image/${formato}&TileMatrix={z}&TileCol={x}&TileRow={y}`;
 
 const FONDOS_NUEVOS = {
+  carto_oscuro: ["Mapa oscuro (CARTO)", L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { subdomains: "abcd", maxZoom: 20, attribution: "OpenStreetMap, CARTO" })],
+  carto_claro: ["Mapa claro (CARTO)", L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", { subdomains: "abcd", maxZoom: 20, attribution: "OpenStreetMap, CARTO" })],
+  noche: ["Luces de noche desde satélite (2016)", L.tileLayer("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png",
+    { maxZoom: 20, maxNativeZoom: 8, attribution: "NASA Black Marble" })],
   esri: ["Satélite (Esri, otra fecha)", L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     { maxZoom: 20, maxNativeZoom: 19, attribution: "Esri, Maxar, Earthstar Geographics" })],
   s2: ["Satélite Sentinel-2 sin nubes (2023, 10 m)", L.tileLayer("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2023_3857/default/g/{z}/{y}/{x}.jpg",
@@ -39,6 +43,21 @@ const SUPERPUESTAS = {
   antiguo: ["Mapa de 1915-1960, translúcido", L.tileLayer(wmts("https://www.ign.es/wmts/primera-edicion-mtn", "mtn50-edicion1", "jpeg"), { pane: "superpuesto", opacity: 0.6, maxZoom: 20, maxNativeZoom: 15 })],
   sombras: ["Relieve LiDAR, translúcido", L.tileLayer(wmts("https://wmts-mapa-lidar.idee.es/lidar", "EL.GridCoverageDSM", "png"), { pane: "superpuesto", opacity: 0.55, maxZoom: 20, maxNativeZoom: 17 })],
 };
+/* Lluvia: la última imagen del radar. La dirección de las teselas cambia cada diez minutos,
+   así que se pregunta cuál es la vigente al encender la capa y luego cada cinco minutos. */
+{
+  const lluvia = L.layerGroup();
+  let reloj = null;
+  const actualizar = () => fetch("https://api.rainviewer.com/public/weather-maps.json").then((r) => r.json()).then((j) => {
+    const ultima = ((j.radar || {}).past || []).slice(-1)[0];
+    if (!ultima || !mapa.hasLayer(lluvia)) return;
+    lluvia.clearLayers();
+    L.tileLayer(`${j.host}${ultima.path}/256/{z}/{x}/{y}/2/1_1.png`, { pane: "superpuesto", opacity: 0.7, maxZoom: 20, maxNativeZoom: 7, attribution: "RainViewer" }).addTo(lluvia);
+  }).catch(() => { /* sin radar: la capa se queda vacía */ });
+  lluvia.on("add", () => { actualizar(); clearInterval(reloj); reloj = setInterval(actualizar, 300000); });
+  lluvia.on("remove", () => { clearInterval(reloj); lluvia.clearLayers(); });
+  SUPERPUESTAS.lluvia = ["Lluvia ahora (radar)", lluvia];
+}
 // El servicio del IGN devuelve de vez en cuando una tesela entera de un solo color (un azul liso): se oculta.
 SUPERPUESTAS.rotulos[1].on("tileload", (ev) => { if (esImagenLisa(ev.tile)) ev.tile.style.visibility = "hidden"; });
 {
@@ -87,6 +106,7 @@ const ETIQUETA_OSM = {
   railway: "Ferrocarril", power: "Energía", man_made: "Construcción", military: "Militar", historic: "Histórico", barrier: "Barrera",
   bridge: "Puente", tunnel: "Túnel", landuse: "Uso del suelo", building: "Edificio", abandoned: "Abandonado", disused: "En desuso",
   ruins: "Ruinas", heritage: "Protección", opening_hours: "Horario", lit: "Iluminado", surface: "Firme", material: "Material",
+  artwork_type: "Tipo de obra", artist_name: "Artista", maxspeed: "Límite (km/h)", tourism: "Turismo", natural: "Natural", waterway: "Cauce",
   "lamp_type": "Tipo de lámpara", "light:colour": "Color de la luz", electrified: "Electrificado", gauge: "Ancho de vía (mm)", usage: "Uso", service: "Servicio",
 };
 const VALOR_OSM = {
@@ -96,6 +116,10 @@ const VALOR_OSM = {
   line: "línea", minor_line: "línea menor", wall: "muro", retaining_wall: "muro de contención", noise_barrier: "pantalla acústica",
   city_wall: "muralla", fence: "valla", bunker: "búnker", barracks: "cuartel", ruins: "ruinas", works: "fábrica", chimney: "chimenea",
   silo: "silo", storage_tank: "depósito", water_tower: "depósito elevado", quarry: "cantera", mineshaft: "pozo de mina", adit: "bocamina",
+  brownfield: "descampado", construction: "en obras", greenfield: "suelo sin urbanizar", viewpoint: "mirador", artwork: "obra de arte",
+  graffiti: "grafiti", mural: "mural", street_art: "arte urbano", streetart: "arte urbano", painting: "pintura", cave_entrance: "cueva",
+  dam: "presa", weir: "azud", water_works: "potabilizadora", wastewater_plant: "depuradora", pumping_station: "estación de bombeo",
+  reservoir_covered: "depósito cubierto", water_tank: "depósito", speed_camera: "radar de velocidad",
   viaduct: "viaducto", aqueduct: "acueducto", police: "policía", communications_tower: "torre de comunicaciones", industrial: "industrial",
   castle: "castillo", fort: "fuerte", monument: "monumento", memorial: "memorial", archaeological_site: "yacimiento", church: "iglesia",
   farm: "masía o granja", manor: "casa señorial", mine: "mina", tram: "tranvía", subway: "metro", light_rail: "metro ligero", narrow_gauge: "vía estrecha",
@@ -116,6 +140,8 @@ const CAPAS = [
   { id: "camvlc", grupo: "Vigilancia", nombre: "Cámaras de tráfico (València)", color: "#ff5a5f", zoom: 12, tipo: "api", pedir: arcgis([`${VALENCIA}/Trafico/MapServer/190`]) },
   { id: "policia", grupo: "Vigilancia", nombre: "Policía y seguridad", color: "#1d4ed8", zoom: 12, tipo: "osm",
     ql: ['nwr["amenity"="police"]', 'nwr["office"="security"]'], es: (t) => t.amenity === "police" || t.office === "security", titulo: () => "Policía" },
+  { id: "radares", grupo: "Vigilancia", nombre: "Radares de velocidad", color: "#be123c", zoom: 11, tipo: "osm",
+    ql: ['node["highway"="speed_camera"]'], es: (t) => t.highway === "speed_camera", titulo: () => "Radar de velocidad" },
   // --- Abandono y patrimonio ---
   { id: "listaroja", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Lista Roja del Patrimonio", color: "#b3001b", zoom: 0, tipo: "fija",
     color_de: (p) => ({ verde: "#2f9e44", negra: "#111111" }[p.lista] || "#b3001b"),
@@ -129,6 +155,10 @@ const CAPAS = [
     ql: ['nwr["abandoned"="yes"]', 'nwr["disused"="yes"]', 'nwr["ruins"="yes"]', 'nwr["building"="ruins"]', 'nwr["historic"="ruins"]', 'nwr[~"^abandoned:"~"."]'],
     es: (t) => t.abandoned === "yes" || t.disused === "yes" || t.ruins === "yes" || t.building === "ruins" || t.historic === "ruins" || Object.keys(t).some((k) => k.startsWith("abandoned:")),
     titulo: (t) => tituloOSM(t, "historic", "building", "man_made", "amenity") || "Abandonado" },
+  { id: "descampados", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Descampados y obras (OSM)", color: "#b45309", zoom: 14, tipo: "osm",
+    ql: ['nwr["landuse"~"^(brownfield|construction|greenfield)$"]', 'nwr["building"="construction"]'],
+    es: (t) => /^(brownfield|construction|greenfield)$/.test(t.landuse || "") || t.building === "construction",
+    titulo: (t) => tituloOSM(t, "landuse") || "Edificio en obras" },
   { id: "solares", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Solares y edificios a rehabilitar (València)", color: "#a16207", zoom: 13, tipo: "api",
     pedir: arcgis([`${VALENCIA}/UrbanismoEInfraestructuras/MapServer/286`, `${VALENCIA}/UrbanismoEInfraestructuras/MapServer/294`]) },
   { id: "bic", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Patrimonio protegido BIC y BRL (València)", color: "#6d28d9", zoom: 13, tipo: "api",
@@ -163,11 +193,22 @@ const CAPAS = [
     ql: ['nwr["man_made"~"^(works|chimney|silo|storage_tank|water_tower|gasometer|kiln|crane|cooling_tower)$"]', 'nwr["landuse"="industrial"]["name"]', 'nwr["building"~"^(industrial|warehouse|hangar)$"]["name"]'],
     es: (t) => /^(works|chimney|silo|storage_tank|water_tower|gasometer|kiln|crane|cooling_tower)$/.test(t.man_made || "") || ((t.landuse === "industrial" || /^(industrial|warehouse|hangar)$/.test(t.building || "")) && !!t.name),
     titulo: (t) => tituloOSM(t, "man_made", "building", "landuse") },
-  { id: "canteras", grupo: "Infraestructura", nombre: "Canteras y minas", color: "#78350f", zoom: 12, tipo: "osm",
-    ql: ['nwr["landuse"="quarry"]', 'nwr["man_made"~"^(adit|mineshaft)$"]', 'nwr["historic"="mine"]'],
-    es: (t) => t.landuse === "quarry" || /^(adit|mineshaft)$/.test(t.man_made || "") || t.historic === "mine", titulo: (t) => tituloOSM(t, "man_made", "historic", "landuse") },
+  { id: "canteras", grupo: "Infraestructura", nombre: "Canteras, minas y cuevas", color: "#78350f", zoom: 12, tipo: "osm",
+    ql: ['nwr["landuse"="quarry"]', 'nwr["man_made"~"^(adit|mineshaft)$"]', 'nwr["historic"="mine"]', 'nwr["natural"="cave_entrance"]'],
+    es: (t) => t.landuse === "quarry" || /^(adit|mineshaft)$/.test(t.man_made || "") || t.historic === "mine" || t.natural === "cave_entrance",
+    titulo: (t) => tituloOSM(t, "man_made", "historic", "natural", "landuse") },
+  { id: "agua", grupo: "Infraestructura", nombre: "Agua: depósitos, presas y depuradoras", color: "#0284c7", zoom: 13, tipo: "osm",
+    ql: ['nwr["man_made"~"^(water_tower|reservoir_covered|water_works|wastewater_plant|pumping_station|water_tank)$"]', 'nwr["waterway"~"^(dam|weir)$"]'],
+    es: (t) => /^(water_tower|reservoir_covered|water_works|wastewater_plant|pumping_station|water_tank)$/.test(t.man_made || "") || /^(dam|weir)$/.test(t.waterway || ""),
+    titulo: (t) => tituloOSM(t, "man_made", "waterway") },
   { id: "farolas", tamano: 0.62, grupo: "Infraestructura", nombre: "Farolas (qué está iluminado)", color: "#facc15", zoom: 17, tipo: "osm",
     ql: ['node["highway"="street_lamp"]'], es: (t) => t.highway === "street_lamp", titulo: () => "Farola" },
+  // --- A pie de calle ---
+  { id: "arte", grupo: "A pie de calle", nombre: "Arte urbano y murales", color: "#ec4899", zoom: 13, tipo: "osm",
+    ql: ['nwr["tourism"="artwork"]["artwork_type"~"^(graffiti|mural|street_art|streetart|painting)$"]'],
+    es: (t) => t.tourism === "artwork" && /^(graffiti|mural|street_art|streetart|painting)$/.test(t.artwork_type || ""), titulo: (t) => tituloOSM(t, "artwork_type") },
+  { id: "miradores", grupo: "A pie de calle", nombre: "Miradores", color: "#15803d", zoom: 12, tipo: "osm",
+    ql: ['nwr["tourism"="viewpoint"]'], es: (t) => t.tourism === "viewpoint", titulo: () => "Mirador" },
   // --- Fotos y artículos ---
   { id: "wikipedia", grupo: "Fotos y artículos", nombre: "Artículos de Wikipedia", color: "#f5f5f5", zoom: 13, tipo: "api", pedir: pedirWikipedia },
   { id: "commons", tamano: 0.8, grupo: "Fotos y artículos", nombre: "Fotos de Wikimedia Commons", color: "#0891b2", zoom: 15, tipo: "api", pedir: pedirCommons },
@@ -176,6 +217,7 @@ const CAPAS = [
   { id: "edificios", grupo: "Catastro", nombre: "Edificios: estado, año y uso", color: "#60a5fa", zoom: 18, tipo: "api", pedir: pedirEdificios, paso: 0.002, porTesela: true },
   // --- En vivo ---
   { id: "aviones", grupo: "En vivo", nombre: "Aviones en vuelo", color: "#facc15", zoom: 7, tipo: "vivo", pedir: pedirAviones, cada: 10000 },
+  { id: "trenes", grupo: "En vivo", nombre: "Trenes de Cercanías (Renfe)", color: "#fde047", zoom: 8, tipo: "vivo", pedir: pedirTrenes, cada: 20000 },
 ];
 const CAPA = Object.fromEntries(CAPAS.map((c) => [c.id, c]));
 const CAPA_PUNTO = { id: "punto", nombre: "Punto del mapa", color: "#17242e" };
@@ -332,6 +374,19 @@ function pedirAviones() {
     id: `avion/${a.hex}`, lat: a.lat, lon: a.lon, nombre: (a.flight || "").trim() || a.r || a.hex, rumbo: a.track, url: `https://globe.adsb.lol/?icao=${a.hex}`,
     datos: [["Vuelo", (a.flight || "").trim()], ["Matrícula", a.r], ["Modelo", a.t], ["Altitud", typeof a.alt_baro === "number" ? `${miles(a.alt_baro * 0.3048)} m` : a.alt_baro === "ground" ? "en tierra" : ""],
       ["Velocidad", a.gs != null ? `${miles(a.gs * 1.852)} km/h` : ""], ["Rumbo", a.track != null ? `${Math.round(a.track)}°` : ""], ["Código transpondedor", a.squawk], ["Identificador", a.hex]] })));
+}
+
+/* Trenes de Cercanías: Renfe publica dónde va cada uno. Llegan los de toda España; se enseñan los de la vista. */
+const ESTADO_TREN = { STOPPED_AT: "parado en", INCOMING_AT: "llegando a", IN_TRANSIT_TO: "en camino a" };
+function pedirTrenes() {
+  if (!/^https?:$/.test(location.protocol) || window.OSINT_DATOS) return Promise.reject(new Error("solo con «osintmaps servir»"));
+  const vista = mapa.getBounds().pad(0.2);
+  return pedirJ("vivo/trenes", null, 15000).then((j) => (j.entity || []).map((x) => x.vehicle || {}).filter((v) => v.position && vista.contains([v.position.latitude, v.position.longitude])).map((v) => {
+    const etiqueta = ((v.vehicle || {}).label || "").trim(), linea = (/^(C\d+\w?)/.exec(etiqueta) || /-(C\d+\w?)-/.exec((v.vehicle || {}).id || "") || [])[1] || "";
+    return { id: `tren/${(v.vehicle || {}).id || (v.trip || {}).tripId}`, lat: v.position.latitude, lon: v.position.longitude, nombre: etiqueta || `Tren ${(v.trip || {}).tripId || ""}`.trim(),
+      datos: [["Línea", linea], ["Tren", etiqueta], ["Situación", ESTADO_TREN[v.currentStatus] ? `${ESTADO_TREN[v.currentStatus]} la parada ${v.stopId || ""}`.trim() : ""],
+        ["Visto a las", v.timestamp ? new Date(v.timestamp * 1000).toLocaleTimeString("es-ES") : ""], ["Viaje", (v.trip || {}).tripId]] };
+  }));
 }
 
 /* --- Elementos de OpenStreetMap --- */
@@ -508,6 +563,11 @@ function pintarEstadoCapas() {
   const aviso = $("aviso-capas");
   aviso.hidden = !cargando && !fallos;
   aviso.textContent = cargando ? "Cargando capas…" : "Alguna capa no ha respondido. Mueve el mapa para reintentar.";
+  GRUPOS.forEach((grupo, k) => {
+    const suyas = CAPAS.filter((c) => c.grupo === grupo && !c.oculta), encendidas = suyas.filter((c) => capasActivas.has(c.id)).length;
+    $(`cuenta-grupo-${k}`).textContent = encendidas ? `${encendidas} de ${suyas.length}` : String(suyas.length);
+  });
+  if (typeof alCambiarCapas === "function") alCambiarCapas();      // las listas del panel (herramientas.js)
 }
 function conmutarCapa(capa, encendida) {
   const est = estado[capa.id];
@@ -520,15 +580,22 @@ function conmutarCapa(capa, encendida) {
   }
   programarCapas();
 }
+const GRUPOS = [...new Set(CAPAS.filter((c) => !c.oculta).map((c) => c.grupo))];
 {
-  let grupoAnterior = "";
-  for (const capa of CAPAS) {
-    if (capa.oculta) continue;
-    if (capa.grupo !== grupoAnterior) { $("capas-datos").append(el("div", { className: "grupo-capas", textContent: capa.grupo })); grupoAnterior = capa.grupo; }
-    const casilla = el("input", { id: `dato-${capa.id}`, type: "checkbox", checked: capasActivas.has(capa.id) });
-    casilla.addEventListener("change", () => conmutarCapa(capa, casilla.checked));
-    $("capas-datos").append(el("label", { className: "casilla" }, casilla, simboloDe(capa), el("span", { textContent: capa.nombre }), el("small", { id: `estado-${capa.id}` })));
-  }
+  // Abiertos de entrada los grupos con algo encendido y los dos primeros; después, como los deje cada uno.
+  const abiertos = leerLocal("osintmaps.grupos.v1", null) || GRUPOS.filter((g, k) => k < 2 || CAPAS.some((c) => c.grupo === g && capasActivas.has(c.id)));
+  const recordar = () => guardarLocal("osintmaps.grupos.v1", GRUPOS.filter((g, k) => $(`grupo-${k}`).open));
+  GRUPOS.forEach((grupo, k) => {
+    const caja = el("details", { id: `grupo-${k}`, className: "grupo-de-capas", open: abiertos.includes(grupo) },
+      el("summary", {}, el("span", { textContent: grupo }), el("small", { id: `cuenta-grupo-${k}` })));
+    caja.addEventListener("toggle", recordar);
+    for (const capa of CAPAS.filter((c) => c.grupo === grupo && !c.oculta)) {
+      const casilla = el("input", { id: `dato-${capa.id}`, type: "checkbox", checked: capasActivas.has(capa.id) });
+      casilla.addEventListener("change", () => conmutarCapa(capa, casilla.checked));
+      caja.append(el("label", { className: "casilla" }, casilla, simboloDe(capa), el("span", { textContent: capa.nombre }), el("small", { id: `estado-${capa.id}` })));
+    }
+    $("capas-datos").append(caja);
+  });
 }
 $("capa-camaras").addEventListener("change", programarCapas);
 mapa.on("moveend", programarCapas);
@@ -630,6 +697,16 @@ function sobreElPunto(e, dl) {
     if (!c || !c.pc) { poner(parcela, ""); poner(uso, ""); return null; }
     const refcat = c.pc.pc1 + c.pc.pc2;
     e.refcat = refcat;
+    if (tipoParcela(refcat) === "urbana") {
+      const fachada = el("img", { alt: "Foto de fachada de Catastro", referrerPolicy: "no-referrer" });      // sin «lazy»: aún no está en la página
+      fachada.addEventListener("load", () => {
+        if (!sigue() || fachada.naturalWidth < 50) return;      // Catastro manda una imagen diminuta cuando no tiene foto
+        const abrir = el("button", { type: "button", className: "portada fachada", title: "Abrir en grande" }, fachada, el("span", { textContent: "Fachada (Catastro)" }));
+        abrir.addEventListener("click", () => abrirVisor(Object.assign({}, e, { imagen: fachada.src, original: fachada.src, imagenes: null, enDirecto: false, marco: null, autor: "Dirección General del Catastro" }), "imagen"));
+        dl.after(abrir);
+      });
+      fachada.src = `https://ovc.catastro.meh.es/OVCServWeb/OVCWcfLibres/OVCFotoFachada.svc/RecuperarFotoFachadaGet?ReferenciaCatastral=${refcat}`;
+    }
     parcela.className = "";
     parcela.replaceChildren(el("a", { href: `https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1=${c.pc.pc1}&rc2=${c.pc.pc2}`, target: "_blank", rel: "noopener noreferrer", textContent: refcat }),
       ` (${{ publico: "dominio público", rustica: "rústica", urbana: "urbana" }[tipoParcela(refcat)]})`);
@@ -702,12 +779,7 @@ function abrirElemento(e, mover) {
   portada.append(imagen, rotulo);
   portada.addEventListener("click", () => abrirVisor(e, e.imagen || e.marco ? "imagen" : "ortofoto"));
 
-  const vistas = el("div", { className: "vistas" });
-  for (const [texto, pestana] of [["Por años", "ortofoto"], ["A pie de calle", "calle"], ["Fotos cerca", "fotos"], ["Satélite", "satelite"]]) {
-    const b = el("button", { type: "button", textContent: texto });
-    b.addEventListener("click", () => abrirVisor(e, pestana));
-    vistas.append(b);
-  }
+  const vistas = filaDeVistas(e);
 
   const acciones = el("div", { className: "enlaces" });
   const guardar = el("button", { type: "button", textContent: "Guardar como marcador" });
@@ -810,6 +882,14 @@ function abrirVisor(e, pestana) {
     imagen() {
       if (e.marco) { lienzo.replaceChildren(el("iframe", { src: e.marco, title: "Cámara en directo", referrerPolicy: "no-referrer" })); pie.textContent = "Imagen en directo de la cámara municipal."; return; }
       const poner = () => foto(e.enDirecto ? conReloj(e.imagen) : e.original || e.imagen, [e.enDirecto && "Imagen en directo; se renueva sola cada 30 s.", e.autor, e.fecha, e.licencia].filter(Boolean).join(" · "), e.url);
+      if ((e.imagenes || []).length > 1) {
+        e.imagenes.forEach((url, k) => {
+          const b = chip("", () => foto(url, `${e.credito || ""} · foto ${k + 1} de ${e.imagenes.length}`, e.url), tira);
+          b.append(el("img", { src: url, alt: "", loading: "lazy", referrerPolicy: "no-referrer" }));
+          if (!k) b.click();
+        });
+        return;
+      }
       poner();
       if (e.enDirecto) visor.reloj = setInterval(poner, 30000);
     },
@@ -911,13 +991,20 @@ function abrirMenuContextual(ev) {
   cerrarMenu();
   const ll = ev.latlng, zona = $("mapa-zona").getBoundingClientRect();
   menu = el("div", { id: "menu-mapa", role: "menu" }, el("div", { className: "coordenadas", textContent: `${ll.lat.toFixed(6)}, ${ll.lng.toFixed(6)}` }));
-  const opcion = (texto, hacer) => { const b = el("button", { type: "button", role: "menuitem", textContent: texto }); b.addEventListener("click", () => { cerrarMenu(); hacer(); }); menu.append(b); };
-  opcion("¿Qué hay aquí?", () => abrirElemento(puntoDe(ll)));
-  opcion("Añadir un marcador aquí", () => nuevoMarcador(ll));
-  opcion("Ver a pie de calle", () => abrirVisor(puntoDe(ll), "calle"));
-  opcion("Ortofotos de este punto por años", () => abrirVisor(puntoDe(ll), "ortofoto"));
-  opcion("Copiar las coordenadas", () => { if (navigator.clipboard) navigator.clipboard.writeText(`${ll.lat.toFixed(6)}, ${ll.lng.toFixed(6)}`).catch(() => {}); });
-  opcion("Centrar el mapa aquí", () => mapa.panTo(ll));
+  const opcion = (texto, icono, hacer) => {
+    const b = el("button", { type: "button", role: "menuitem" }, iconoSVG(icono, 18), el("span", { textContent: texto }));
+    b.addEventListener("click", () => { cerrarMenu(); hacer(); });
+    menu.append(b);
+  };
+  opcion("¿Qué hay aquí?", "info", () => abrirElemento(puntoDe(ll)));
+  opcion("Añadir un marcador aquí", "marcador_nuevo", () => nuevoMarcador(ll));
+  opcion("Ruta desde aquí", "ruta", () => rutaDesde(ll));
+  opcion("Ruta hasta aquí", "ruta", () => rutaHasta(ll));
+  opcion("Medir distancia desde aquí", "medir", () => medirDesde(ll));
+  opcion("Ver a pie de calle", "panoramax", () => abrirVisor(puntoDe(ll), "calle"));
+  opcion("Ortofotos de este punto por años", "historia", () => abrirVisor(puntoDe(ll), "ortofoto"));
+  opcion("Copiar las coordenadas", "copiar", () => { if (navigator.clipboard) navigator.clipboard.writeText(`${ll.lat.toFixed(6)}, ${ll.lng.toFixed(6)}`).catch(() => {}); });
+  opcion("Centrar el mapa aquí", "centrar", () => mapa.panTo(ll));
   $("mapa-zona").append(menu);
   const p = ev.containerPoint;
   menu.style.left = `${Math.max(6, Math.min(p.x, zona.width - menu.offsetWidth - 6))}px`;
@@ -1035,11 +1122,13 @@ pintarEstadoCapas();
    llevan los botones del visor: se añaden al abrirlas. */
 function filaDeVistas(e) {
   const fila = el("div", { className: "vistas" });
-  for (const [texto, pestana] of [["Por años", "ortofoto"], ["A pie de calle", "calle"], ["Fotos cerca", "fotos"], ["Satélite", "satelite"]]) {
-    const b = el("button", { type: "button", textContent: texto });
-    b.addEventListener("click", () => abrirVisor(e, pestana));
+  const boton = (texto, icono, hacer) => {
+    const b = el("button", { type: "button" }, iconoSVG(icono, 20), el("span", { textContent: texto }));
+    b.addEventListener("click", hacer);
     fila.append(b);
-  }
+  };
+  for (const [texto, icono, pestana] of [["Por años", "historia", "ortofoto"], ["Calle", "panoramax", "calle"], ["Fotos", "fotos", "fotos"], ["Satélite", "satelite", "satelite"]]) boton(texto, icono, () => abrirVisor(e, pestana));
+  boton("Ruta", "ruta", () => rutaHasta(L.latLng(e.lat, e.lon), e.nombre));
   return fila;
 }
 {

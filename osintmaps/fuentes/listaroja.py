@@ -57,5 +57,20 @@ def parsear(pagina: str) -> list[dict]:
     return fichas
 
 
+_META = re.compile(r'<meta property="og:(image|description)" content="([^"]*)"')
+_FOTO = re.compile(r'(?:src|href)="(https://listaroja\.hispanianostra\.org/wp-content/uploads/[^"]+\.(?:jpe?g|png|webp))"', re.I)
+
+
+def detalle(pagina: str) -> dict:
+    """De la página de una ficha: su foto principal, su resumen y el resto de fotos."""
+    metas = dict(_META.findall(pagina))
+    fotos = []
+    for foto in ([metas["image"]] if metas.get("image") else []) + _FOTO.findall(pagina):
+        # Fuera los iconos y las miniaturas («-150x150»): solo fotos de la ficha.
+        if foto not in fotos and "leaflet-maps-marker" not in foto and not re.search(r"-\d+x\d+\.\w+$", foto):
+            fotos.append(foto)
+    return {"imagen": fotos[0] if fotos else None, "descripcion": html.unescape(metas.get("description", "")).strip(), "imagenes": fotos[:12]}
+
+
 def buscar(sesion: requests.Session) -> list[dict]:
     return parsear(pedir(sesion, "GET", URL, timeout=90, reintentos=2).text)

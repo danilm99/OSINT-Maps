@@ -250,9 +250,59 @@ try {
   .portada { position: relative; width: 100%; aspect-ratio: 16 / 10; background: #17242e; border-radius: 8px; overflow: hidden; border: 0; padding: 0; display: block; }
   .portada img, .portada iframe { width: 100%; height: 100%; object-fit: cover; display: block; border: 0; }
   .portada span { position: absolute; left: 8px; bottom: 8px; background: rgba(23,36,46,.78); color: #fff; border-radius: 5px; padding: 2px 8px; font-size: 13px; }
-  .vistas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
-  .vistas button { border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 7px 2px; font-size: 13.5px; }
+  .vistas { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin: 8px 0 2px; }
+  .vistas button { border: 1px solid var(--linea); background: var(--blanco); border-radius: 8px; padding: 8px 2px 6px; font-size: 13px;
+                   display: grid; justify-items: center; gap: 3px; }
   .vistas button:hover { border-color: var(--tinta); }
+  .vistas button:last-child { border-color: #1a73e8; color: #1a73e8; }
+  [data-tema=oscuro] .vistas button:last-child { border-color: #8ab4f8; color: #8ab4f8; }
+  .descripcion { margin: 10px 0 0; }
+  .portada.fachada { margin-top: 10px; aspect-ratio: 16 / 9; }
+
+  /* Pestañas del panel y sus listas */
+  #pestanas { display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--linea); }
+  #pestanas button { border: 0; background: none; padding: 7px 10px 8px; border-bottom: 3px solid transparent; margin-bottom: -1px; color: var(--tinta-suave); font-weight: 500; }
+  #pestanas button[aria-selected=true] { color: var(--tinta); border-bottom-color: var(--jalon); font-weight: 600; }
+  #pestanas small { margin-left: 5px; font-weight: 400; color: var(--tinta-suave); font-size: 12.5px; }
+  #panel:has(#contenido > article:not([hidden])) #pestanas { display: none; }
+  #panel:not([data-pestana=sitios]) :is(#filtros, #lista, #ver-mas, #sin-coincidencias, #vacio) { display: none !important; }
+  #panel:not([data-pestana=mapa]) #lista-capas, #panel:not([data-pestana=marcadores]) #lista-marcadores,
+  #contenido:has(> article:not([hidden])) .lista-simple { display: none; }
+  #filtros { padding-top: 10px; }
+  .lista-simple { list-style: none; margin: 0; padding: 0; }
+  .lista-simple li button { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 1px 10px; align-items: center; width: 100%; text-align: left;
+                            border: 0; border-bottom: 1px solid var(--linea); background: none; padding: 8px 16px; }
+  .lista-simple li button:hover { background: var(--blanco); }
+  .lista-simple .simbolo { grid-row: span 2; }
+  .lista-simple b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lista-simple small { grid-column: 2; color: var(--tinta-suave); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lista-simple .hueco { padding: 18px 16px; color: var(--tinta-suave); }
+  .lista-simple .cabecera-lista { display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--tinta-suave); font-size: 13.5px; border-bottom: 1px solid var(--linea); }
+  .lista-simple .cabecera-lista button { display: inline-flex; grid-template-columns: none; width: auto; margin-left: auto; gap: 5px; border: 1px solid var(--linea); border-radius: 6px;
+                                         padding: 4px 9px; background: var(--blanco); color: var(--tinta); }
+
+  /* Grupos del panel de capas */
+  .grupo-de-capas { border-top: 1px solid var(--linea); padding-top: 8px; }
+  .grupo-de-capas > summary { display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; list-style: none; }
+  .grupo-de-capas > summary::-webkit-details-marker { display: none; }
+  .grupo-de-capas > summary::before { content: "▸"; color: var(--tinta-suave); width: 12px; }
+  .grupo-de-capas[open] > summary::before { content: "▾"; }
+  .grupo-de-capas > summary small { margin-left: auto; font-weight: 400; color: var(--tinta-suave); font-size: 12.5px; }
+  .grupo-de-capas[open] > summary { margin-bottom: 8px; }
+  .grupo-de-capas .casilla + .casilla { margin-top: 8px; }
+  #capas > summary { display: flex; align-items: center; gap: 6px; }
+
+  /* Tarjeta sobre el mapa: ruta y medición */
+  #tarjeta-mapa { position: absolute; left: 50%; transform: translateX(-50%); bottom: 26px; z-index: 800; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+                  max-width: min(92%, 640px); background: var(--papel); color: var(--tinta); border: 1px solid var(--linea); border-radius: 12px; padding: 8px 12px;
+                  box-shadow: 0 6px 22px rgba(23,36,46,.3); }
+  #tarjeta-mapa b { font: 600 20px/1 "Barlow Condensed", sans-serif; }
+  #tarjeta-mapa span { color: var(--tinta-suave); font-size: 14px; }
+  #tarjeta-mapa button { border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 4px 10px; font-size: 14px; }
+  #tarjeta-mapa button[aria-pressed=true] { background: var(--tinta); border-color: var(--tinta); color: var(--blanco); }
+  #tarjeta-mapa .grupo-botones { display: inline-flex; gap: 4px; }
+  #menu-mapa button { display: flex; align-items: center; gap: 9px; }
+  #menu-mapa svg { color: var(--tinta-suave); flex: none; }
   .datos { display: grid; grid-template-columns: minmax(84px, auto) minmax(0, 1fr); gap: 4px 12px; margin: 0; }
   .datos dt { color: var(--tinta-suave); } .datos dd { margin: 0; overflow-wrap: anywhere; }
   .tira-fotos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
@@ -323,7 +373,10 @@ try {
     #categorias .chip { flex: 0 0 auto; }
     #capas { width: min(280px, calc(100% - 20px)); }
     #buscador { padding: 0 12px 8px; }
-    .vistas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #pestanas { padding: 0 12px; }
+    /* En el móvil la tarjeta va arriba: abajo están los botones y el panel. */
+    #tarjeta-mapa { top: 58px; bottom: auto; left: 10px; right: 10px; transform: none; max-width: none; }
+    .vistas button { font-size: 12.5px; }
     #pie .atajos { display: none; }
     #cerca { right: auto; left: 10px; bottom: 34px; }
     #anadir { right: auto; left: 10px; bottom: 78px; }
@@ -347,6 +400,8 @@ try {
   <div id="buscador">
     <input id="buscar-texto" type="search" placeholder="Buscar sitios, calles, coordenadas, referencia catastral" aria-label="Buscar sitios, calles, coordenadas o una referencia catastral" autocomplete="off">
   </div>
+
+  <nav id="pestanas" role="tablist" aria-label="Qué se lista"></nav>
 
   <section id="filtros" aria-label="Filtros" hidden>
     <details id="filtros-mas">
@@ -398,6 +453,8 @@ try {
     </div>
     <ul id="resultados-extra" aria-label="Lugares y otras capas" hidden></ul>
     <ul id="lista" hidden></ul>
+    <ul id="lista-capas" class="lista-simple" aria-label="Elementos de las capas encendidas"></ul>
+    <ul id="lista-marcadores" class="lista-simple" aria-label="Mis marcadores"></ul>
     <p id="sin-coincidencias" hidden>Ningún candidato cumple estos filtros. Baja la nota mínima o quita alguno.</p>
     <button id="ver-mas" type="button" hidden>Ver más</button>
     <article id="ficha" hidden></article>
@@ -422,8 +479,9 @@ try {
   <button id="cerca" type="button">Cerca de mí</button>
   <div id="leyenda" hidden></div>
   <div id="aviso-capas" role="status" hidden></div>
+  <div id="tarjeta-mapa" role="status" hidden></div>
   <details id="capas">
-    <summary>Capas</summary>
+    <summary><span data-icono="capas"></span> Capas</summary>
     <div class="cuerpo">
       <div class="grupo-capas primero">Mapa de fondo</div>
       <select id="capa-fondo" aria-label="Mapa de fondo">
@@ -1425,6 +1483,7 @@ function abrirParcela(p, latlng) {
     .catch(() => { detalle.textContent = "No se pudo consultar el detalle en Catastro."; });
 }
 mapa.on("click", (e) => {
+  if (midiendo) return;
   if (colocando) { dejarDeColocar(); nuevoMarcador(e.latlng); return; }
   if (!$("capa-parcelas").checked || mapa.getZoom() < ZOOM_PARCELAS) return;
   const p = parcelaEn(e.latlng.lat, e.latlng.lng);
@@ -1537,6 +1596,7 @@ mapa.on("moveend", pintarConos);
 const capaMarcadores = L.layerGroup().addTo(mapa);
 const pinesMarcadores = new Map();     // id -> marcador de Leaflet
 let marcadorAbierto = null, colocando = false;
+let midiendo = false;      // se está midiendo una distancia: los clics en el mapa son puntos de la medida (herramientas.js)
 /* Ficha de un elemento de cualquier otra capa (la pinta capas.js). */
 let elementoAbierto = null;
 function soltarElemento() {
@@ -1819,5 +1879,6 @@ if (window.OSINT_DATOS) {
 }
 </script>
 <script src="capas.js"></script>
+<script src="herramientas.js"></script>
 </body>
 </html>
