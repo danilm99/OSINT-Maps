@@ -1632,23 +1632,83 @@ function pedirVallas() {
   });
 }
 
-/* Lo dibujado se conserva de un movimiento del mapa al siguiente: al mover solo se añade lo
-   que entra en pantalla, en vez de borrarlo todo y volver a dibujar miles de parcelas. */
-const parcelasDibujadas = new Map();   // referencia catastral -> polígono (una parcela puede venir en dos teselas: se dibuja una vez)
-const vallasDibujadas = new Map();     // «way/123» -> línea o puerta
-const MAX_DIBUJOS_ACCESO = 9000;
-function podar(dibujados, capa, vista) {
-  if (dibujados.size <= (dibujados.tope || MAX_DIBUJOS_ACCESO)) return;
-  const lejos = vista.pad(1);
-  for (const [id, d] of dibujados) {
-    const dentro = d.getBounds ? lejos.intersects(d.getBounds()) : lejos.contains(d.getLatLng());
-    if (!dentro) { capa.removeLayer(d); dibujados.delete(id); }
+/* Lo de cada tesela se dibuja una sola vez y junto: todas sus parcelas de un tipo son un único
+   polígono múltiple, todas sus vallas una única línea múltiple y todas sus puertas una única
+   capa de puntos. Con miles de parcelas a la vista, Leaflet maneja una docena de capas en vez
+   de miles: mover el mapa no obliga a rehacer ni a repasar nada. */
+const refcatsDibujadas = new Set();    // una parcela puede venir en dos teselas: se dibuja con la primera
+const viasDibujadas = new Set();       // lo mismo con vallas, caminos y puertas («way/123»)
+const MAX_DIBUJOS_ACCESO = 30000;
+const ESTILO_PARCELA = { urbana: { weight: 1.3, fillOpacity: 0.1 }, rustica: { weight: 1.3, fillOpacity: 0.03 }, publico: { weight: 2, fillOpacity: 0.38 } };
+const ESTILO_VIA = { valla: { color: COLOR.valla, weight: 2.5 }, restringido: { color: COLOR.valla, weight: 2.5, dashArray: "3 7" }, camino: { color: COLOR.camino, weight: 2.5, dashArray: "7 6" } };
+/* Muchos puntos pequeños (las puertas y barreras) pintados en el lienzo como una sola capa. */
+const Puntos = L.Path.extend({
+  initialize(latlngs, opciones) { L.setOptions(this, opciones); this._latlngs = latlngs.map((q) => L.latLng(q)); },
+  _project() {
+    this._puntos = this._latlngs.map((ll) => this._map.latLngToLayerPoint(ll));
+    const caja = new L.Bounds(this._puntos), m = [this.options.lado, this.options.lado];
+    this._pxBounds = this._puntos.length ? new L.Bounds(caja.min.subtract(m), caja.max.add(m)) : null;
+  },
+  _update() { /* se pinta cuando el lienzo repasa sus capas (_updatePath) */ },
+  _updatePath() {
+    const lienzo = this._renderer;
+    if (!lienzo._drawing || !this._puntos) return;
+    const ctx = lienzo._ctx, o = this.options, l = o.lado, zona = lienzo._bounds;
+    ctx.beginPath();
+    for (const q of this._puntos) if (!zona || (q.x > zona.min.x - l && q.x < zona.max.x + l && q.y > zona.min.y - l && q.y < zona.max.y + l)) ctx.rect(q.x - l / 2, q.y - l / 2, l, l);
+    ctx.globalAlpha = 1; ctx.setLineDash([]);
+    ctx.fillStyle = o.fillColor; ctx.fill();
+    ctx.lineWidth = o.weight; ctx.strokeStyle = o.color; ctx.stroke();
+  },
+});
+const paraAcceso = (estilo) => Object.assign({ renderer: lienzoAcceso, pane: "acceso", interactive: false }, estilo);
+function dibujarParcelasDe(t) {
+  const porTipo = { urbana: [], rustica: [], publico: [] }, ids = [];
+  for (const q of t.parcelas) {
+    if (refcatsDibujadas.has(q.refcat)) continue;
+    refcatsDibujadas.add(q.refcat); ids.push(q.refcat);
+    porTipo[q.tipo].push(...q.poligonos);
   }
-  // Repasarlos todos cuesta: no se vuelve a hacer hasta que haya bastantes más que ahora.
-  dibujados.tope = Math.max(MAX_DIBUJOS_ACCESO, dibujados.size + 1500);
+  const capas = [];
+  for (const tipo of Object.keys(porTipo)) if (porTipo[tipo].length)
+    capas.push(L.polygon(porTipo[tipo], paraAcceso(Object.assign({ color: COLOR[tipo], fillColor: COLOR[tipo] }, ESTILO_PARCELA[tipo]))).addTo(capaParcelas));
+  return { capas, ids };
+}
+function dibujarViasDe(t) {
+  const lineas = { valla: [], restringido: [], camino: [] }, puertas = [], ids = [];
+  for (const v of t.elementos) {
+    const id = `${v.type}/${v.id}`, tags = v.tags || {};
+    if (viasDibujadas.has(id)) continue;
+    viasDibujadas.add(id); ids.push(id);
+    if (v.type === "node") puertas.push([v.lat, v.lon]);
+    else if (v.geometry && v.geometry.length > 1) {
+      const restringido = /^(private|no)$/.test(tags.access || "") || /^(private|no)$/.test(tags.foot || "");
+      lineas[tags.barrier ? "valla" : restringido ? "restringido" : "camino"].push(v.geometry.map((g) => [g.lat, g.lon]));
+    }
+  }
+  const capas = [];
+  for (const tipo of Object.keys(lineas)) if (lineas[tipo].length) capas.push(L.polyline(lineas[tipo], paraAcceso(ESTILO_VIA[tipo])).addTo(capaVallas));
+  if (puertas.length) capas.push(new Puntos(puertas, paraAcceso({ color: COLOR.valla, weight: 2, fillColor: "#ffffff", lado: 8 })).addTo(capaVallas));
+  return { capas, ids };
+}
+function borrarDibujo(t, capa, dibujadas) {
+  for (const c of t.dibujo.capas) capa.removeLayer(c);
+  for (const id of t.dibujo.ids) dibujadas.delete(id);
+  t.dibujo = null;
+}
+function borrarDibujos(teselas, capa, dibujadas) { for (const t of teselas.values()) if (t.dibujo) borrarDibujo(t, capa, dibujadas); }
+/* Si se acumula demasiado dibujado, se quita lo de las teselas que quedan lejos de lo que se ve. */
+function podar(teselas, capa, dibujadas, pasoLat, pasoLon, vista) {
+  if (dibujadas.size <= MAX_DIBUJOS_ACCESO) return;
+  const cerca = vista.pad(1);
+  for (const [clave, t] of teselas) {
+    if (!t.dibujo) continue;
+    const [i, j] = clave.split(",").map(Number);
+    if (!cerca.intersects([[i * pasoLat, j * pasoLon], [(i + 1) * pasoLat, (j + 1) * pasoLon]])) borrarDibujo(t, capa, dibujadas);
+  }
 }
 function pintarAcceso() {
-  const zoom = mapa.getZoom(), vista = mapa.getBounds().pad(0.2);
+  const zoom = mapa.getZoom(), vista = mapa.getBounds();
   const avisos = [];
   let hayParcelas = false, hayVallas = false;
   if ($("capa-parcelas").checked) {
@@ -1661,19 +1721,14 @@ function pintarAcceso() {
         if (!t) continue;
         if (t.estado === "cargando") cargando++;
         if (t.estado === "fallo") fallos++;
-        for (const p of t.parcelas) {
-          if (parcelasDibujadas.has(p.refcat) || !vista.intersects([[p.caja[0], p.caja[1]], [p.caja[2], p.caja[3]]])) continue;
-          const publico = p.tipo === "publico";
-          parcelasDibujadas.set(p.refcat, L.polygon(p.poligonos, { renderer: lienzoAcceso, pane: "acceso", interactive: false, color: COLOR[p.tipo],
-            weight: publico ? 2 : 1.3, fillColor: COLOR[p.tipo], fillOpacity: publico ? 0.38 : p.tipo === "urbana" ? 0.1 : 0.03 }).addTo(capaParcelas));
-        }
+        if (t.estado === "lista" && !t.dibujo) t.dibujo = dibujarParcelasDe(t);
       }
-      podar(parcelasDibujadas, capaParcelas, vista);
+      podar(teselasParcelas, capaParcelas, refcatsDibujadas, PASO_LAT, PASO_LON, vista);
       if (cargando) avisos.push(`Cargando parcelas de Catastro (${cargando} zonas)…`);
       if (fallos) avisos.push("Catastro no respondió en parte de la zona; mueve el mapa para reintentar.");
     }
   }
-  if (!hayParcelas && parcelasDibujadas.size) { capaParcelas.clearLayers(); parcelasDibujadas.clear(); }
+  if (!hayParcelas && refcatsDibujadas.size) borrarDibujos(teselasParcelas, capaParcelas, refcatsDibujadas);
   if ($("capa-vallas").checked) {
     if (zoom < ZOOM_VALLAS || teselasDeLaVista(PASO_OSM, PASO_OSM).length > 6) avisos.push("Acerca el mapa para ver vallas y caminos.");
     else {
@@ -1684,28 +1739,14 @@ function pintarAcceso() {
         if (!t) continue;
         if (t.estado === "cargando") cargando++;
         if (t.estado === "fallo") fallos++;
-        for (const el of t.elementos) {
-          const id = `${el.type}/${el.id}`;
-          if (vallasDibujadas.has(id)) continue;
-          const tags = el.tags || {};
-          if (el.type === "node") {
-            vallasDibujadas.set(id, L.marker([el.lat, el.lon], { pane: "acceso", interactive: false, icon: L.divIcon({ className: "puerta", iconSize: [9, 9] }) }).addTo(capaVallas));
-          } else if (el.geometry) {
-            const linea = el.geometry.map((g) => [g.lat, g.lon]);
-            const restringido = /^(private|no)$/.test(tags.access || "") || /^(private|no)$/.test(tags.foot || "");
-            const estilo = tags.barrier ? { color: COLOR.valla, weight: 2.5 }
-              : restringido ? { color: COLOR.valla, weight: 2.5, dashArray: "3 7" }
-              : { color: COLOR.camino, weight: 2.5, dashArray: "7 6" };
-            vallasDibujadas.set(id, L.polyline(linea, Object.assign({ renderer: lienzoAcceso, pane: "acceso", interactive: false }, estilo)).addTo(capaVallas));
-          }
-        }
+        if (t.estado === "lista" && !t.dibujo) t.dibujo = dibujarViasDe(t);
       }
-      podar(vallasDibujadas, capaVallas, vista);
+      podar(teselasVallas, capaVallas, viasDibujadas, PASO_OSM, PASO_OSM, vista);
       if (cargando) avisos.push("Cargando vallas y caminos de OpenStreetMap (puede tardar hasta un minuto)…");
       if (fallos) avisos.push("OpenStreetMap no respondió; mueve el mapa para reintentar.");
     }
   }
-  if (!hayVallas && vallasDibujadas.size) { capaVallas.clearLayers(); vallasDibujadas.clear(); }
+  if (!hayVallas && viasDibujadas.size) borrarDibujos(teselasVallas, capaVallas, viasDibujadas);
   estadoAcceso = avisos.join(" ");
   pintarLeyenda();
 }
@@ -1717,8 +1758,8 @@ function repintarAcceso() {
 }
 /* Olvida las parcelas y vallas bajadas en esta sesión y las vuelve a pedir. */
 function olvidarAcceso() {
+  borrarDibujos(teselasParcelas, capaParcelas, refcatsDibujadas); borrarDibujos(teselasVallas, capaVallas, viasDibujadas);
   teselasParcelas.clear(); teselasVallas.clear();
-  capaParcelas.clearLayers(); parcelasDibujadas.clear(); capaVallas.clearLayers(); vallasDibujadas.clear();
   pedirParcelas(); pedirVallas(); pintarAcceso();
 }
 
