@@ -427,6 +427,19 @@ def test_el_resumen_trae_lo_normal_cuando_hay_historico():
     assert "normal" not in r["indicadores"]["claves"]["bicis_fuera"]
 
 
+def test_recorrer_una_grafica_lee_el_historico_una_sola_vez():
+    """Lo normal se pide tramo a tramo (cientos de veces por gráfica): no puede releer semanas de datos cada vez."""
+    almacen, hasta = _historico_de_prueba()
+    lecturas, original = [], almacen.indicadores
+    almacen.indicadores = lambda *a, **k: lecturas.append(a) or original(*a, **k)
+    normales = anomalias.Normales(almacen)
+    for t in range(T0, hasta, 600):
+        normales.normal("bicis_ancladas", t)
+    assert len(lecturas) == 1
+    normales.normal("bicis_ancladas", T0 - 30 * 86400)        # un rato muy anterior sí obliga a leer más atrás
+    assert len(lecturas) == 2
+
+
 def test_el_fichero_para_la_web_cabe_en_poco():
     almacen, hasta = _historico_de_prueba()
     bruto = resumen.resumen_para_la_web(almacen, ahora=hasta, comparaciones=[])

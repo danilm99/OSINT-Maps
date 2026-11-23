@@ -51,11 +51,14 @@ class Normales:
 
     def _cargar(self, t: int) -> dict[str, dict[int, float]]:
         """Las medias por media hora de las semanas anteriores a `t`. Lo normal solo mira hacia atrás
-        (como poco, al día anterior), así que lo leído vale aunque sigan entrando datos."""
+        (como poco, al día anterior), así que lo leído vale aunque sigan entrando datos.
+
+        Se lee de una vez desde nueve semanas antes de `t` hasta ahora: quien recorre un rato del
+        pasado tramo a tramo (una gráfica) solo provoca una lectura."""
         desde = t - (SEMANAS + 1) * SEMANA
         with self._candado:
             if time.monotonic() - self._leido > self.vida or desde < self._rango[0] or t > self._rango[1]:
-                self._rango = (desde, t + int(self.vida))
+                self._rango = (desde - 3 * DIA, max(t, int(time.time())) + int(self.vida))
                 self._medias = self.almacen.indicadores(*self._rango, TRAMO)
                 self._leido = time.monotonic()
             return self._medias

@@ -364,7 +364,7 @@ FUENTES: tuple[Fuente, ...] = (
 
 # Qué es cada indicador: su nombre para el visor, su unidad y la fuente de la que sale.
 INDICADORES: dict[str, dict] = {
-    "bicis_fuera": {"nombre": "Valenbisi en la calle", "unidad": "%", "fuente": "bicis", "nota": "anclajes vacíos sobre el total: cuanto más alto, más bicis rodando"},
+    "bicis_fuera": {"nombre": "Valenbisi: anclajes vacíos", "unidad": "%", "fuente": "bicis", "nota": "sube cuando hay más bicis rodando"},
     "bicis_ancladas": {"nombre": "Bicis ancladas", "unidad": "bicis", "fuente": "bicis"},
     "bicis_vacias": {"nombre": "Estaciones sin bicis", "unidad": "estaciones", "fuente": "bicis"},
     "bicis_llenas": {"nombre": "Estaciones sin huecos", "unidad": "estaciones", "fuente": "bicis"},
