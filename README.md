@@ -110,6 +110,7 @@ osintmaps servir                               # abre el mapa en el navegador
 osintmaps capas --provincia 46                 # refresca Lista Roja, DGT y subastas
 osintmaps historia                             # busca en la prensa los sitios con nombre
 osintmaps publicar --con-notas                 # lo sube a GitHub Pages, para el móvil
+osintmaps servir --pulso --publicar-datos      # el mapa, el histórico de la ciudad y la web al día
 ```
 
 El buscador, las rutas, la mayoría de las capas y el 3D no necesitan `buscar`:
@@ -569,6 +570,80 @@ caído o han tirado.
   mapa y los datos dentro, para pasarlo al móvil y abrirlo sin servidor.
 - **Google Earth**: `datos/candidatos.kml` se abre tal cual.
 
+### Pulso: la ciudad a lo largo del tiempo
+
+Las capas «en vivo» enseñan lo que pasa ahora. El pulso lo va apuntando para
+poder volver atrás: una consola sobre el mapa (botón **Pulso**) con una línea
+de tiempo que se arrastra o se reproduce, los indicadores de toda la ciudad
+comparados con lo normal a esa hora y, en el mapa, lo que marcaba cada
+estación de Valenbisi, cada aparcamiento y cada tramo de calle en ese momento,
+con el rastro de los aviones y los trenes.
+
+```bash
+osintmaps servir --pulso                    # el mapa, y además va guardando el histórico
+osintmaps servir --pulso --publicar-datos   # y sube el resumen a la web al arrancar y cada 15 minutos
+```
+
+`abrir-mapa.bat` arranca así, con las dos cosas.
+
+Qué se guarda, mientras el programa está abierto:
+
+| Qué | Cada cuánto | De dónde |
+|---|---|---|
+| Bicis ancladas en cada estación de Valenbisi | 2 min | Ajuntament de València |
+| Plazas libres en cada aparcamiento público | 5 min | Ajuntament de València |
+| Estado de cada tramo de calle (fluido, denso, congestionado, cortado) | 3 min | Ajuntament de València |
+| Vehículos y bicis por hora en las espiras de aforo | 10 min | Ajuntament de València |
+| NO₂, partículas y ozono por estación; temperatura, viento y lluvia | 15 min | Ajuntament de València |
+| Aviones a menos de 75 km | 20 s | adsb.lol |
+| Trenes de Cercanías del área de València | 30 s | Renfe |
+
+Todo va a `datos/pulso.sqlite`. Los valores punto a punto se guardan solo
+cuando cambian y se conservan 90 días (`--guardar-dias`); los indicadores de
+la ciudad, siempre. Con el programa abierto todo el día salen entre 5 y 10 MB
+diarios (medido una noche con datos reales: unas 190.000 filas al día; de día
+se mueve más).
+
+**Solo hay histórico de los ratos en que el programa ha estado abierto.** Los
+huecos se guardan como huecos y la línea de tiempo los enseña rayados: nunca
+se rellena lo que no se vio.
+
+**Lo normal y lo que se sale.** Cada indicador se compara con lo que marcó a
+esa misma hora en las semanas anteriores (hasta ocho; mientras no hay tres
+semanas, con los días anteriores del mismo tipo, laborable o fin de semana).
+La línea de puntos de la gráfica es esa referencia. Cuando lo de ahora se
+separa mucho de ella queda apuntado como **suceso** y la ficha del indicador
+se pone en magenta. No dice por qué: un partido, una manifestación, lluvia o
+un sensor estropeado dan la misma señal. Dice dónde mirar. Hacen falta al
+menos cuatro días comparables para que opine.
+
+**Las dos versiones.**
+
+| | Con el programa (`osintmaps servir`) | Web publicada |
+|---|---|---|
+| Histórico | Todo lo guardado: 6 h, 24 h, 48 h, 7 días, 30 días o un día concreto | Las últimas 48 h de indicadores y 24 h punto a punto, tal como las subió el ordenador |
+| Ahora mismo | Todo, cada minuto | Bicis, aparcamientos y tráfico (el navegador los pide al Ayuntamiento); lo demás, con la hora del último dato |
+| Aviones y trenes | Rastro completo | Los de las 3 h anteriores a la última subida |
+| Historia de un punto | La última semana | Las últimas 24 h |
+
+La web no puede preguntar a adsb.lol ni a Renfe (no dejan que una página les
+pregunte), ni guardar nada entre visitas: por eso su histórico es el que
+publica el ordenador. `--publicar-datos` cambia en la web **solo**
+`datos/pulso.json` (unos 600 KB, que viajan comprimidos en menos de 100): no
+toca el visor ni el resto de los datos,
+así que da igual qué versión del visor haya publicada. Si mientras tanto
+alguien publica la web entera, la subida se rechaza sola y se repite a la
+siguiente vuelta. La primera vez hay que haber publicado la web con
+`osintmaps publicar`.
+
+`https://.../?pulso` abre la web con la consola ya desplegada, para un acceso
+directo en el móvil.
+
+Lo que **no** hay, por ahora: el ruido (el Ayuntamiento solo publica medias
+diarias, con semanas de retraso) y las posiciones de los autobuses de la EMT.
+Y lo que no habrá: nada de esto sigue a personas; son recuentos de sensores
+públicos.
+
 ### Qué genera
 
 Todo queda en la carpeta `datos/`, que no se sube a git:
@@ -721,6 +796,15 @@ osintmaps/
   web/vision.js     lo visto desde el aire: bloque de la ficha, líneas sobre el mapa y filtro
   web/historia.js   la historia de un sitio: resumen, fechas, nombres del mapa, fotos con año y prensa
   web/tresd.js      la vista en 3D
+  web/pulso.js      la consola del pulso: línea de tiempo, indicadores y capas en el tiempo
+  pulso/
+    fuentes.py      qué se pregunta a cada servicio y cómo se lee
+    almacen.py      el histórico (SQLite): valores, indicadores, rastros y huecos
+    recolector.py   quién pregunta, cada cuánto y qué hace si un servicio falla
+    anomalias.py    lo normal a cada hora y lo que se sale
+    resumen.py      el trozo de histórico que pide el visor o que se publica
+    publicar.py     sube a la web solo los datos
+    servidor.py     las direcciones /vivo/pulso/...
   web/sw.js, manifest.webmanifest  lo que hace falta para instalarlo como aplicación
 tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
 pruebas_navegador/  pruebas del visor en un navegador de verdad (ver su README)
