@@ -461,8 +461,9 @@ Qué se guarda, mientras el programa está abierto:
 
 Todo va a `datos/pulso.sqlite`. Los valores punto a punto se guardan solo
 cuando cambian y se conservan 90 días (`--guardar-dias`); los indicadores de
-la ciudad, siempre. Con el programa abierto todo el día salen unos 5 MB
-diarios.
+la ciudad, siempre. Con el programa abierto todo el día salen entre 5 y 10 MB
+diarios (medido una noche con datos reales: unas 190.000 filas al día; de día
+se mueve más).
 
 **Solo hay histórico de los ratos en que el programa ha estado abierto.** Los
 huecos se guardan como huecos y la línea de tiempo los enseña rayados: nunca
@@ -489,7 +490,8 @@ menos cuatro días comparables para que opine.
 La web no puede preguntar a adsb.lol ni a Renfe (no dejan que una página les
 pregunte), ni guardar nada entre visitas: por eso su histórico es el que
 publica el ordenador. `--publicar-datos` cambia en la web **solo**
-`datos/pulso.json` (unos 200 KB): no toca el visor ni el resto de los datos,
+`datos/pulso.json` (unos 600 KB, que viajan comprimidos en menos de 100): no
+toca el visor ni el resto de los datos,
 así que da igual qué versión del visor haya publicada. Si mientras tanto
 alguien publica la web entera, la subida se rechaza sola y se repite a la
 siguiente vuelta. La primera vez hay que haber publicado la web con

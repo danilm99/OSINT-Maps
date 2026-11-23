@@ -25,10 +25,14 @@ const RANGOS = [["1 h", 1], ["6 h", 6], ["24 h", 24], ["48 h", 48], ["7 d", 168]
 const VELOCIDADES = [[300, "5 min/s"], [900, "15 min/s"], [3600, "1 h/s"], [14400, "4 h/s"]];
 /* Las capas del mapa: de qué serie (o rastro) salen. «flujo» es la misma serie de bicis, mirando cuánto ha cambiado. */
 const CAPAS_PULSO = [
-  { id: "bicis", nombre: "Bicis", serie: "bicis" }, { id: "flujo", nombre: "Flujo de bicis", serie: "bicis" },
-  { id: "parking", nombre: "Aparcamientos", serie: "parking" }, { id: "trafico", nombre: "Tráfico", serie: "trafico" },
-  { id: "aforo", nombre: "Aforos", serie: "aforo" }, { id: "no2", nombre: "NO₂", serie: "no2" },
-  { id: "aviones", nombre: "Aviones", rastro: "aviones" }, { id: "trenes", nombre: "Trenes", rastro: "trenes" },
+  { id: "bicis", nombre: "Bicis", serie: "bicis", leyenda: "cada estación de Valenbisi; rojo, sin bicis; magenta, sin huecos; de ámbar a cian, de pocas a muchas bicis" },
+  { id: "flujo", nombre: "Flujo de bicis", serie: "bicis", leyenda: "lo que ha cambiado cada estación en media hora; cian, han llegado bicis; magenta, se han ido; más grande, más cambio" },
+  { id: "parking", nombre: "Aparcamientos", serie: "parking", leyenda: "el aro va de verde (hay sitio) a ámbar (más del 80 % ocupado) y rojo (más del 95 %)" },
+  { id: "trafico", nombre: "Tráfico", serie: "trafico", leyenda: "cada tramo: verde fino, fluido; ámbar, denso; rojo, congestionado; blanco a rayas, cortado" },
+  { id: "aforo", nombre: "Aforos", serie: "aforo", leyenda: "cada espira bajo el asfalto: más grande y más opaco, más vehículos por hora" },
+  { id: "no2", nombre: "NO₂", serie: "no2", leyenda: "cada estación de aire: verde por debajo de 40 µg/m³, ámbar hasta 100, rojo por encima" },
+  { id: "aviones", nombre: "Aviones", rastro: "aviones", leyenda: "cada avión con su indicativo y su altitud, y por dónde ha ido los últimos 8 minutos" },
+  { id: "trenes", nombre: "Trenes", rastro: "trenes", leyenda: "cada tren de Cercanías y su recorrido del último cuarto de hora" },
 ];
 const TEJAS = ["bicis_fuera", "parking_ocupacion", "trafico_indice", "aforo", "aforo_bici", "aire_no2", "aire_pm25", "aviones", "aviones_bajos", "trenes", "meteo_temperatura", "meteo_lluvia"];
 const ESTADO_TRAFICO = ["fluido", "denso", "congestionado", "cortado"];
@@ -147,7 +151,7 @@ const reloj = el("span", { className: "pz-reloj", textContent: "--:--" }), modo 
 const bPlay = el("button", { type: "button", title: "Reproducir o parar", textContent: "▶" });
 const bVel = el("button", { type: "button", title: "Velocidad de la reproducción" });
 const bAhora = el("button", { type: "button", textContent: "AHORA", title: "Volver al final de los datos" });
-const bSucesos = el("button", { type: "button" }), bFuentes = el("button", { type: "button", textContent: "Fuentes" });
+const bSucesos = el("button", { type: "button" }), bFuentes = el("button", { type: "button", textContent: "Leyenda y fuentes" });
 const bFondo = el("button", { type: "button", textContent: "Fondo oscuro", title: "Poner el mapa oscuro mientras el pulso está abierto" });
 const bCerrar = el("button", { type: "button", textContent: "✕", title: "Cerrar el pulso" });
 const filaRangos = el("span", { className: "pz-fila" }), fecha = el("input", { type: "date", title: "Ir a un día concreto" });
@@ -455,7 +459,7 @@ function pintarChips() {
   filaCapas.replaceChildren(el("span", { className: "pz-nota", textContent: "En el mapa:" }));
   for (const capa of CAPAS_PULSO) {
     const hay = R && (capa.rastro ? R.rastros && R.rastros[capa.rastro] : R.puntos[capa.serie]);
-    const chip = el("button", { type: "button", textContent: capa.nombre, disabled: !hay, title: hay ? "" : "Sin datos de esto en este rato" });
+    const chip = el("button", { type: "button", textContent: capa.nombre, disabled: !hay, title: hay ? `${capa.nombre}: ${capa.leyenda}` : "Sin datos de esto en este rato" });
     chip.setAttribute("aria-pressed", String(ajustes.capas.includes(capa.id)));
     if (!hay) chip.style.opacity = 0.4;
     chip.addEventListener("click", () => {
@@ -514,6 +518,8 @@ function abrirLista(cual) {
     }
   } else {
     const poner = (texto, clase) => lista.append(el("span", { className: clase || "pz-nota", textContent: texto }));
+    // Primero, cómo se lee lo que está encendido en el mapa.
+    for (const capa of CAPAS_PULSO) if (dibujadas[capa.id]) poner(`${capa.nombre}: ${capa.leyenda}.`);
     for (const [id, f] of Object.entries(R.fuentes)) {
       const viejo = ahoraSeg() - f.ultima;
       poner(`${viejo < 3 * f.cada + 300 ? "●" : "○"} ${f.nombre} (${f.origen}): última lectura ${hace(viejo)}; se pide cada ${f.cada < 120 ? `${f.cada} s` : `${Math.round(f.cada / 60)} min`}`, viejo < 3 * f.cada + 300 ? "pz-bien" : "pz-nota");

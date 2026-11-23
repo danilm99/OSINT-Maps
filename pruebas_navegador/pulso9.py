@@ -169,10 +169,10 @@ with sync_playwright() as p:
     pg.click("#pulso button:has-text('Sucesos')"); pg.wait_for_timeout(200)
     filas = pg.evaluate("[...document.querySelectorAll('#pulso .pz-lista button')].map(x => x.textContent)"); print("sucesos:", len(filas), filas[:2])
     if filas: pg.click("#pulso .pz-lista button >> nth=0"); pg.wait_for_timeout(300); print("  tras pulsar uno:", pg.inner_text("#pulso .pz-reloj"), "| indicador:", pg.evaluate("document.querySelector('#pulso .pz-teja[aria-pressed=true] small').textContent"))
-    pg.click("#pulso button:text-is('Fuentes')"); pg.wait_for_timeout(700)
+    pg.click("#pulso button:text-is('Leyenda y fuentes')"); pg.wait_for_timeout(700)
     print("fuentes:", pg.evaluate("[...document.querySelectorAll('#pulso .pz-lista span')].map(x => x.textContent)")[-4:])
     pg.screenshot(path=str(CAPTURAS / f"{modo}-3.png"))
-    pg.click("#pulso button:text-is('Fuentes')")
+    pg.click("#pulso button:text-is('Leyenda y fuentes')")
     # reproducir un par de segundos
     antes = pg.evaluate("OSINT_PULSO.estado().T"); pg.click("#pulso button[title^='Reproducir']"); pg.wait_for_timeout(2000); pg.click("#pulso button[title^='Reproducir']")
     print("reproducido:", round((pg.evaluate("OSINT_PULSO.estado().T") - antes) / 60), "min en 2 s")

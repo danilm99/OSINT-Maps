@@ -675,6 +675,8 @@ def _arrancar_pulso(args: argparse.Namespace):
     from .pulso.servidor import Pulso
     carpeta = Path(args.datos).resolve()
     if not getattr(args, "pulso", False):
+        if getattr(args, "publicar_datos", None) is not None:
+            _decir("--publicar-datos solo hace algo junto con --pulso: sin él no hay datos nuevos que subir.")
         return Pulso.si_hay(carpeta)
     carpeta.mkdir(parents=True, exist_ok=True)
     pulso = Pulso(carpeta, dias_valores=args.guardar_dias)
