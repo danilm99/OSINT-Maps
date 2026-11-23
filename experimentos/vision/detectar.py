@@ -253,8 +253,9 @@ def bajar_sitio(sesion, mallas, sitio: dict, huella, base: Path, con_altura: boo
                 salida["altura"] = medir(mallas, huella, lat)
                 if salida["altura"]:
                     apunte.write_text(json.dumps(salida["altura"]), encoding="utf-8")
-        except Exception:                         # la maqueta falla a ratos: el sitio sigue sin altura
+        except Exception as e:                    # la maqueta falla a ratos: el sitio sigue, sin altura, y se dice
             salida["altura"] = None
+            salida["fallo_altura"] = repr(e)[:160]
     return salida
 
 
@@ -407,9 +408,10 @@ def main() -> None:
     faltan = [s for s in sitios if not (destino / f"{nombre_de(s)}.json").exists()]
     print(f"{len(sitios)} sitios, {len(faltan)} por hacer | {dispositivo} | modelo de la vuelta {guardado.get('vuelta')}", flush=True)
     sesion = requests.Session()
-    sesion.headers["User-Agent"] = "osintmaps (uso personal; revisión de candidatos)"
+    # Sin acentos: con una «ó» en esta cabecera el servidor de la maqueta 3D contesta con un error 500.
+    sesion.headers["User-Agent"] = "osintmaps (uso personal; revision de candidatos)"
     mallas = {zona: Malla(sesion, zona) for zona in ZONAS}
-    t0, hechos, fallos = time.time(), 0, 0
+    t0, hechos, fallos, sin_altura = time.time(), 0, 0, 0
     # Bajar y calcular a la vez: unos hilos van pidiendo las fotos de los sitios siguientes mientras la gráfica
     # trabaja con el actual. Nunca hay más de una docena esperando (cada sitio son 25 MB en memoria).
     with ThreadPoolExecutor(args.hilos) as hilos:
@@ -426,6 +428,10 @@ def main() -> None:
         while cola:
             bajado = cola.popleft().result()
             reponer()
+            if bajado.get("fallo_altura"):
+                sin_altura += 1
+                if sin_altura <= 5:                                 # las primeras se enseñan; si son todas, algo va mal
+                    print("  sin altura:", bajado["sitio"]["properties"]["id"], bajado["fallo_altura"], flush=True)
             try:
                 r = analizar(modelo, dispositivo, media, desv, bajado, huellas.get(bajado["sitio"]["properties"]["id"]), args.modelo, corte)
             except Exception as e:                                  # un sitio raro no debe parar la noche
@@ -440,7 +446,7 @@ def main() -> None:
             if (hechos + fallos) % 20 == 0 or not cola:
                 va = time.time() - t0
                 queda = va / (hechos + fallos) * (len(faltan) - hechos - fallos)
-                print(f"{hechos + fallos}/{len(faltan)} ({hechos} bien, {fallos} sin foto o con fallo) {va:.0f} s; quedan unos {queda / 60:.0f} min", flush=True)
+                print(f"{hechos + fallos}/{len(faltan)} ({hechos} bien, {fallos} sin foto o con fallo, {sin_altura} sin altura) {va:.0f} s; quedan unos {queda / 60:.0f} min", flush=True)
     empaquetar(base, datos, args.modelo)
     print("FIN-DETECTAR", flush=True)
 
