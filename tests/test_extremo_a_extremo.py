@@ -503,6 +503,17 @@ def test_el_servidor_da_vacio_lo_visto_desde_el_aire_si_no_esta(servidor):
     assert requests.get(f"{base}/datos/vision/no-existe.json", timeout=5).status_code == 404
 
 
+def test_el_servidor_da_vacia_la_capa_de_posibles_si_no_esta(servidor):
+    import requests
+    base, carpeta = servidor
+    # El visor la pide siempre; las capas de «osintmaps capas», en cambio, sí dan 404 mientras no se bajen.
+    assert requests.get(f"{base}/datos/capa-posibles.geojson", timeout=5).json() == {"type": "FeatureCollection", "features": []}
+    assert requests.get(f"{base}/datos/capa-no-existe.geojson", timeout=5).status_code == 404
+    capa = {"type": "FeatureCollection", "features": [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [-0.4, 39.5]}, "properties": {"id": "posible/1"}}]}
+    (carpeta / "capa-posibles.geojson").write_text(json.dumps(capa), encoding="utf-8")
+    assert requests.get(f"{base}/datos/capa-posibles.geojson", timeout=5).json() == capa
+
+
 def test_el_servidor_se_identifica(servidor):
     import requests
     url, _ = servidor
@@ -527,14 +538,27 @@ def test_sitio_estatico(tmp_path, capsys):
     assert set(marcas) == {"iconos.js", "capas.js", "herramientas.js", "rutas.js", "vision.js", "tresd.js"}
     assert all(hashlib.sha256((sitio / nombre).read_bytes()).hexdigest()[:10] == marca for nombre, marca in marcas.items())
     assert '<script src="capas.js"></script>' in (cli.CARPETA_WEB / "index.html").read_text(encoding="utf-8")      # el original no se toca
-    assert sorted(f.name for f in (sitio / "datos").iterdir()) == ["camaras.geojson", "candidatos.geojson", "capa-dgt.geojson", "huellas.geojson", "revision.json"]
+    assert sorted(f.name for f in (sitio / "datos").iterdir()) == ["camaras.geojson", "candidatos.geojson", "capa-dgt.geojson", "capa-posibles.geojson", "huellas.geojson", "revision.json"]
     assert (sitio / "datos" / "revision.json").read_text(encoding="utf-8") == "{}"      # lo visto desde el aire: vacío si no se ha calculado
+    assert json.loads((sitio / "datos" / "capa-posibles.geojson").read_text(encoding="utf-8"))["features"] == []
     assert json.loads((sitio / "manifest.webmanifest").read_text(encoding="utf-8"))["start_url"] == "."      # relativo: vale en una subcarpeta
     assert "ninguno" not in capsys.readouterr().out
 
     con_notas = tmp_path / "con-notas"
     cli.main(["sitio", "--salida", str(con_notas), "--datos", str(datos), "--con-notas"])
     assert {"marcas.json", "marcadores.json"} <= {f.name for f in (con_notas / "datos").iterdir()}
+
+    # Los posibles abandonos son sospechas sin comprobar: aunque estén calculados, a la web solo van si se pide.
+    posibles = '{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[-0.4,39.5]},"properties":{"id":"posible/1"}}]}'
+    (datos / "capa-posibles.geojson").write_text(posibles, encoding="utf-8")
+    sin_posibles, con_posibles = tmp_path / "sin-posibles", tmp_path / "con-posibles"
+    cli.main(["sitio", "--salida", str(sin_posibles), "--datos", str(datos)])
+    assert json.loads((sin_posibles / "datos" / "capa-posibles.geojson").read_text(encoding="utf-8"))["features"] == []
+    capsys.readouterr()
+    cli.main(["sitio", "--salida", str(con_posibles), "--datos", str(datos), "--con-posibles"])
+    assert (con_posibles / "datos" / "capa-posibles.geojson").read_text(encoding="utf-8") == posibles
+    assert "capa-posibles.geojson" in capsys.readouterr().out
+    (datos / "capa-posibles.geojson").unlink()
 
     # Lo visto desde el aire: el resumen y, con él, la carpeta de líneas (un fichero por sitio). Sin resumen, la carpeta no va.
     (datos / "vision").mkdir()

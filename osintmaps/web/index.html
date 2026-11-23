@@ -1214,14 +1214,28 @@ const SERIE_CIUDAD = [[2018, 21], [2012, 19], [2010, 19], [2008, 19], [2007, 19]
   .map(([anio, nativo, plano]) => ({ nombre: `ciudad-${anio}`, anio, nativo, rotulo: plano ? `Plano de ${anio}` : String(anio),
     url: `https://geoportal.valencia.es/server/rest/services/FotoAerea/FotoAerea_${anio}/MapServer/tile/{z}/{y}/{x}` }));
 const deLaCiudad = (nombre) => SERIE_CIUDAD.find((v) => v.nombre === nombre);
-/* La capa de una foto antigua (un vuelo nacional o una de las de la ciudad), para el mapa o para el visor. */
+/* La Comunitat Valenciana se fotografía entera cada año desde 2017 (ICV, 25 cm): la serie más tupida
+   para ver cómo cambia un sitio. El rectángulo es el que la contiene. */
+const COMUNITAT = { s: 37.84, o: -1.54, n: 40.8, e: 0.52 };
+const SERIE_ICV = [2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017].map((anio) => ({ nombre: `icv-${anio}`, anio, rotulo: String(anio),
+  url: `https://terramapas.icv.gva.es/0202_${anio}CVAL0025`, capa: `${anio}CVAL0025_RGB` }));
+const delICV = (nombre) => SERIE_ICV.find((v) => v.nombre === nombre);
+/* Los vuelos que hay para un punto, del más nuevo al más viejo. Dentro de la Comunitat, los anuales
+   del ICV ocupan el sitio de los nacionales de esos mismos años (son las mismas fotos o mejores). */
+function vuelosDe(lat, lon) {
+  if (!enCaja(COMUNITAT, lat, lon)) return vuelos;
+  const anuales = new Set(SERIE_ICV.map((v) => v.anio));
+  return [...SERIE_ICV, ...vuelos.filter((v) => !anuales.has(v.anio))].sort((x, y) => y.anio - x.anio);
+}
+/* La capa de una foto antigua (un vuelo nacional, uno del ICV o una de las de la ciudad), para el mapa o para el visor. */
 function capaAntigua(nombre, opciones) {
-  const c = deLaCiudad(nombre);
+  const c = deLaCiudad(nombre), a = delICV(nombre);
+  if (a) return wmsFoto(a.url, a.capa, Object.assign({ attribution: "ICV CC BY 4.0", bounds: [[COMUNITAT.s, COMUNITAT.o], [COMUNITAT.n, COMUNITAT.e]] }, opciones));
   return c ? teselasFoto(c.url, c.nativo, Object.assign({ attribution: "Ajuntament de València", bounds: [[VALENCIA_CIUDAD.s, VALENCIA_CIUDAD.o], [VALENCIA_CIUDAD.n, VALENCIA_CIUDAD.e]] }, opciones))
     : wmsFoto(WMS_HISTORICO, nombre, Object.assign({ attribution: "PNOA CC BY 4.0 scne.es" }, opciones));
 }
 function rotuloAntigua(nombre) {
-  const c = deLaCiudad(nombre), v = c || vuelo(nombre);
+  const c = deLaCiudad(nombre), v = c || delICV(nombre) || vuelo(nombre);
   return !v ? "" : c ? `${c.rotulo} (València)` : v.rotulo;
 }
 
@@ -1270,8 +1284,9 @@ function pintarVuelos() {
   const actual = $("capa-historica").value;
   $("capa-historica").replaceChildren(el("option", { value: "", textContent: "Ninguna" }),
     ...vuelos.map((v) => el("option", { value: v.nombre, textContent: v.rotulo })),
+    el("optgroup", { label: "Comunitat Valenciana, año a año (ICV)" }, ...SERIE_ICV.map((v) => el("option", { value: v.nombre, textContent: v.rotulo }))),
     el("optgroup", { label: "Solo la ciudad de València" }, ...SERIE_CIUDAD.map((v) => el("option", { value: v.nombre, textContent: v.rotulo }))));
-  $("capa-historica").value = vuelos.some((v) => v.nombre === actual) || deLaCiudad(actual) ? actual : "";
+  $("capa-historica").value = vuelos.some((v) => v.nombre === actual) || delICV(actual) || deLaCiudad(actual) ? actual : "";
 }
 pintarVuelos();
 /* La lista real de vuelos se pregunta al servicio del IGN; si no contesta, vale la de reserva. */
@@ -1522,13 +1537,13 @@ const ladoAereo = (c) => Math.min(900, Math.max(220, 4 * Math.sqrt(c.p.superfici
 function urlAerea(c, capa, px) {
   const lado = ladoAereo(c);
   const dLat = lado / 2 / 111320, dLon = lado / 2 / (111320 * Math.cos((c.lat * Math.PI) / 180));
-  const actual = capa === "actual";
+  const actual = capa === "actual", anual = delICV(capa);
   const q = new URLSearchParams({
-    SERVICE: "WMS", VERSION: "1.1.1", REQUEST: "GetMap", LAYERS: actual ? "OI.OrthoimageCoverage" : capa, STYLES: "",
+    SERVICE: "WMS", VERSION: "1.1.1", REQUEST: "GetMap", LAYERS: actual ? "OI.OrthoimageCoverage" : anual ? anual.capa : capa, STYLES: "",
     FORMAT: "image/jpeg", SRS: "EPSG:4326", WIDTH: px, HEIGHT: px,
     BBOX: [c.lon - dLon, c.lat - dLat, c.lon + dLon, c.lat + dLat].map((v) => v.toFixed(6)).join(","),
   });
-  return `${actual ? WMS_ACTUAL : WMS_HISTORICO}?${q}`;
+  return `${actual ? WMS_ACTUAL : anual ? anual.url : WMS_HISTORICO}?${q}`;
 }
 
 /* Una imagen lisa (toda blanca o toda negra) significa que ese vuelo no cubre la zona. */
@@ -1593,7 +1608,7 @@ function abrirFicha(c, mover) {
     comparar.textContent = v.nombre === "actual" ? "Elige un año para compararlo en el mapa" : `Comparar ${v.rotulo} con hoy en el mapa`;
   };
   comparar.addEventListener("click", () => { $("usar-cortina").checked = true; ponerHistorica(capaElegida); });
-  for (const v of [{ nombre: "actual", rotulo: "Hoy" }, ...vuelos]) {
+  for (const v of [{ nombre: "actual", rotulo: "Hoy" }, ...vuelosDe(c.lat, c.lon)]) {
     const mini = el("img", { alt: "", crossOrigin: "anonymous", referrerPolicy: "no-referrer" });
     const b = el("button", { type: "button", title: `Ortofoto de ${v.rotulo}` }, mini, el("span", { textContent: v.rotulo }));
     b.addEventListener("click", () => elegir(v, b));

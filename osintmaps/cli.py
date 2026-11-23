@@ -62,6 +62,10 @@ def _caja_de_candidatos(candidatos: list[Candidato]):
 
 # Capas extra: cada una va a datos/capa-<nombre>.geojson y el visor la enseña si existe.
 CAPAS_EXTRA = ("listaroja", "dgt", "subastas")
+# Capas que no baja «osintmaps capas», sino que saca un programa aparte, y que pueden no estar.
+# «posibles» son sospechas sin comprobar (experimentos/vision/cambios.py): solo se publican si se pide.
+CAPAS_OPCIONALES = ("posibles",)
+CAPA_VACIA = '{"type":"FeatureCollection","features":[]}'
 
 
 def _geojson_de_puntos(puntos: list[dict]) -> dict:
@@ -573,6 +577,9 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         if ruta == "/datos/revision.json" and not (self.carpeta_datos / "revision.json").exists():
             self._responder_json(200, b"{}")
             return
+        if ruta in {f"/datos/capa-{n}.geojson" for n in CAPAS_OPCIONALES} and not (self.carpeta_datos / Path(ruta).name).exists():
+            self._responder_json(200, CAPA_VACIA.encode("utf-8"))
+            return
         super().do_GET()
 
     def do_POST(self) -> None:
@@ -748,7 +755,7 @@ CARPETA_VISION = "vision"
 NOTAS_DEL_SITIO = tuple(LIMPIADORES)
 
 
-def crear_sitio(destino: Path, carpeta_datos: Path | None, con_notas: bool = False) -> list[str]:
+def crear_sitio(destino: Path, carpeta_datos: Path | None, con_notas: bool = False, con_posibles: bool = False) -> list[str]:
     """Deja en `destino` el visor como web estática: los ficheros del visor y, bajo datos/,
     los resultados. Vale para cualquier alojamiento de páginas (GitHub Pages, por ejemplo):
     no necesita ningún programa detrás. Devuelve los ficheros de datos que ha copiado."""
@@ -780,6 +787,14 @@ def crear_sitio(destino: Path, carpeta_datos: Path | None, con_notas: bool = Fal
             if origen.is_file():
                 shutil.copy2(origen, destino / "datos" / nombre)
                 copiados.append(nombre)
+        for capa in CAPAS_OPCIONALES:
+            # El visor las pide siempre: van vacías salvo que se pida publicarlas, para que no den un 404.
+            origen = carpeta_datos / f"capa-{capa}.geojson"
+            if con_posibles and origen.is_file():
+                shutil.copy2(origen, destino / "datos" / origen.name)
+                copiados.append(origen.name)
+            else:
+                (destino / "datos" / origen.name).write_text(CAPA_VACIA, encoding="utf-8")
         lineas = sorted((carpeta_datos / CARPETA_VISION).glob("*.json")) if "revision.json" in copiados else []
         if "revision.json" not in copiados:
             # El visor lo pide siempre: vacío si no se ha pasado el detector, para que no dé un 404.
@@ -795,7 +810,7 @@ def crear_sitio(destino: Path, carpeta_datos: Path | None, con_notas: bool = Fal
 def cmd_sitio(args: argparse.Namespace) -> int:
     destino = Path(args.salida)
     datos = None if args.sin_datos else Path(args.datos)
-    copiados = crear_sitio(destino, datos, args.con_notas)
+    copiados = crear_sitio(destino, datos, args.con_notas, args.con_posibles)
     _decir(f"Web estática en {destino.resolve()} ({len(copiados)} ficheros de datos: {', '.join(copiados) or 'ninguno'}).")
     _decir("Súbela a cualquier alojamiento de páginas, o usa «osintmaps publicar» para GitHub Pages.")
     return 0
@@ -819,7 +834,7 @@ def cmd_publicar(args: argparse.Namespace) -> int:
     datos = None if args.sin_datos else Path(args.datos)
     with tempfile.TemporaryDirectory(prefix="osintmaps-sitio-") as tmp:
         sitio = Path(tmp)
-        copiados = crear_sitio(sitio, datos, args.con_notas)
+        copiados = crear_sitio(sitio, datos, args.con_notas, args.con_posibles)
         git("init", "-q", "-b", "gh-pages", carpeta=sitio)
         git("add", "-A", carpeta=sitio)
         git("-c", "user.name=OSINT Maps", "-c", "user.email=osintmaps@users.noreply.github.com", "commit", "-q", "-m",
@@ -915,12 +930,14 @@ def crear_parser() -> argparse.ArgumentParser:
     p.add_argument("--datos", default="datos", help="carpeta con los resultados (por defecto: datos)")
     p.add_argument("--sin-datos", action="store_true", help="solo el visor, sin ningún resultado")
     p.add_argument("--con-notas", action="store_true", help="incluye también tus marcas y tus marcadores")
+    p.add_argument("--con-posibles", action="store_true", help="incluye también la capa de posibles abandonos (sospechas sin comprobar)")
     p.set_defaults(func=cmd_sitio)
 
     p = sub.add_parser("publicar", help="publica la web en GitHub Pages (rama gh-pages del repositorio)")
     p.add_argument("--datos", default="datos", help="carpeta con los resultados (por defecto: datos)")
     p.add_argument("--sin-datos", action="store_true", help="solo el visor, sin ningún resultado")
     p.add_argument("--con-notas", action="store_true", help="incluye también tus marcas y tus marcadores")
+    p.add_argument("--con-posibles", action="store_true", help="incluye también la capa de posibles abandonos (sospechas sin comprobar)")
     p.add_argument("--repo", default=None, help="dirección del repositorio (por defecto, el «origin» de esta carpeta)")
     p.set_defaults(func=cmd_publicar)
 
