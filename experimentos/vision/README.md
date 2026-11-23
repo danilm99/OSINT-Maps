@@ -170,8 +170,24 @@ Con `ver_sitios.py`, sobre la foto de cada candidato:
 ### Tiempos y tamaños (portátil con RTX 4060 a 30 W)
 
 - Entrenar: 2 min 23 s por vuelta con 2.664 teselas.
-- Detectar: entre 0,9 y 1,6 s por sitio (dos fotos, la altura y la red); los 4.314, hora y media.
+- Detectar: entre 0,9 y 1,6 s por sitio con 4 hilos de descarga y 0,86 s con 12 (dos fotos, la altura y
+  la red; a partir de ahí manda la gráfica). Los 4.314 sitios, en dos tandas, algo más de una hora.
 - Fotos guardadas: 1 MB por sitio. Líneas publicadas: unos 2 KB por sitio.
+
+### La pasada completa (23/11/2026)
+
+4.287 sitios con resultado; los otros 27 caen fuera de la foto (provincias vecinas). Lo que dice de ellos:
+
+| Veredicto | Sitios |
+|---|---|
+| En pie y con cubierta | 1.584 |
+| En pie a medias o sin cubierta clara | 1.403 |
+| En pie, con vegetación dentro | 227 |
+| Casi nada en pie | 188 |
+| Tapado por árboles o maleza | 52 |
+| Sin veredicto (sin contorno o sin altura) | 833 |
+
+Líneas publicadas: 10,8 MB entre todos.
 
 ### Tropiezos de la primera pasada (ya arreglados)
 
@@ -188,6 +204,91 @@ Con `ver_sitios.py`, sobre la foto de cada candidato:
 senda, y hay 4.981 teselas en vez de 2.950 (un 30 % junto a los candidatos). Está sin
 entrenar: `cadena.py --modelo lineas-v2` lo hace todo seguido. Las fotos ya están guardadas,
 así que volver a pasar el detector cuesta solo el tiempo de gráfica.
+
+## 5. El repaso por años (`cambios.py`, 23/11/2026): en pruebas
+
+La idea: el buscador parte de lo que Catastro marca como ruinoso o deficiente. Esto mira **los demás**
+edificios, los que Catastro da por buenos, comparando cada uno consigo mismo en las fotos del ICV de
+2017 a 2025 (una por año, toda la Comunitat a 25 cm; la de 2025, a 15 cm). Si a un tejado le va
+entrando vegetación, o la tiene dentro sin que el arbolado de alrededor lo explique, se apunta como
+**posible** abandono.
+
+    python cambios.py medir   --carpeta cache/_vision --catastro cache/catastro --municipios 46072
+    python cambios.py puntuar --carpeta cache/_vision --datos datos --municipios 46072 --alturas 80 --direcciones 50
+    python cambios.py hojas   --carpeta cache/_vision --municipios 46072 --cuantos 24     # para mirar a ojo
+    python cambios.py capa    --carpeta cache/_vision --datos datos                       # la capa del visor
+
+Sin `--municipios` va la provincia entera; con `--todos`, también los cascos urbanos (por defecto solo
+suelo rústico, diseminados y edificios con 12 vecinos o menos a 150 m). Los códigos de municipio son
+los de Catastro (Godella, 46137; Bétera, 46072), no los del INE.
+
+### Cómo mide
+
+- **Contorno**: de cada edificio, solo las piezas con alguna planta sobre rasante (`buildingpart.gml`).
+  El contorno «de edificio» incluye sótanos que asoman bajo un jardín. Menos de 4 m de ancho no se mide.
+- **Fotos**: recortes de 256 m en infrarrojo a 50 cm por punto, uno por año. Un municipio grande son
+  unos 900 recortes por año; a 15 peticiones por segundo, un minuto por año.
+- **Dentro del contorno** se guarda el reparto del índice de vegetación (en 16 tramos), el del brillo y
+  la rugosidad; lo mismo en el **centro** del edificio y en un **anillo de 10 m** alrededor. Se guardan
+  repartos y no porcentajes porque el corte entre «planta» y «no planta» se decide después.
+- **Cada año tiene sus colores**: el corte de vegetación sale entre 0,10 y 0,25 según el vuelo (se saca
+  con el método de Otsu sobre todos los edificios del año a la vez). Con un corte fijo, 2025 da la
+  mitad de vegetación que 2019 en el mismo jardín.
+- **La teja no es planta**: refleja mucho infrarrojo y en varios vuelos pasaba el corte. Lo rojizo se
+  descarta, y lo muy oscuro también (ahí el índice se dispara con nada).
+
+### Cómo puntúa
+
+Dos motivos, que pueden darse a la vez:
+
+1. **Cómo está**: vegetación en el centro por encima de lo que tienen 19 de cada 20 edificios con un
+   entorno igual de verde. En plena pinada un 40 % de copas sobre el tejado es normal; sin árboles
+   cerca, un 15 % ya no.
+2. **Hacia dónde va**: la vegetación de dentro ha subido entre los tres primeros años y los tres
+   últimos más de lo que se le descuenta por el arbolado de alrededor.
+
+Luego, a los primeros de la lista se les mira la maqueta 3D de 2025: si lo que hay encima mide mucho
+más que el edificio, son copas (la nota baja a un tercio); si no levanta nada, está derribado.
+
+Comprobación con lo que ya se sabe: de los cuatro edificios que Catastro da por ruinosos en Godella,
+la regla señala tres; de los que da por buenos, el 1,5 %.
+
+### Lo que da de sí, de momento
+
+| | Godella (todo el término) | Bétera (fuera de casco) |
+|---|---|---|
+| Edificios medidos (60 m² o más) | 2.402 | 2.155 |
+| Recortes por año | 216 | 902 |
+| Señalados que Catastro da por buenos | 35 (1,5 %) | 57 (2,7 %) |
+
+Mirados uno a uno los primeros de cada lista, **acierta más o menos uno de cada ocho**. Aciertos: un
+edificio derribado en 2019 que sigue en Catastro, un invernadero que perdió la cubierta en 2021, un
+chalet que desaparece bajo los pinos mientras el césped se seca. Fallos, por orden de frecuencia:
+
+- **Copas de árboles** que crecen sobre un tejado sano. Desde arriba no se distingue de una ruina con
+  vegetación dentro. La altura de la maqueta quita los casos más claros, no todos.
+- **Contornos de Catastro corridos** o hechos a bulto, sobre todo en diseminados: el contorno cae en
+  el jardín de al lado.
+- **Patios y jardines dentro del contorno**, tejados pintados de verde y una cubierta de pizarra que
+  refleja el infrarrojo como si fuera planta.
+- **Obras**: una casa nueva sobre el solar de la vieja.
+
+«La cubierta se ve más rota y con más sombra» se quitó como motivo: lo que encontraba eran placas
+solares recién puestas.
+
+### Lo que no ha funcionado
+
+Pasar el detector entrenado (clase «edificio») por cada año para saber si hay tejado (`cambios.py
+tejados`). Clava los derribos (de 0,86 a 0,00 de un año al siguiente), pero no vale para comparar:
+aprendió solo con la foto de 2025 y un mismo tejado entero le sale 0,8 de 2017 a 2022 y entre 0,06
+y 0,49 después, aun igualando los colores de cada año a los de 2025.
+
+### Siguiente paso
+
+Entrenar un detector de tejado con las fotos de **todos** los años a la vez, usando de etiqueta los
+contornos de Catastro (hay cientos de miles y los recortes ya se bajan para medir). Con eso la señal
+pasaría de «le crece vegetación» a «tenía tejado y ya no», que no se confunde con tejas, pizarras ni
+placas. Las copas de los árboles seguirían engañando.
 
 ## Cómo se hicieron las pruebas de los apartados 1 y 2
 

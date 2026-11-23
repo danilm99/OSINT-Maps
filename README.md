@@ -334,6 +334,10 @@ minuto. Lo que sí se puede es no esperar dos veces por lo mismo:
   de Google y de Esri (otras fechas), el satélite de ayer de todo el planeta
   (250 m, para ver humo, riadas o nieve), y en València ciudad los vuelos
   desde 1956 y los planos desde 1738 para comparar con cortina.
+- **Año a año desde 2017**: en la Comunitat Valenciana, la tira de fotos de
+  cada ficha y la lista de *foto antigua* ofrecen los vuelos anuales del ICV
+  (2017 a 2024, 25 cm). Es la manera más rápida de ver cuándo se cayó un
+  tejado o desde cuándo crece la maleza.
 - **3D**: el botón *3D* cambia el mapa por una vista en perspectiva. Encima
   siguen los sitios, tus marcadores, lo cargado de las capas, la ruta y tu
   posición, y al tocar un punto se abre su ficha. Se gira y se inclina con el
@@ -451,6 +455,24 @@ La propia ficha enseña lo que acertó el detector al examinarlo, clase por clas
 Solo cubre la provincia de València (la foto y la maqueta son del ICV); los
 sitios de provincias vecinas se quedan sin este bloque.
 
+### Posibles abandonos: comparar las fotos de varios años (en pruebas)
+
+Otro experimento (`experimentos/vision/cambios.py`) mira los edificios que
+Catastro da **por buenos** y compara cada uno consigo mismo en las fotos de
+2017 a 2025. Si le va entrando vegetación, o tiene dentro más de la que explica
+el arbolado de alrededor, lo apunta. El resultado es la capa **Posibles
+abandonos**, en *Abandono y patrimonio*, que solo aparece si el fichero
+`datos/capa-posibles.geojson` existe.
+
+Es una lista de sospechas y falla mucho: en las dos zonas de prueba (Godella y
+los alrededores de Bétera), de los que señala acierta más o menos uno de cada
+ocho. El resto son copas de árboles sobre tejados sanos, contornos de Catastro
+corridos, patios y obras. Sirve para saber dónde mirar la tira de fotos por
+años, no para dar nada por abandonado.
+
+Por eso `osintmaps publicar` **no la sube** salvo que se pida con
+`--con-posibles`: son casas que pueden estar habitadas.
+
 ### En el móvil, sin el ordenador
 
 - **Publicado como página web**: `osintmaps publicar` sube el mapa a GitHub
@@ -496,6 +518,7 @@ Todo queda en la carpeta `datos/`, que no se sube a git:
 | `capa-dgt.geojson` | Cámaras de tráfico de la DGT |
 | `capa-subastas.geojson` | Inmuebles en subasta de la provincia |
 | `revision.json`, `vision/` | Lo visto desde el aire en cada sitio y las líneas detectadas (los escribe `experimentos/vision/detectar.py`, no `buscar`) |
+| `capa-posibles.geojson` | Posibles abandonos por comparación de fotos de varios años (lo escribe `experimentos/vision/cambios.py`; no se publica salvo con `--con-posibles`) |
 | `marcas.json` | Tus marcas y notas sobre los sitios (lo escribe el mapa) |
 | `marcadores.json` | Tus marcadores propios (lo escribe el mapa) |
 | `mapa.html` | El mapa autónomo (lo escribe `osintmaps paquete`) |
@@ -551,6 +574,9 @@ funciones cortas que hay debajo, y vuelve a ejecutar `buscar`.
   experimento aparte que necesita tarjeta gráfica y solo cubre la provincia de
   València. Acierta a medias y no está validado con una muestra grande: la
   comprobación sigue siendo tuya, en la ficha.
+- Los «posibles abandonos» sacados de comparar fotos de varios años aciertan
+  más o menos uno de cada ocho en las zonas de prueba. No se ha pasado a toda
+  la provincia.
 - Catastro no cubre País Vasco ni Navarra; ahí solo funcionan OSM y Wikidata.
 - Wikidata se consulta por rectángulo, así que en una búsqueda por provincia
   pueden colarse sitios de provincias vecinas cerca del límite.
@@ -621,7 +647,8 @@ osintmaps/
   web/sw.js, manifest.webmanifest  lo que hace falta para instalarlo como aplicación
 tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
 pruebas_navegador/  pruebas del visor en un navegador de verdad (ver su README)
-experimentos/vision/  el detector por imagen: preparar datos, entrenar, calibrar y pasar por los sitios
+experimentos/vision/  el detector por imagen: preparar datos, entrenar, calibrar y pasar por los sitios;
+                      y cambios.py, el repaso por años en busca de posibles abandonos
 ```
 
 ## Fuentes y licencias de los datos
@@ -629,7 +656,8 @@ experimentos/vision/  el detector por imagen: preparar datos, entrenar, calibrar
 - Edificios: Dirección General del Catastro, servicio INSPIRE.
 - OpenStreetMap: © colaboradores de OpenStreetMap, licencia ODbL.
 - Wikidata: CC0. Fotos: Wikimedia Commons, cada una con su licencia.
-- Ortofotos: PNOA, CC BY 4.0 scne.es. Sentinel-2: Copernicus, vía Earth Search.
+- Ortofotos: PNOA, CC BY 4.0 scne.es; Institut Cartogràfic Valencià (vuelos de
+  2017 a 2025 y maqueta 3D), CC BY 4.0. Sentinel-2: Copernicus, vía Earth Search.
 - Mapas antiguos, relieve y callejero: IGN, CC BY 4.0. Satélite alternativo: Esri.
 - Cámaras de tráfico: DGT y Ajuntament de València. Solares y patrimonio de
   València: geoportal municipal. Subastas: Portal de Subastas del BOE.
