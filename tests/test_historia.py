@@ -38,13 +38,21 @@ def test_un_nombre_es_distintivo_si_tiene_alguna_palabra_propia(nombre, distinti
     ("Pueblos abandonados en Castellón: 8 aldeas sin habitantes", "Bibioj", False),
     ("La antigua estación de Nazaret, en ruinas", "Antigua Estación de FEVE de Nazaret", True),      # la mayoría de las palabras y una propia
     ("La estación antigua se cae", "Antigua Estación de FEVE de Nazaret", False),         # ninguna propia
-    ("Galería: Casa Alta / AS/D", "Casa Alta", True),                                    # sin palabras propias hacen falta todas
-    ("Una casa de alta costura", "Casa Alta", True),                                     # (y aun así se cuelan: por eso se pide además el municipio)
+    ("Galería: Casa Alta / AS/D", "Casa Alta", True),                                    # sin palabras propias hacen falta todas...
     ("La casa del pueblo", "Casa Alta", False),
     ("Cualquier cosa", "", False),
 ])
 def test_un_titular_nombra_al_sitio(titular, nombre, lo_nombra):
     assert historia.nombra(titular, nombre) is lo_nombra
+
+
+def test_un_nombre_corriente_solo_se_da_por_nombrado_con_su_municipio():
+    # ...y, sabiendo el municipio, también este: casas altas y beatas hay en todas partes.
+    assert not historia.nombra("Galería: Casa Alta / AS/D", "Casa Alta", "la Pobla del Duc")
+    assert historia.nombra("La Casa Alta de la Pobla del Duc, a punto de caerse", "Casa Alta", "la Pobla del Duc")
+    assert not historia.nombra("Berja celebra una misa en honor a la Beata Josefa", "La Beata", "Requena")
+    assert historia.nombra("La Beata, la aldea de Requena que se vacía", "La Beata", "Requena")
+    assert historia.nombra("Sagunt apuntala la Casa Alta", "Casa Alta", "Sagunt / Sagunto")      # de un nombre doble basta el primero
 
 
 def test_se_busca_por_el_titulo_del_articulo_si_es_mas_corto():
@@ -70,22 +78,46 @@ def test_leer_rss_limpia_ordena_y_criba():
                 ("El Castell del Borró se restaura", "Cadena SER", "Mon, 29 Jun 2026 07:00:00 GMT", "https://news.google.com/rss/articles/1"),
                 ("El Castell del Borró se restaura", "Cadena SER", "Mon, 29 Jun 2026 07:00:00 GMT", "https://news.google.com/rss/articles/1b"),      # repetida
                 ("Visita al castillo de Borró", "Las Provincias", "Tue, 02 Jan 2024 07:00:00 GMT", "https://news.google.com/rss/articles/3"),
-                ("Enlace sin cifrar", "Blog", "Tue, 02 Jan 2024 07:00:00 GMT", "http://example.com/x"),
-                ("Sin fecha: el Borró", "Blog", "no es una fecha", "https://news.google.com/rss/articles/4"))
-    noticias = historia.leer_rss(canal, "Castell del Borró")
-    # Primero las que lo nombran, de la más nueva a la más vieja; luego las demás. El medio se quita del titular.
+                ("Enlace sin cifrar: el castell del Borró", "Blog", "Tue, 02 Jan 2024 07:00:00 GMT", "http://example.com/x"),
+                ("Sin fecha: el Borró", "Blog", "no es una fecha", "https://news.google.com/rss/articles/4"),
+                ("La Safor duplica el patrimonio en riesgo de desaparecer", "Levante-EMV", "Sun, 04 Aug 2024 07:00:00 GMT", "https://news.google.com/rss/articles/5"),
+                ("Ròtova, un pueblo con castillo", "Guía", "Mon, 05 Aug 2019 07:00:00 GMT", "https://news.google.com/rss/articles/6"))
+    noticias = historia.leer_rss(canal, "Castell del Borró", "Ròtova")
+    # Primero las que lo nombran, de la más nueva a la más vieja. De las demás, solo las que hablan de patrimonio o del mismo
+    # tipo de edificio: ni las fiestas ni «el Borró» a secas. El medio se quita del titular.
     assert [(n["titulo"], n["medio"], n["fecha"], n["nombra"]) for n in noticias] == [
         ("El Castell del Borró se restaura", "Cadena SER", "2026-06-29", True),
         ("Visita al castillo de Borró", "Las Provincias", "2024-01-02", True),
-        ("Fiestas de Ròtova", "Levante-EMV", "2026-08-01", False),
-        ("Sin fecha: el Borró", "Blog", "", False)]      # media palabra del nombre no basta para darlo por nombrado
+        ("La Safor duplica el patrimonio en riesgo de desaparecer", "Levante-EMV", "2024-08-04", False),
+        ("Ròtova, un pueblo con castillo", "Guía", "2019-08-05", False)]
     assert all(n["url"].startswith("https://") for n in noticias)
-    # Con un nombre de palabras corrientes, lo que no lo nombra en el titular se descarta.
-    comun = rss(("La Pobla del Duc cataloga sus bienes protegidos", "Levante-EMV", "Fri, 15 May 2026 07:00:00 GMT", "https://news.google.com/rss/articles/5"),
-                ("La Casa Alta, a punto de caerse", "Las Provincias", "Fri, 15 May 2026 07:00:00 GMT", "https://news.google.com/rss/articles/6"))
-    assert [n["titulo"] for n in historia.leer_rss(comun, "Casa Alta")] == ["La Casa Alta, a punto de caerse"]
-    assert len(historia.leer_rss(rss(*[(f"El Borró, parte {k}", "Diario", "Fri, 15 May 2026 07:00:00 GMT", f"https://news.google.com/rss/articles/{k}") for k in range(20)]), "Castell del Borró")) == historia.MAX_NOTICIAS
+    # Con un nombre de palabras corrientes, lo que no lo nombra en el titular se descarta aunque hable de patrimonio.
+    comun = rss(("La Pobla del Duc cataloga su patrimonio protegido", "Levante-EMV", "Fri, 15 May 2026 07:00:00 GMT", "https://news.google.com/rss/articles/5"),
+                ("La Casa Alta de la Pobla del Duc, a punto de caerse", "Las Provincias", "Fri, 15 May 2026 07:00:00 GMT", "https://news.google.com/rss/articles/6"))
+    assert [n["titulo"] for n in historia.leer_rss(comun, "Casa Alta", "la Pobla del Duc")] == ["La Casa Alta de la Pobla del Duc, a punto de caerse"]
+    # Como mucho tres de las que no lo nombran, y ocho en total.
+    muchas = rss(*[(f"Patrimonio abandonado, parte {k}", "Diario", f"Fri, {10 + k} May 2026 07:00:00 GMT", f"https://news.google.com/rss/articles/p{k}") for k in range(6)])
+    assert [n["titulo"] for n in historia.leer_rss(muchas, "Castell del Borró", "Ròtova")] == [f"Patrimonio abandonado, parte {k}" for k in (5, 4, 3)]
+    assert len(historia.leer_rss(rss(*[(f"El castell del Borró, parte {k}", "Diario", "Fri, 15 May 2026 07:00:00 GMT", f"https://news.google.com/rss/articles/{k}") for k in range(20)]), "Castell del Borró")) == historia.MAX_NOTICIAS
     assert historia.leer_rss(b"<html>esto no es un canal", "Castell del Borró") == []
+
+
+def test_las_palabras_del_municipio_no_distinguen_al_sitio():
+    # Cualquier noticia de Quart de Poblet lleva «Quart» y «Poblet»: para nombrar la estación hace falta, además, «estación».
+    assert not historia.es_distintivo("Estación de Quart de Poblet", "Quart de Poblet") and historia.es_distintivo("Estación de Quart de Poblet")
+    assert not historia.nombra("Una lanzadera unirá el Barrio del Cristo con Quart de Poblet", "Estación de Quart de Poblet", "Quart de Poblet")
+    assert historia.nombra("La vieja estación de Quart de Poblet, tapiada", "Estación de Quart de Poblet", "Quart de Poblet")
+    canal = rss(("Una lanzadera unirá el Barrio del Cristo con Quart de Poblet", "elDiario.es", "Tue, 23 Jun 2026 07:00:00 GMT", "https://news.google.com/rss/articles/1"),
+                ("Quart de Poblet restaura su patrimonio", "Levante-EMV", "Tue, 23 Jun 2026 07:00:00 GMT", "https://news.google.com/rss/articles/2"),
+                ("La vieja estación de Quart de Poblet, tapiada", "Las Provincias", "Mon, 01 Jun 2026 07:00:00 GMT", "https://news.google.com/rss/articles/3"))
+    assert [n["titulo"] for n in historia.leer_rss(canal, "Estación de Quart de Poblet", "Quart de Poblet")] == ["La vieja estación de Quart de Poblet, tapiada"]
+    # Si el nombre es el del municipio y nada más, ni se pregunta; tampoco un nombre corriente sin municipio.
+    assert not historia.se_puede_buscar("Camporrobles", "Camporrobles") and not historia.se_puede_buscar("Casa Alta") and not historia.se_puede_buscar("", "Chelva")
+    assert historia.se_puede_buscar("Casa Alta", "la Pobla del Duc") and historia.se_puede_buscar("Bibioj") and historia.se_puede_buscar("Las Cuevas de Utiel", "Utiel")
+    # «La Beata» no es un nombre propio: una beata de Almería no es este sitio de Requena.
+    canal = rss(("Berja celebra una misa en honor a la Beata Josefa", "Berja digital", "Fri, 19 Sep 2025 07:00:00 GMT", "https://news.google.com/rss/articles/b"),
+                ("La Beata, la aldea de Requena que se vacía", "Levante-EMV", "Fri, 19 Sep 2025 07:00:00 GMT", "https://news.google.com/rss/articles/c"))
+    assert [n["titulo"] for n in historia.leer_rss(canal, "La Beata", "Requena")] == ["La Beata, la aldea de Requena que se vacía"]
 
 
 class Sesion:

@@ -597,7 +597,7 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
 
         def convertir(resp) -> bytes:
             return json.dumps({"consulta": historia.consulta_de(nombre, municipio),
-                               "noticias": historia.leer_rss(resp.content, nombre)}, ensure_ascii=False).encode("utf-8")
+                               "noticias": historia.leer_rss(resp.content, nombre, municipio)}, ensure_ascii=False).encode("utf-8")
 
         def al_fallar(exc: Exception) -> None:
             if getattr(getattr(exc, "response", None), "status_code", None) in (429, 503):

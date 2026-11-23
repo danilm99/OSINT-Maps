@@ -52,7 +52,7 @@ Probado de principio a fin con la provincia de Valencia (noviembre de 2026):
 | Candidatos | 4.297 |
 | Con nota de 40 o más | 331 |
 
-Todas las fuentes responden y el mapa funciona con datos reales. Hay 140
+Todas las fuentes responden y el mapa funciona con datos reales. Hay 141
 pruebas automáticas (`pytest`) que no necesitan internet.
 
 Recuentos reales de esa misma prueba: 390 cámaras en OpenStreetMap, 1.980
@@ -374,9 +374,12 @@ Lo que hay que saber antes de fiarse:
 - Un sitio sin ficha de Wikidata se empareja por el nombre. Si tampoco tiene
   nombre, con lo que Wikidata sitúe encima, y entonces va aparte y con el aviso
   de que puede no ser el mismo sitio.
-- Google no busca la frase exacta aunque vaya entre comillas. Las noticias que
-  no nombran el sitio en el titular salen atenuadas; si el nombre está hecho de
-  palabras corrientes («Casa Alta»), se descartan.
+- Google no busca la frase exacta aunque vaya entre comillas: devuelve también
+  noticias del pueblo que no tienen que ver. Se guardan las que nombran el sitio
+  en el titular y, atenuadas, hasta tres que no lo nombran pero hablan de
+  patrimonio, de abandono o del mismo tipo de edificio. Si el nombre está hecho
+  de palabras corrientes («Casa Alta»), solo valen las que traen además el
+  municipio. Aun así se cuela alguna.
 - El resumen son frases hechas sobre los datos encontrados: no lo redacta
   nadie ni lo inventa ningún modelo. Lo que no está en una fuente, no sale.
 - No se busca ni se guarda nada sobre propietarios.

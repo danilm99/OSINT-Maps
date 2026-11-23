@@ -525,7 +525,9 @@ def test_el_servidor_da_vacias_las_noticias_si_no_se_han_buscado(servidor):
 RSS = """<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>"Castell del Borró" "Ròtova" - Google Noticias</title>
 <item><title>Ròtova inicia los trámites para recuperar el Castell del Borró - Cadena SER</title><link>https://news.google.com/rss/articles/uno?oc=5</link>
 <pubDate>Mon, 29 Jun 2026 07:00:00 GMT</pubDate><source url="https://cadenaser.com">Cadena SER</source></item>
-<item><title>Fiestas de Ròtova: programa completo - Levante-EMV</title><link>https://news.google.com/rss/articles/dos?oc=5</link>
+<item><title>Fiestas de Ròtova: programa completo - Levante-EMV</title><link>https://news.google.com/rss/articles/tres?oc=5</link>
+<pubDate>Sat, 08 Aug 2026 07:00:00 GMT</pubDate><source url="https://www.levante-emv.com">Levante-EMV</source></item>
+<item><title>El patrimonio de Ròtova, en riesgo - Levante-EMV</title><link>https://news.google.com/rss/articles/dos?oc=5</link>
 <pubDate>Sat, 01 Aug 2026 07:00:00 GMT</pubDate><source url="https://www.levante-emv.com">Levante-EMV</source></item></channel></rss>"""
 
 
@@ -558,7 +560,7 @@ def test_el_servidor_busca_noticias_y_no_insiste_si_google_pide_parar(servidor, 
     assert datos["consulta"] == '"Castell del Borró" "Ròtova"'
     assert [(n["titulo"], n["medio"], n["fecha"], n["nombra"]) for n in datos["noticias"]] == [
         ("Ròtova inicia los trámites para recuperar el Castell del Borró", "Cadena SER", "2026-06-29", True),
-        ("Fiestas de Ròtova: programa completo", "Levante-EMV", "2026-08-01", False)]
+        ("El patrimonio de Ròtova, en riesgo", "Levante-EMV", "2026-08-01", False)]      # la de las fiestas no dice nada del sitio: fuera
     assert all(n["url"].startswith("https://news.google.com/") for n in datos["noticias"])
     # Solo se pregunta a Google Noticias, con el nombre y el municipio entre comillas, y la respuesta se guarda unas horas.
     assert len(pedidas) == 1 and pedidas[0].startswith("https://news.google.com/rss/search?q=%22Castell+del+Borr%C3%B3%22+%22R%C3%B2tova%22")

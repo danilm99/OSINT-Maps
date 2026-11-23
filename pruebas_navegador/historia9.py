@@ -32,6 +32,7 @@ CERCA = {"results": {"bindings": [
     fila("Q111", "Castillo de Prueba", 0.03, "fortificación", "bien de interés cultural", es="https://es.wikipedia.org/wiki/Castillo_de_Prueba"),
     fila("Q444", "Estació de Villar", 0.12, "estación de ferrocarril", ca="https://ca.wikipedia.org/wiki/Estaci%C3%B3_de_Villar"),
     fila("Q888", "Fábrica de Harinas La Unión", 0.14, "fábrica"),
+    fila("Q999", "Colegio Público de Prueba", 0.13, "centro de educación infantil y primaria", ficha="https://ceice.gva.es/centro/1", es="https://es.wikipedia.org/wiki/Colegio"),      # un colegio en uso no es patrimonio
     fila("Q555", "Q555", 0.15, "edificio"),                                                    # sin nombre en ningún idioma: no se enseña
     fila("Q666", "Llíria", 0.2, "municipio de España", es="https://es.wikipedia.org/wiki/Liria"),      # el municipio no es «patrimonio cerca»
     fila("Q777", "Molino <b>raro</b>", 0.3, "molino", "Bien de Relevancia Local", ficha="http://sin-cifrar.example/ficha")]}}
@@ -179,7 +180,7 @@ with sync_playwright() as p:
         comprobar(nombre, f"fotos por año, las sin fecha al final y fuera lo que no es foto: {fotos}", fotos == ["1979|https://commons.wikimedia.org/wiki/File:Foto_3.jpg", "2022|https://commons.wikimedia.org/wiki/File:Foto_1.jpg", "sin fecha|https://commons.wikimedia.org/wiki/File:Foto_2.jpg"])
         alrededor = pg.evaluate("[...document.querySelectorAll('#ficha .historia .cerca li')].map((li) => li.textContent)")
         comprobar(nombre, f"alrededor: {alrededor}", alrededor[:4] == ["el Brucar partida, aquí mismo, ICV", "Casillas de Marín edificación, a 27 m, IGN, ICV", "Ermita de Prueba lugar de culto, a 44 m, OpenStreetMap", "Corral de Dalt corral, a 99 m, ICV"]
-                  and not any("Bar Paco" in c or "Parc Natural" in c for c in alrededor)
+                  and not any("Bar Paco" in c or "Parc Natural" in c or "Colegio" in c for c in alrededor)
                   and "Los Centenares paraje, a 300 m, OpenStreetMap, IGN" in alrededor and not any("Camí" in c or "Camino" in c for c in alrededor)
                   and "Retablo cerámico de San Roque retablo cerámico, Bien de Relevancia Local, a 10 m" in alrededor and "Estació de Villar estación de ferrocarril, a 120 m" in alrededor
                   and not any("Q555" in c or c.startswith("Llíria") for c in alrededor))

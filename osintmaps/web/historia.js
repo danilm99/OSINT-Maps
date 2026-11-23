@@ -311,7 +311,8 @@ function pedirWikidataCerca(s) {
 /* Cosas que Wikidata sitúa con un punto y que no son «el edificio»: sirven de contexto, no de identidad. */
 const NO_ES_EL_SITIO = /municipio|capital|asentamiento|localidad|entidad|pedan|barrio|calle|avenida|alameda|plaza|retablo|sotabalc|panel|estatua|escultura|placa|r[oó]tulo|comisi[oó]n|instituci[oó]n|empresa|organizaci|parada|l[ií]nea|ruta|biblioteca/i;
 const esUnSitio = (x) => !x.tipos.length || !x.tipos.every((t) => NO_ES_EL_SITIO.test(t));
-const esContexto = (x) => (x.cats.length || x.ficha || x.es || x.ca) && !x.tipos.some((t) => /municipio|capital|asentamiento|localidad|entidad|comisi[oó]n|instituci[oó]n|biblioteca|alameda|calle|avenida/i.test(t));
+/* Lo que merece salir como «patrimonio cerca»: lo protegido y, de lo demás, lo que tiene artículo y no es el pueblo, una calle o un colegio. */
+const esContexto = (x) => x.cats.length > 0 || (!!(x.es || x.ca) && !x.tipos.some((t) => /municipio|capital|asentamiento|localidad|entidad|comisi[oó]n|instituci[oó]n|educaci|colegio|escuela|biblioteca|alameda|calle|avenida|plaza|barrio/i.test(t)));
 
 const API_WIKIDATA = "https://www.wikidata.org/w/api.php";
 const FECHAS_WD = { P571: ["Construcción o fundación", "Se construyó"], P1619: ["Inauguración", "Se inauguró"], P729: ["Entrada en servicio", "Entró en servicio"],
