@@ -45,7 +45,7 @@ def main() -> None:
     ap.add_argument("--carpeta", default="cache/_vision"); ap.add_argument("--modelo", default="lineas-v1")
     ap.add_argument("--clases", default="muro,valla,senda,camino"); ap.add_argument("--filas", type=int, default=4)
     ap.add_argument("--semilla", type=int, default=1); ap.add_argument("--cpu", action="store_true")
-    ap.add_argument("--umbral", type=float, default=0.5)
+    ap.add_argument("--umbral", type=float, default=0, help="un mismo corte para todas las clases (si no, los de calibrar.py, o 0,5)")
     args = ap.parse_args()
     import torch
     import segmentation_models_pytorch as smp
@@ -57,7 +57,11 @@ def main() -> None:
     modelo = smp.Unet("resnet34", encoder_weights=None, in_channels=4, classes=len(CLASES))
     modelo.load_state_dict(guardado["modelo"])
     modelo.to(dispositivo).eval()
-    print(f"modelo de la vuelta {guardado.get('vuelta')} | {dispositivo}", flush=True)
+    # Se pinta lo que saldría de verdad: cada clase con el corte que eligió calibrar.py.
+    from detectar import cortes_de
+    corte = {c: args.umbral for c in CLASES} if args.umbral else cortes_de(base, args.modelo)
+    cortes = np.array([corte[c] for c in CLASES], np.float32)[:, None, None]
+    print(f"modelo de la vuelta {guardado.get('vuelta')} | {dispositivo} | cortes {corte}", flush=True)
 
     # Solo teselas que el entrenamiento aparta para medir (la misma cuenta que en entrenar.py).
     claves = [tuple(t) for t in json.loads((base / "teselas.json").read_text(encoding="utf-8"))
@@ -76,7 +80,7 @@ def main() -> None:
             with torch.no_grad():
                 entrada = torch.from_numpy(np.ascontiguousarray(((x - MEDIA) / DESV).transpose(2, 0, 1)))[None].to(dispositivo)
                 prob = torch.sigmoid(modelo(entrada))[0].cpu().numpy()
-            fila = np.hstack([rgb, pintar(rgb, osm), pintar(rgb, prob > args.umbral)])
+            fila = np.hstack([rgb, pintar(rgb, osm), pintar(rgb, prob > cortes)])
             cv2.putText(fila, f"{i}_{j}", (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1, cv2.LINE_AA)
             filas.append(fila)
             filas.append(np.zeros((6, fila.shape[1], 3), np.uint8))

@@ -8,12 +8,17 @@ Cómo aprende. Se le enseña un recorte, se compara lo que dice con lo que OSM t
 le corrige un poco; así miles de veces. Dos cosas a tener en cuenta con estas etiquetas:
 - OSM dibuja con uno o dos metros de error. Alrededor de lo fino (sendas, muros, vallas, setos,
   acequias) se deja una franja «de duda» donde no se le corrige ni para bien ni para mal.
-- A OSM le falta mucho por dibujar. Lo que el modelo vea y OSM no tenga cuenta como error aunque
-  sea verdad: la «precisión» que sale aquí es un suelo, no la cifra real.
+- A OSM le falta mucho por dibujar, sobre todo muros y vallas. Lo que el modelo vea y OSM no tenga
+  cuenta como error aunque sea verdad: la «precisión» que sale aquí es un suelo, no la cifra real.
+  Y para no enseñarle a callarse lo que ve, marcar un cierre donde OSM no dice nada se castiga poco.
+- Las sendas de OSM son trazas de GPS: van a varios metros de la senda que se ve. Cerca de una senda
+  no se castiga marcar camino, ni al revés.
 
-Se guarda el mejor modelo en `modelos/lineas-v1.pt` y las cifras de cada vuelta en `lineas-v1.json`.
+Se guarda el mejor modelo en `modelos/<nombre>.pt`, las cifras de cada vuelta en `<nombre>.json` y,
+al acabar cada vuelta, lo necesario para seguir si se corta (`<nombre>.seguir.pt`): al volver a
+lanzarlo con los mismos ajustes, retoma donde iba.
 
-    python experimentos/vision/entrenar.py --carpeta cache/_vision --vueltas 24
+    python experimentos/vision/entrenar.py --carpeta cache/_vision --nombre lineas-v2 --vueltas 16 --lote 12
 """
 from __future__ import annotations
 
