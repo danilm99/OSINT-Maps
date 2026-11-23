@@ -427,6 +427,19 @@ def test_el_resumen_trae_lo_normal_cuando_hay_historico():
     assert "normal" not in r["indicadores"]["claves"]["bicis_fuera"]
 
 
+def test_con_tramos_mas_cortos_que_la_fuente_no_salen_huecos_falsos():
+    """Una fuente que contesta cada diez minutos, vista en tramos de dos: entre dato y dato vale el anterior."""
+    almacen = Almacen(":memory:")
+    for i in (0, 1, 2, 9):          # contesta a los 0, 10 y 20 minutos; luego calla hasta el minuto 90
+        almacen.guardar_toma("aforo", T0 + i * 600, Toma(indicadores={"aforo": 100.4 + i, "aviones": 3.6}))
+    r = resumen.crear_resumen(almacen, desde=T0, hasta=T0 + 5400, paso=120)
+    aforo = r["indicadores"]["claves"]["aforo"]["v"]
+    assert aforo[:5] == [100] * 5 and aforo[5:10] == [101] * 5 and aforo[10] == 102        # sin decimales: es un recuento
+    assert aforo[10:26] == [102] * 16 and aforo[26:45] == [None] * 19 and aforo[45] == 109   # media hora después del último dato sí es un hueco
+    # Los aviones se piden cada 20 segundos: un tramo de dos minutos sin dato ya es un hueco.
+    assert r["indicadores"]["claves"]["aviones"]["v"][:3] == [4, None, None]
+
+
 def test_recorrer_una_grafica_lee_el_historico_una_sola_vez():
     """Lo normal se pide tramo a tramo (cientos de veces por gráfica): no puede releer semanas de datos cada vez."""
     almacen, hasta = _historico_de_prueba()

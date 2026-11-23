@@ -72,18 +72,30 @@ def _indicadores(almacen: Almacen, normales: Normales | None, desde: int, hasta:
     t0 = (desde // paso) * paso
     n = (hasta - t0) // paso + 1
     medias = almacen.indicadores(t0, t0 + n * paso, paso)
+    cada = {f.id: f.cada for f in FUENTES}
     claves = {}
     for clave, info in INDICADORES.items():
         serie = medias.get(clave)
         if not serie:
             continue
-        decimales = 0 if info["unidad"] in ("bicis", "plazas", "estaciones", "tramos", "aviones", "trenes") and paso <= 600 else 1
-        entrada = dict(info, v=[_numero(serie.get(t0 + i * paso), decimales) for i in range(n)])
+        decimales = 0 if info.get("entero") else 1
+        valores = [_numero(serie.get(t0 + i * paso), decimales) for i in range(n)]
+        # Si los tramos son más cortos que lo que tarda la fuente en dar otro dato (tramos de un minuto y una
+        # fuente que contesta cada diez), entre dato y dato no hay un hueco: sigue valiendo el anterior. Se
+        # arrastra hasta tres veces lo que tarda la fuente, igual que al decidir si un punto tiene dato.
+        arrastre, ultimo, hace = int(3 * cada[info["fuente"]] // paso), None, 0
+        for i, v in enumerate(valores):
+            if v is not None:
+                ultimo, hace = v, 0
+            elif ultimo is not None and hace < arrastre:
+                hace += 1
+                valores[i] = ultimo
+        entrada = dict(info, v=valores)
         if normales is not None:
             curva = []
             for i in range(n):
                 base = normales.normal(clave, t0 + i * paso + paso // 2)
-                curva.append(_numero(base[0]) if base and base[2] >= 2 else None)
+                curva.append(_numero(base[0], decimales) if base and base[2] >= 2 else None)
             if any(x is not None for x in curva):
                 entrada["normal"] = curva
         claves[clave] = entrada

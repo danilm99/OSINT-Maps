@@ -21,7 +21,7 @@ if (typeof mapa === "undefined" || typeof L === "undefined") return;
 
 const GEOPORTAL = "https://geoportal.valencia.es/server/rest/services/OPENDATA";
 const CIAN = "#22d3ee", MAGENTA = "#ff2d95", AMBAR = "#fbbf24", LIMA = "#a3e635", ROJO = "#f43f5e", GRIS = "#64748b";
-const RANGOS = [["6 h", 6], ["24 h", 24], ["48 h", 48], ["7 d", 168], ["30 d", 720]];
+const RANGOS = [["1 h", 1], ["6 h", 6], ["24 h", 24], ["48 h", 48], ["7 d", 168], ["30 d", 720]];
 const VELOCIDADES = [[300, "5 min/s"], [900, "15 min/s"], [3600, "1 h/s"], [14400, "4 h/s"]];
 /* Las capas del mapa: de qué serie (o rastro) salen. «flujo» es la misma serie de bicis, mirando cuánto ha cambiado. */
 const CAPAS_PULSO = [
@@ -41,6 +41,7 @@ let R = null;                 // el resumen cargado
 let T = 0;                    // el momento que se está mirando (segundos desde 1970)
 let enDirecto = true;         // el cursor sigue al final de los datos
 let reproduciendo = false, ultimoCuadro = 0, relojDirecto = 0, cargando = false, hastaFijo = null;
+let horasVistas = 0;          // el rato que se está enseñando (puede ser menos que el elegido si aún hay poco histórico)
 let servidor = false;         // ¿está detrás el programa del ordenador?
 let vivoWeb = null;           // en la web: lo de ahora mismo, pedido al Ayuntamiento {serie: {id: valor}, t}
 const dibujadas = {};         // id de capa -> { grupo, piezas }
@@ -537,7 +538,7 @@ function pintarRangos() {
   filaRangos.hidden = fecha.hidden = !servidor;       // en la web hay lo que hay: 48 horas
   for (const [nombre, horas] of RANGOS) {
     const b = el("button", { type: "button", textContent: nombre });
-    b.setAttribute("aria-pressed", String(hastaFijo == null && ajustes.horas === horas));
+    b.setAttribute("aria-pressed", String(hastaFijo == null && horasVistas === horas));
     b.addEventListener("click", () => { ajustes.horas = horas; hastaFijo = null; fecha.value = ""; recordar(); cargar(); });
     filaRangos.append(b);
   }
@@ -565,9 +566,12 @@ function cargar(desdeFijo, mantener = false) {
   return hayServidor.then((si) => {
     servidor = si;
     if (!si) return pedirJSON(`${new URLSearchParams(location.search).get("datos") || "datos/"}pulso.json`);
-    const hasta = hastaFijo != null ? hastaFijo : ahoraSeg(), desde = desdeFijo != null ? desdeFijo : hasta - ajustes.horas * 3600;
     return pedirJSON("vivo/pulso/estado").then((e) => {
-      if (!e.hay) throw new Error("sin histórico");
+      if (!e.hay || !e.desde) throw new Error("sin histórico");
+      // Con poco histórico (los primeros días) se enseña el rato más corto en el que cabe todo, no 48 horas casi vacías.
+      const hasta = hastaFijo != null ? hastaFijo : ahoraSeg(), cabe = (RANGOS.find(([, h]) => h * 3600 >= hasta - e.desde) || RANGOS[RANGOS.length - 1])[1];
+      horasVistas = Math.min(ajustes.horas, cabe);
+      const desde = desdeFijo != null ? desdeFijo : hasta - horasVistas * 3600;
       return pedirJSON(`vivo/pulso/resumen?desde=${Math.round(desde)}&hasta=${Math.round(hasta)}${hasta - desde > 49 * 3600 ? "&rastros=0" : ""}`);
     });
   }).then((resumen) => {

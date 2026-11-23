@@ -362,19 +362,20 @@ FUENTES: tuple[Fuente, ...] = (
     Fuente("trenes", "Trenes de Cercanías", 30, tomar_trenes, grupo="vias", origen="Renfe"),
 )
 
-# Qué es cada indicador: su nombre para el visor, su unidad y la fuente de la que sale.
+# Qué es cada indicador: su nombre para el visor, su unidad y la fuente de la que sale. «entero»: es un recuento
+# (bicis, plazas, aviones) y se enseña sin decimales.
 INDICADORES: dict[str, dict] = {
     "bicis_fuera": {"nombre": "Valenbisi: anclajes vacíos", "unidad": "%", "fuente": "bicis", "nota": "sube cuando hay más bicis rodando"},
-    "bicis_ancladas": {"nombre": "Bicis ancladas", "unidad": "bicis", "fuente": "bicis"},
-    "bicis_vacias": {"nombre": "Estaciones sin bicis", "unidad": "estaciones", "fuente": "bicis"},
-    "bicis_llenas": {"nombre": "Estaciones sin huecos", "unidad": "estaciones", "fuente": "bicis"},
+    "bicis_ancladas": {"nombre": "Bicis ancladas", "unidad": "bicis", "fuente": "bicis", "entero": True},
+    "bicis_vacias": {"nombre": "Estaciones sin bicis", "unidad": "estaciones", "fuente": "bicis", "entero": True},
+    "bicis_llenas": {"nombre": "Estaciones sin huecos", "unidad": "estaciones", "fuente": "bicis", "entero": True},
     "parking_ocupacion": {"nombre": "Aparcamientos ocupados", "unidad": "%", "fuente": "parking"},
-    "parking_libres": {"nombre": "Plazas libres", "unidad": "plazas", "fuente": "parking"},
+    "parking_libres": {"nombre": "Plazas libres", "unidad": "plazas", "fuente": "parking", "entero": True},
     "trafico_indice": {"nombre": "Tráfico", "unidad": "sobre 100", "fuente": "trafico", "nota": "0 es todo fluido y 100 todo congestionado"},
-    "trafico_denso": {"nombre": "Tramos densos o congestionados", "unidad": "tramos", "fuente": "trafico"},
-    "trafico_cortado": {"nombre": "Tramos cortados", "unidad": "tramos", "fuente": "trafico"},
-    "aforo": {"nombre": "Vehículos por hora", "unidad": "por punto de aforo", "fuente": "aforo"},
-    "aforo_bici": {"nombre": "Bicis por hora", "unidad": "por punto de aforo", "fuente": "aforo_bici"},
+    "trafico_denso": {"nombre": "Tramos densos o congestionados", "unidad": "tramos", "fuente": "trafico", "entero": True},
+    "trafico_cortado": {"nombre": "Tramos cortados", "unidad": "tramos", "fuente": "trafico", "entero": True},
+    "aforo": {"nombre": "Vehículos por hora", "unidad": "por punto de aforo", "fuente": "aforo", "entero": True},
+    "aforo_bici": {"nombre": "Bicis por hora", "unidad": "por punto de aforo", "fuente": "aforo_bici", "entero": True},
     "aire_no2": {"nombre": "NO₂", "unidad": "µg/m³", "fuente": "aire"},
     "aire_pm10": {"nombre": "Partículas PM10", "unidad": "µg/m³", "fuente": "aire"},
     "aire_pm25": {"nombre": "Partículas PM2,5", "unidad": "µg/m³", "fuente": "aire"},
@@ -382,9 +383,9 @@ INDICADORES: dict[str, dict] = {
     "meteo_temperatura": {"nombre": "Temperatura", "unidad": "°C", "fuente": "meteo"},
     "meteo_viento": {"nombre": "Viento", "unidad": "m/s", "fuente": "meteo"},
     "meteo_lluvia": {"nombre": "Lluvia", "unidad": "mm", "fuente": "meteo"},
-    "aviones": {"nombre": "Aviones en el aire", "unidad": "a menos de 75 km", "fuente": "aviones"},
-    "aviones_bajos": {"nombre": "Aviones por debajo de 3.000 m", "unidad": "aviones", "fuente": "aviones"},
-    "trenes": {"nombre": "Trenes de Cercanías circulando", "unidad": "trenes", "fuente": "trenes"},
+    "aviones": {"nombre": "Aviones en el aire", "unidad": "a menos de 75 km", "fuente": "aviones", "entero": True},
+    "aviones_bajos": {"nombre": "Aviones por debajo de 3.000 m", "unidad": "aviones", "fuente": "aviones", "entero": True},
+    "trenes": {"nombre": "Trenes de Cercanías circulando", "unidad": "trenes", "fuente": "trenes", "entero": True},
 }
 # Las series de puntos fijos: de qué fuente sale cada una.
 SERIES: dict[str, str] = {"bicis": "bicis", "parking": "parking", "trafico": "trafico", "aforo": "aforo", "aforo_bici": "aforo_bici",
