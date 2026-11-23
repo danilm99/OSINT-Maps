@@ -1735,8 +1735,8 @@ function abrirFicha(c, mover) {
     el("h2", { textContent: tituloDe(c) }),
     el("div", { className: "lugar", textContent: [p.municipio, `nota ${Math.round(p.puntuacion || 0)} de 100`].filter(Boolean).join(", ") }),
     aereo, tira, comparar, botones, nota,
-    typeof bloqueHistoria === "function" ? bloqueHistoria(sujetoDeSitio(c)) : null,       // lo que se sabe de su pasado (historia.js)
     typeof bloqueVision === "function" ? bloqueVision(c) : null,       // lo que un programa ha visto en la foto (vision.js)
+    typeof bloqueHistoria === "function" ? bloqueHistoria(sujetoDeSitio(c)) : null,       // lo que se sabe de su pasado (historia.js)
     bloque("Comprobar en otras fuentes", enlaces),
     fachada,
     bloque("Por qué tiene esta nota", desglose),

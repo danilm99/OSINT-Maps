@@ -54,12 +54,13 @@ const CAPAS_SIN_HISTORIA = new Set(["farolas", "muros"]);
 const tieneHistoria = (e) => e.capa === "punto" || e.capa === "lugar" || e.capa === "wikipedia"
   || (!!CAPA[e.capa] && GRUPOS_CON_HISTORIA.has(CAPA[e.capa].grupo) && !CAPAS_SIN_HISTORIA.has(e.capa));
 const soloQ = (t) => (/^Q\d+$/.test(t || "") ? t : "");
+const COMO_CONSTA = { ruina: "en ruina", abandonado: "como abandonado", deficiente: "en estado deficiente", en_desuso: "en desuso" };
 
 function sujetoDeSitio(c) {
   const p = c.p;
   return { id: `sitio|${c.id}`, clave: String(c.id), sitio: c, lat: c.lat, lon: c.lon, nombre: p.nombre || "", municipio: p.municipio || "", refcat: (p.refcats || [])[0] || "",
     anio: +p.anio || null, superficie: +p.superficie_m2 || 0, etiquetas: p.etiquetas || null, wikidata: soloQ(p.wikidata), wikipedia: p.wikipedia || "", abandonado: true,
-    estado: NOMBRE_ESTADO[p.estado] || "", fuentes: p.fuentes || [] };
+    estado: COMO_CONSTA[p.estado] || "", fuentes: p.fuentes || [] };
 }
 function sujetoDeElemento(e) {
   const t = e.etiquetas || null, p = e.p || {};
@@ -174,7 +175,8 @@ function hechosLocales(s) {
   const mio = s.elemento || null, radio = radioDelSujeto(s);
   const posible = mio && mio.capa === "posibles" ? mio : (cerca("posibles", (e, d) => (s.refcat && e.p.refcat === s.refcat) || d <= 15)[0] || {}).e;
   if (posible) {
-    h.tejado = perdidaDeTejado(posible.p.tejado);
+    const dicho = /dej[oó] de verse entre (\d{4}) y (\d{4})/.exec(posible.p.motivos || "");      // la capa ya lo trae calculado
+    h.tejado = dicho ? { desde: +dicho[1], hasta: +dicho[2] } : perdidaDeTejado(posible.p.tejado);
     if (h.tejado) h.fechas.push({ orden: h.tejado.hasta, texto: `${h.tejado.desde} a ${h.tejado.hasta}`, hecho: "Deja de verse el tejado", fuente: "fotos aéreas de cada año", nota: "lo dice un programa comparando fotos: puede ser una obra o un derribo" });
   }
   h.roja = mio && mio.capa === "listaroja" ? [] : cerca("listaroja", (e, d) => d <= radio + 100 || (!!s.nombre && d <= 600 && parecidoDeNombres(s.nombre, e.nombre) >= 0.6)).slice(0, 2);
@@ -219,6 +221,10 @@ function dentroDeContorno(s, pts) {
   return dentro;
 }
 /* Los nombres de OpenStreetMap más cercanos (Photon). De paso dicen el municipio y la comarca. */
+/* Photon devuelve cualquier cosa con nombre: también el bar de al lado. Para la historia valen los lugares, los edificios
+   y lo histórico; de los servicios, solo iglesias, conventos y cementerios. El resto solo sirve para saber el municipio. */
+const OSM_QUE_CUENTA = /^(place|historic|building|railway|man_made|military|landuse|natural|highway)$/;
+const SERVICIO_QUE_CUENTA = /^(place_of_worship|monastery|grave_yard|attraction|museum)$/;
 const CLASE_DE_OSM = { highway: "camino", building: "edificio", historic: "edificio", amenity: "edificio", man_made: "edificio", tourism: "edificio", railway: "edificio", military: "edificio", craft: "edificio", landuse: "paraje", place: "paraje" };
 function pedirNombresOSM(s) {
   return pedirJ(`https://photon.komoot.io/reverse?lon=${s.lon}&lat=${s.lat}&limit=8`, null, 15000).then((j) => (j.features || []).map((f) => {
@@ -227,7 +233,7 @@ function pedirNombresOSM(s) {
     const dentro = !!caja && caja.length === 4 && s.lon >= caja[0] && s.lon <= caja[2] && s.lat <= caja[1] && s.lat >= caja[3] && mapa.distance([caja[1], caja[0]], [caja[3], caja[2]]) < 400;
     const aldea = p.osm_key === "place" && /^(isolated_dwelling|farm)$/.test(p.osm_value || "");
     return { nombre: p.name || "", tipo: p.osm_key && p.osm_value ? valorOSM(p.osm_value, p.osm_key) : "", clase: aldea ? "edificio" : CLASE_DE_OSM[p.osm_key] || "otro",
-      municipio: p.city || p.town || p.village || "", comarca: p.county || "", dentro, d: dentro ? 0 : c.length === 2 ? mapa.distance([s.lat, s.lon], [c[1], c[0]]) : Infinity };
+      municipio: p.city || p.town || p.village || "", comarca: p.county || "", util: OSM_QUE_CUENTA.test(p.osm_key || "") || SERVICIO_QUE_CUENTA.test(p.osm_value || ""), dentro, d: dentro ? 0 : c.length === 2 ? mapa.distance([s.lat, s.lon], [c[1], c[0]]) : Infinity };
   }));
 }
 /* Nomenclátor Geográfico Básico de España (IGN): los nombres del mapa 1:25.000, de toda España. */
@@ -423,7 +429,7 @@ function pedirFichaCatastro(refcat) {
    `avisar(r, esperando)` se llama cada vez que llega algo, para ir pintándolo. */
 async function buscarHistoria(s, avisar) {
   const r = { v: VERSION_HISTORIA, t: Date.now(), fuentes: {}, municipio: s.municipio || "", comarca: "", toponimos: [], cerca: [], fotos: [], catastro: null, entidad: null, articulo: null,
-    probable: null, paraje: "", noticias: null, consulta: "" };
+    probable: null, paraje: "", dentroDe: [], noticias: null, consulta: "" };
   const esperando = new Set();
   const paso = (nombre, promesa, poner) => {
     esperando.add(nombre);
@@ -435,7 +441,7 @@ async function buscarHistoria(s, avisar) {
     paso("OpenStreetMap", pedirNombresOSM(s), (lista) => {
       const conMunicipio = lista.find((o) => o.municipio);
       if (conMunicipio) { if (!r.municipio) r.municipio = conMunicipio.municipio; r.comarca = conMunicipio.comarca; }
-      for (const o of lista) if (o.nombre && o.clase !== "camino" && o.d <= 500) sueltos.push({ nombre: o.nombre, tipo: o.tipo, clase: o.clase, dentro: o.dentro, d: o.d, fuente: "OpenStreetMap" });
+      for (const o of lista) if (o.nombre && o.util && o.clase !== "camino" && o.d <= 500) sueltos.push({ nombre: o.nombre, tipo: o.tipo, clase: o.clase, dentro: o.dentro, d: o.d, fuente: "OpenStreetMap" });
       return lista.length > 0;
     }),
     paso("IGN", pedirToponimosIGN(s), (lista) => { sueltos.push(...lista); return lista.length > 0; }),
@@ -444,7 +450,9 @@ async function buscarHistoria(s, avisar) {
     paso("Commons", pedirFotosConFecha(s), (lista) => { r.fotos = lista; return lista.length > 0; }),
     s.refcat ? paso("Catastro", pedirFichaCatastro(s.refcat), (c) => { r.catastro = c; return !!c; }) : null,
   ].filter(Boolean));
-  r.toponimos = juntarToponimos(sueltos);
+  const todos = juntarToponimos(sueltos), esZona = (t) => t.dentro && t.clase === "otro";
+  r.toponimos = todos.filter((t) => !esZona(t));
+  r.dentroDe = todos.filter((t) => esZona(t) && !/municipi|comarca|prov[ií]ncia|nucli|n[uú]cleo|capital|poblaci|entitat|entidad/i.test(t.tipo)).map((t) => t.nombre).slice(0, 3);
   if (!r.municipio && r.catastro) r.municipio = r.catastro.municipio;
   const paraje = r.toponimos.find((t) => t.clase === "paraje" && t.dentro) || r.toponimos.find((t) => t.clase === "paraje" && t.d <= 400);
   r.paraje = (paraje && paraje.nombre) || (r.catastro && r.catastro.paraje) || "";
@@ -471,9 +479,21 @@ async function buscarHistoria(s, avisar) {
     if (idioma) await paso("Wikipedia", pedirArticuloWiki(idioma, w[idioma]), (a) => { if (!a) return false; r.articulo = a; return true; });
   }
   // Las noticias, solo con nombre seguro y con el programa detrás (una página no puede preguntar a Google Noticias).
-  const nombre = s.nombre || (r.entidad && r.entidad.seguro ? r.entidad.nombre : "");
-  if (conServidor && nombre && r.municipio) await paso("Prensa", pedirNoticias(nombre, r.municipio), (j) => { r.noticias = j.noticias; r.consulta = j.consulta; return j.noticias.length > 0; });
+  const { nombre, de } = nombreParaBuscar(s, r);
+  if (conServidor && nombre && de === "suyo" && r.municipio) await paso("Prensa", pedirNoticias(nombre, r.municipio), (j) => { r.noticias = j.noticias; r.consulta = j.consulta; return j.noticias.length > 0; });
   return r;
+}
+/* Con qué nombre buscar fuera. De los nombres seguros (el suyo, el de su ficha y el de su artículo) se coge el más corto
+   que tenga al menos dos palabras: los nombres oficiales largos («Estación de Ferrocarril de X en la Línea Y») no los
+   escribe ningún periódico. Si no hay ninguno seguro, el de la ficha emparejada por cercanía, el del mapa o el del paraje. */
+function nombreParaBuscar(s, r) {
+  const ent = r && r.entidad, seguro = ent && ent.seguro ? ent : null;
+  const seguros = [s.nombre, seguro && seguro.nombre, seguro && r.articulo && r.articulo.titulo.replace(/\s*\([^)]*\)\s*$/, "")].filter((n) => n && palabrasDe(n).length >= 2);
+  const elegido = seguros.sort((a, b) => a.length - b.length)[0] || s.nombre || (seguro ? seguro.nombre : "");
+  if (elegido) return { nombre: elegido, de: "suyo" };
+  if (ent) return { nombre: ent.nombre, de: "cercania" };
+  if (r && r.probable) return { nombre: r.probable.nombre, de: "cercania" };
+  return r && r.paraje ? { nombre: r.paraje, de: "paraje" } : { nombre: "", de: "" };
 }
 const noticiaValida = (n) => n && typeof n.titulo === "string" && n.titulo && urlSegura(n.url);
 function pedirNoticias(nombre, municipio) {
@@ -484,7 +504,7 @@ function pedirNoticias(nombre, municipio) {
 /* ====================== 4. El bloque de la ficha ====================== */
 const enlaceFuera = (texto, url, clase) => el("a", { href: url, target: "_blank", rel: "noopener noreferrer", textContent: texto, className: clase || "" });
 const enLista = (v) => (v.length <= 1 ? v.join("") : `${v.slice(0, -1).join(", ")} y ${v[v.length - 1]}`);
-const metrosCortos = (d) => (d < 1 ? "encima" : `a ${Math.round(d)} m`);
+const metrosCortos = (d) => (d < 1 ? "aquí mismo" : `a ${Math.round(d)} m`);
 
 /* El resumen: frases hechas sobre lo que se sabe, cada una con su fuente. Sin datos, no hay frase. */
 function resumenDeHistoria(s, h, r, acabada) {
@@ -509,7 +529,7 @@ function resumenDeHistoria(s, h, r, acabada) {
   else if (h.tejado) frases.push(`En las fotos aéreas el tejado deja de verse entre ${h.tejado.desde} y ${h.tejado.hasta}.`);
   else if (seguro && (ent.uso.length || ent.conservacion.length)) frases.push(`Wikidata lo da por ${[ent.uso.length && `«${ent.uso.join(", ")}»`, ent.conservacion.length && `conservación: «${ent.conservacion.join(", ")}»`].filter(Boolean).join("; ")}, sin fecha.`);
   else if (acabada && s.abandonado) frases.push("Ninguna fuente consultada dice cuándo se abandonó: lo más fiable es comparar las fotos aéreas por años.");
-  if (s.estado || h.aire) frases.push(`Hoy: ${[s.estado && `consta como ${s.estado}${s.fuentes.length ? ` (${s.fuentes.map((f) => NOMBRE_DE_FUENTE[f] || f).join(", ")})` : ""}`, h.aire && `desde el aire, ${h.aire}`].filter(Boolean).join("; ")}.`);
+  if (s.estado || h.aire) frases.push(`Hoy: ${[s.estado && `consta ${s.estado}${s.fuentes.length ? ` (${s.fuentes.map((f) => NOMBRE_DE_FUENTE[f] || f).join(", ")})` : ""}`, h.aire && `desde el aire, ${h.aire}`].filter(Boolean).join("; ")}.`);
   p.append(frases.join(" "));
   return p.textContent.trim() ? p : null;
 }
@@ -571,6 +591,7 @@ function pintarHistoria() {
     if (ent.descripcion && !ent.tipos.length) filas.unshift(["Qué es", ent.descripcion]);
   }
   filas.push(...h.datos);
+  if (r && (r.dentroDe || []).length) filas.push(["Dentro de", r.dentroDe.join(", ")]);
   if (r && r.catastro) {
     filas.push(["Dirección en Catastro", r.catastro.direccion]);
     if (r.catastro.construcciones.length) filas.push(["Consta en Catastro", r.catastro.construcciones.join(", ")]);
@@ -631,12 +652,13 @@ function pintarHistoria() {
 
   // Seguir buscando fuera.
   if (r || s.nombre) {
-    const nombre = s.nombre || (ent ? ent.nombre : "") || (r && r.probable ? r.probable.nombre : "") || (r ? r.paraje : ""), municipio = municipioCorto((r && r.municipio) || s.municipio);
+    const { nombre, de } = nombreParaBuscar(s, r), municipio = municipioCorto((r && r.municipio) || s.municipio);
     if (nombre) {
       const fuera = el("div", { className: "enlaces" }, ...enlacesDeBusqueda(nombre, municipio, enLaComunitat(s)).map(([texto, url]) => enlaceFuera(texto, url)));
       if (municipio) fuera.append(enlaceFuera(`Historia de ${municipio}`, `https://es.wikipedia.org/w/index.php?search=${encodeURIComponent(municipio)}`));
       partes.push(titulo(`Seguir buscando «${nombre}»`), fuera);
-      if (!s.nombre && !seguro) partes.push(el("p", { className: "suave", textContent: "El sitio no tiene nombre propio: se busca por el del mapa más cercano, que puede no ser el suyo." }));
+      if (de === "cercania") partes.push(el("p", { className: "suave", textContent: "El sitio no tiene nombre propio: se busca por el del mapa más cercano, que puede no ser el suyo." }));
+      if (de === "paraje") partes.push(el("p", { className: "suave", textContent: "El sitio no tiene nombre: se busca por el paraje en el que está, que dará cosas de la zona, no del edificio." }));
       if (conServidor && acabada && !r.noticias && municipio) {
         const boton = el("button", { type: "button", className: "boton-historia secundario", textContent: `Buscar noticias de «${nombre}»` });
         boton.addEventListener("click", () => {

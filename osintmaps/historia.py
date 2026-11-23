@@ -114,6 +114,19 @@ def nombra(titular: str, nombre: str) -> bool:
     return len(presentes) >= math.ceil(0.6 * len(del_nombre)) and any(p in del_titular for p in propias)
 
 
+def nombre_de_busqueda(nombre: str, wikipedia: str | None = None) -> str:
+    """Con qué nombre preguntar. Si el sitio tiene artículo de Wikipedia y su título es más corto
+    que el nombre, se usa el título: los nombres oficiales largos («Estación de Ferrocarril de X en
+    la Línea Y») no los escribe ningún periódico. El título tiene que tener al menos dos palabras
+    y una propia, para no cambiar un nombre bueno por uno corriente."""
+    nombre = " ".join(str(nombre or "").split())
+    if wikipedia and ":" in wikipedia:
+        titulo = " ".join(wikipedia.split(":", 1)[1].split("(")[0].replace("_", " ").split())
+        if titulo and len(titulo) < len(nombre) and len(palabras(titulo)) >= 2 and es_distintivo(titulo):
+            return titulo
+    return nombre
+
+
 def municipio_corto(municipio: str | None) -> str:
     """«Sagunt / Sagunto» → «Sagunt»: los nombres dobles se buscan por el primero."""
     return str(municipio or "").split(" / ")[0].strip()
@@ -239,7 +252,7 @@ def repasar(sesion: requests.Session, candidatos: Iterable[Candidato], ruta: Pat
     hechos = fallos = 0
     bloqueado = False
     for c in tanda:
-        nombre = " ".join(c.nombre.split())
+        nombre = nombre_de_busqueda(c.nombre, c.wikipedia)
         municipio = c.municipio or (sitios.get(c.id) or {}).get("municipio") or municipio_de(sesion, c.lat, c.lon) or ""
         entrada = {"nombre": nombre, "municipio": municipio, "consulta": "", "consultado": hoy.isoformat(), "noticias": []}
         # Un nombre de palabras corrientes y sin municipio que lo acote no merece la pregunta.

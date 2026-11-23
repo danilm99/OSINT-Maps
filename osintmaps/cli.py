@@ -303,6 +303,7 @@ def _cargar_candidatos(carpeta: Path) -> list[Candidato]:
         lon, lat = f["geometry"]["coordinates"]
         candidatos.append(Candidato(id=p["id"], lat=lat, lon=lon, nombre=p.get("nombre"),
                                     superficie_m2=p.get("superficie_m2"), municipio=p.get("municipio"),
+                                    wikipedia=p.get("wikipedia"),
                                     puntuacion=p.get("puntuacion", 0)))
     return candidatos
 

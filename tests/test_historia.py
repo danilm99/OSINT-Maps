@@ -47,6 +47,16 @@ def test_un_titular_nombra_al_sitio(titular, nombre, lo_nombra):
     assert historia.nombra(titular, nombre) is lo_nombra
 
 
+def test_se_busca_por_el_titulo_del_articulo_si_es_mas_corto():
+    largo = "Estación de Ferrocarril de Ribarroja del Turia en la Línea Valencia -Liria"
+    assert historia.nombre_de_busqueda(largo, "es:Estación de Ribarroja del Turia (Línea Valencia-Liria)") == "Estación de Ribarroja del Turia"
+    assert historia.nombre_de_busqueda("Castell del Borró", "ca:Castell_de_Borró") == "Castell de Borró"
+    assert historia.nombre_de_busqueda("  Molí   de Pobres ", None) == "Molí de Pobres"
+    assert historia.nombre_de_busqueda("Castillo de Gestalgar", "es:Castillo de Gestalgar") == "Castillo de Gestalgar"      # igual de largo: el suyo
+    assert historia.nombre_de_busqueda("Antigua Estación de FEVE de Nazaret", "es:La Estación") == "Antigua Estación de FEVE de Nazaret"      # un título corriente no sirve
+    assert historia.nombre_de_busqueda("Poblado de Bibioj", "es:Bibioj") == "Poblado de Bibioj"                              # ni uno de una sola palabra
+
+
 def test_la_consulta_lleva_nombre_y_municipio_entre_comillas():
     assert historia.consulta_de("Castell del Borró", "Ròtova") == '"Castell del Borró" "Ròtova"'
     assert historia.consulta_de("  Molino   de\tAbajo ") == '"Molino de Abajo"'
@@ -148,6 +158,7 @@ def test_repasar_busca_por_orden_de_nota_y_se_puede_repetir(tmp_path):
 def test_repasar_se_detiene_y_guarda_cuando_google_bloquea(tmp_path):
     ruta, avisos = tmp_path / "historia.json", []
     candidatos = [sitio("b", "Castell del Borró", 70, "Ròtova"), sitio("d", "Molino Barrioso", 50, "Castielfabib"), sitio("f", "Mas del Frare", 40, "Chelva")]
+    candidatos[0].wikipedia = "ca:Castell de Borró"
     red = Sesion()
     hoy = date(2026, 11, 23)
     assert historia.repasar(red, candidatos, ruta, maximo=1, decir=avisos.append, dormir=lambda s: None, hoy=hoy) == {
@@ -157,7 +168,9 @@ def test_repasar_se_detiene_y_guarda_cuando_google_bloquea(tmp_path):
     assert r["bloqueado"] and r["consultados"] == 0 and r["pendientes"] == 2
     assert sum(1 for u in red.pedidas if u.startswith("https://news.google.com/")) == 2      # tras el primer «demasiadas peticiones» no insiste
     assert any("se para aquí" in a for a in avisos)
-    assert list(json.loads(ruta.read_text(encoding="utf-8"))["sitios"]) == ["b"]      # lo que ya estaba sigue estando
+    guardado = json.loads(ruta.read_text(encoding="utf-8"))["sitios"]
+    assert list(guardado) == ["b"]      # lo que ya estaba sigue estando
+    assert guardado["b"]["nombre"] == "Castell de Borró" and guardado["b"]["consulta"] == '"Castell de Borró" "Ròtova"'      # se buscó por el título del artículo, más corto
     # Un fichero estropeado no impide empezar de nuevo.
     ruta.write_text("{esto no es json", encoding="utf-8")
     red.codigo = 200

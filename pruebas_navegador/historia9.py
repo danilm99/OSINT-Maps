@@ -31,6 +31,7 @@ CERCA = {"results": {"bindings": [
     fila("Q111", "Castillo de Prueba", 0.03, "castillo", "bien de interés cultural", es="https://es.wikipedia.org/wiki/Castillo_de_Prueba", desc="castillo de Llíria"),
     fila("Q111", "Castillo de Prueba", 0.03, "fortificación", "bien de interés cultural", es="https://es.wikipedia.org/wiki/Castillo_de_Prueba"),
     fila("Q444", "Estació de Villar", 0.12, "estación de ferrocarril", ca="https://ca.wikipedia.org/wiki/Estaci%C3%B3_de_Villar"),
+    fila("Q888", "Fábrica de Harinas La Unión", 0.14, "fábrica"),
     fila("Q555", "Q555", 0.15, "edificio"),                                                    # sin nombre en ningún idioma: no se enseña
     fila("Q666", "Llíria", 0.2, "municipio de España", es="https://es.wikipedia.org/wiki/Liria"),      # el municipio no es «patrimonio cerca»
     fila("Q777", "Molino <b>raro</b>", 0.3, "molino", "Bien de Relevancia Local", ficha="http://sin-cifrar.example/ficha")]}}
@@ -38,8 +39,9 @@ def q_(i): return {"entity-type": "item", "id": i}
 def t_(t, p): return {"time": t, "precision": p}
 def snak(tipo, valor): return {"snaktype": "value", "datavalue": {"type": tipo, "value": valor}}
 def claim(tipo, valor, rank="normal", cal=None): return dict({"mainsnak": snak(tipo, valor), "rank": rank}, **({"qualifiers": cal} if cal else {}))
+ROTULOS = {"Q444": "Estación de Villar del Arzobispo", "Q888": "Harinera La Unión"}
 def entidad(q):
-    return {"id": q, "labels": {"es": {"value": "Castillo de Prueba"}, "ca": {"value": "Castell de Prova"}}, "descriptions": {"es": {"value": "castillo de Llíria"}},
+    return {"id": q, "labels": {"es": {"value": ROTULOS.get(q, "Castillo de Prueba")}, "ca": {"value": "Castell de Prova"}}, "descriptions": {"es": {"value": "castillo de Llíria"}},
             "claims": {"P31": [claim("wikibase-entityid", q_("Q23413"))], "P1435": [claim("wikibase-entityid", q_("Q23712"), cal={"P580": [snak("time", t_("+1985-06-25T00:00:00Z", 9))]})],
                        "P571": [claim("time", t_("+1300-00-00T00:00:00Z", 7))], "P3999": [claim("time", t_("+2005-03-31T00:00:00Z", 11))], "P576": [claim("time", t_("+1999-00-00T00:00:00Z", 9), rank="deprecated")],
                        "P5817": [claim("wikibase-entityid", q_("Q11639308"))], "P5816": [claim("wikibase-entityid", q_("Q56557159"))], "P149": [claim("wikibase-entityid", q_("Q176483"))],
@@ -47,7 +49,7 @@ def entidad(q):
                        "P2473": [claim("string", "46.11.147-001")], "P4868": [claim("string", "castillo-de-prueba")], "P127": [claim("wikibase-entityid", q_("Q999"))],
                        "P1101": [claim("quantity", {"amount": "+3", "unit": "1"})],
                        "P793": [claim("wikibase-entityid", q_("Q168983"), cal={"P585": [snak("time", t_("+1936-08-00T00:00:00Z", 10))]})]},
-            "sitelinks": {"eswiki": {"title": "Castillo de Prueba"}, "cawiki": {"title": "Castell de Prova"}, "commonswiki": {"title": "Category:Castillo de Prueba"}}}
+            "sitelinks": {"eswiki": {"title": ROTULOS.get(q, "Castillo de Prueba") + (" (edificio)" if q in ROTULOS else "")}, "cawiki": {"title": "Castell de Prova"}, "commonswiki": {"title": "Category:Castillo de Prueba"}}}
 NOMBRES_WD = {"Q23413": "castillo", "Q23712": "bien de interés cultural", "Q11639308": "abandonado", "Q56557159": "ruinas", "Q176483": "gótico", "Q168983": "incendio", "Q999": "Fulano de Tal"}
 ARTICULO = ("El castillo de Prueba es una fortaleza de origen andalusí situada en un cerro sobre Llíria. " + "Fue reformado tras la conquista y perdió su función militar en el siglo XVIII. " * 9
             + "Esta frase ya no cabe en el recorte.")
@@ -55,6 +57,10 @@ def gml(lat, lon):
     return f'''<?xml version="1.0" encoding="UTF-8"?><wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0" xmlns:gml="http://www.opengis.net/gml/3.2" xmlns:gn="http://inspire.ec.europa.eu/schemas/gn/4.0" xmlns:gmd="http://www.isotc211.org/2005/gmd">
 <wfs:member><gn:NamedPlace><gn:geometry><gml:MultiSurface><gml:surfaceMember><gml:Polygon><gml:exterior><gml:LinearRing><gml:posList>{lat-0.002} {lon-0.002} {lat-0.002} {lon+0.002} {lat+0.002} {lon+0.002} {lat+0.002} {lon-0.002} {lat-0.002} {lon-0.002}</gml:posList></gml:LinearRing></gml:exterior></gml:Polygon></gml:surfaceMember></gml:MultiSurface></gn:geometry>
 <gn:localType><gmd:LocalisedCharacterString>Partida</gmd:LocalisedCharacterString></gn:localType><gn:name><gn:GeographicalName><gn:spelling><gn:SpellingOfName><gn:text>el Brucar</gn:text></gn:SpellingOfName></gn:spelling></gn:GeographicalName></gn:name></gn:NamedPlace></wfs:member>
+<wfs:member><gn:NamedPlace><gn:geometry><gml:MultiSurface><gml:surfaceMember><gml:Polygon><gml:exterior><gml:LinearRing><gml:posList>{lat-0.02} {lon-0.02} {lat-0.02} {lon+0.02} {lat+0.02} {lon+0.02} {lat+0.02} {lon-0.02} {lat-0.02} {lon-0.02}</gml:posList></gml:LinearRing></gml:exterior></gml:Polygon></gml:surfaceMember></gml:MultiSurface></gn:geometry>
+<gn:localType><gmd:LocalisedCharacterString>Espai natural protegit</gmd:LocalisedCharacterString></gn:localType><gn:name><gn:GeographicalName><gn:spelling><gn:SpellingOfName><gn:text>Parc Natural de Prova</gn:text></gn:SpellingOfName></gn:spelling></gn:GeographicalName></gn:name></gn:NamedPlace></wfs:member>
+<wfs:member><gn:NamedPlace><gn:geometry><gml:MultiSurface><gml:surfaceMember><gml:Polygon><gml:exterior><gml:LinearRing><gml:posList>{lat-0.05} {lon-0.05} {lat-0.05} {lon+0.05} {lat+0.05} {lon+0.05} {lat+0.05} {lon-0.05} {lat-0.05} {lon-0.05}</gml:posList></gml:LinearRing></gml:exterior></gml:Polygon></gml:surfaceMember></gml:MultiSurface></gn:geometry>
+<gn:localType><gmd:LocalisedCharacterString>Capital de municipi</gmd:LocalisedCharacterString></gn:localType><gn:name><gn:GeographicalName><gn:spelling><gn:SpellingOfName><gn:text>Llíria</gn:text></gn:SpellingOfName></gn:spelling></gn:GeographicalName></gn:name></gn:NamedPlace></wfs:member>
 <wfs:member><gn:NamedPlace><gn:geometry><gml:MultiCurve><gml:curveMember><gml:LineString><gml:posList>{lat+0.0005} {lon-0.003} {lat+0.0005} {lon+0.003}</gml:posList></gml:LineString></gml:curveMember></gml:MultiCurve></gn:geometry>
 <gn:localType><gmd:LocalisedCharacterString>Camí, senda, altres carreteres</gmd:LocalisedCharacterString></gn:localType><gn:name><gn:GeographicalName><gn:spelling><gn:SpellingOfName><gn:text>Camí del Molí</gn:text></gn:SpellingOfName></gn:spelling></gn:GeographicalName></gn:name></gn:NamedPlace></wfs:member>
 <wfs:member><gn:NamedPlace><gn:geometry><gml:Point><gml:pos>{lat+0.0009} {lon}</gml:pos></gml:Point></gn:geometry>
@@ -104,7 +110,9 @@ def ruta(route):
         lat, lon = float(q["lat"]), float(q["lon"])
         return js({"features": [
             {"geometry": geo(lon + 0.001, lat), "properties": {"osm_type": "W", "osm_id": 1, "osm_key": "highway", "osm_value": "track", "name": "Camino de los Baños", "city": "Llíria / Liria", "county": "el Camp de Túria"}},
-            {"geometry": geo(lon, lat + 0.0027), "properties": {"osm_type": "N", "osm_id": 2, "osm_key": "place", "osm_value": "locality", "name": "Los Centenares", "city": "Llíria / Liria", "county": "el Camp de Túria"}}]})
+            {"geometry": geo(lon, lat + 0.0027), "properties": {"osm_type": "N", "osm_id": 2, "osm_key": "place", "osm_value": "locality", "name": "Los Centenares", "city": "Llíria / Liria", "county": "el Camp de Túria"}},
+            {"geometry": geo(lon + 0.0001, lat), "properties": {"osm_type": "N", "osm_id": 3, "osm_key": "amenity", "osm_value": "bar", "name": "Bar Paco", "city": "Llíria / Liria"}},
+            {"geometry": geo(lon, lat + 0.0004), "properties": {"osm_type": "N", "osm_id": 4, "osm_key": "amenity", "osm_value": "place_of_worship", "name": "Ermita de Prueba", "city": "Llíria / Liria"}}]})
     if "Consulta_DNPRC" in u:
         cuenta("catastro")
         return js({"consulta_dnprcResult": {"bico": {"bi": {"dt": {"nm": "LLIRIA", "locs": {"lors": {"lorus": {"npa": "PLA COLOM"}}}}, "ldt": "Polígono 39 Parcela 133 PLA COLOM. LLIRIA (VALENCIA)", "debi": {"luso": "Industrial", "sfc": "850", "ant": "1920"}},
@@ -132,8 +140,8 @@ with sync_playwright() as p:
         # --- 1. Antes de buscar: lo que ya está en los datos, sin tocar la red
         abrir(CON_FICHA)
         t = texto()
-        comprobar(nombre, "el bloque está en la ficha, entre las notas y lo visto desde el aire", pg.evaluate("(() => { const h = document.querySelector('#ficha .historia'); return !!h && h.previousElementSibling.id === 'nota-personal' && h.querySelector('h3').textContent === 'Historia'; })()"))
-        comprobar(nombre, f"resumen con lo que consta: {t[8:150]!r}", "Catastro fecha la construcción en 1890." in t and "Hoy: consta como abandonado (Catastro, OpenStreetMap, Wikidata)" in t)
+        comprobar(nombre, "el bloque está en la ficha, detrás de lo visto desde el aire", pg.evaluate("(() => { const h = document.querySelector('#ficha .historia'); return !!h && h.previousElementSibling.classList.contains('vision') && h.querySelector('h3').textContent === 'Historia'; })()"))
+        comprobar(nombre, f"resumen con lo que consta: {t[8:150]!r}", "Catastro fecha la construcción en 1890." in t and "Hoy: consta como abandonado (Catastro, OpenStreetMap, Wikidata)." in t)
         comprobar(nombre, "la Lista Roja de al lado entra en el resumen", "Hispania Nostra tiene a " in t and "«Torre de Prueba» en su Lista Roja (en riesgo de perderse)" in t)
         comprobar(nombre, "la fecha de Catastro, con su aviso", pg.evaluate("[...document.querySelectorAll('#ficha .historia dl.cronologia dt')].map((d) => d.textContent + '|' + d.nextElementSibling.textContent).join('#')") == "1890|ConstrucciónCatastro: en edificios viejos suele ser un año aproximado")
         comprobar(nombre, "qué fue, por las etiquetas de OpenStreetMap", "Qué fue" in t and "industrial" in t)
@@ -157,7 +165,7 @@ with sync_playwright() as p:
         datos_h = dict(pg.evaluate("[...document.querySelectorAll('#ficha .historia dl:not(.cronologia) dt')].map((d) => [d.textContent, d.nextElementSibling.textContent])"))
         comprobar(nombre, f"lo que consta: {list(datos_h)}", datos_h.get("Qué es") == "castillo" and datos_h.get("Estado de uso") == "abandonado" and datos_h.get("Conservación") == "ruinas" and datos_h.get("Estilo") == "gótico"
                   and datos_h.get("Plantas") == "3" and datos_h.get("Código en el inventario valenciano") == "46.11.147-001" and datos_h.get("Dirección en Catastro") == "Polígono 39 Parcela 133 PLA COLOM. LLIRIA (VALENCIA)"
-                  and datos_h.get("Consta en Catastro") == "industria no fabril (15.400 m²), vivienda unifamiliar (90 m²)")
+                  and datos_h.get("Consta en Catastro") == "industria no fabril (15.400 m²), vivienda unifamiliar (90 m²)" and datos_h.get("Dentro de") == "Parc Natural de Prova")
         comprobar(nombre, "nada sobre propietarios, aunque Wikidata lo traiga", "Fulano" not in t and "Propiedad" not in t)
         cita = pg.evaluate("document.querySelector('#ficha .historia .cita').textContent")
         comprobar(nombre, f"el arranque del artículo, recortado en una frase entera ({len(cita)} letras)", cita.startswith("El castillo de Prueba es una fortaleza") and "ya no cabe" not in cita and "siglo XVIII.Wikipedia en castellano. Seguir leyendo" in cita and len(cita) < 540)
@@ -170,7 +178,8 @@ with sync_playwright() as p:
         fotos = pg.evaluate("[...document.querySelectorAll('#ficha .historia .fotos.fechadas a')].map((a) => a.querySelector('span').textContent + '|' + a.href)")
         comprobar(nombre, f"fotos por año, las sin fecha al final y fuera lo que no es foto: {fotos}", fotos == ["1979|https://commons.wikimedia.org/wiki/File:Foto_3.jpg", "2022|https://commons.wikimedia.org/wiki/File:Foto_1.jpg", "sin fecha|https://commons.wikimedia.org/wiki/File:Foto_2.jpg"])
         alrededor = pg.evaluate("[...document.querySelectorAll('#ficha .historia .cerca li')].map((li) => li.textContent)")
-        comprobar(nombre, f"alrededor: {alrededor}", alrededor[:3] == ["el Brucar partida, aquí mismo, ICV", "Casillas de Marín edificación, a 27 m, IGN, ICV", "Corral de Dalt corral, a 99 m, ICV"]
+        comprobar(nombre, f"alrededor: {alrededor}", alrededor[:4] == ["el Brucar partida, aquí mismo, ICV", "Casillas de Marín edificación, a 27 m, IGN, ICV", "Ermita de Prueba lugar de culto, a 44 m, OpenStreetMap", "Corral de Dalt corral, a 99 m, ICV"]
+                  and not any("Bar Paco" in c or "Parc Natural" in c for c in alrededor)
                   and "Los Centenares paraje, a 300 m, OpenStreetMap, IGN" in alrededor and not any("Camí" in c or "Camino" in c for c in alrededor)
                   and "Retablo cerámico de San Roque retablo cerámico, Bien de Relevancia Local, a 10 m" in alrededor and "Estació de Villar estación de ferrocarril, a 120 m" in alrededor
                   and not any("Q555" in c or c.startswith("Llíria") for c in alrededor))
@@ -239,7 +248,8 @@ with sync_playwright() as p:
         antes = pedidas()["noticias"]
         otro2 = sitio_de(lambda p: p.get("nombre") == "Antigua fábrica de harinas")["properties"]["id"]
         abrir(otro2); buscar()
-        comprobar(nombre, "sin programa no se llama a /vivo/noticias ni se ofrece el botón", pedidas()["noticias"] == antes and pg.locator("#ficha .historia .boton-historia.secundario").count() == 0 and "Seguir buscando «Antigua fábrica de harinas»" in texto())
+        comprobar(nombre, "sin programa no se llama a /vivo/noticias ni se ofrece el botón", pedidas()["noticias"] == antes and pg.locator("#ficha .historia .boton-historia.secundario").count() == 0)
+        comprobar(nombre, "se busca por el nombre seguro más corto: aquí, el de su ficha, emparejada por el nombre", "ids=Q888&" in vistos_h["entidad-ultima"] and "Seguir buscando «Harinera La Unión»" in texto() and "Antigua fábrica de harinas, castillo, en Cheste." in texto())
         pg.evaluate("conServidor = true; 0")
 
         # --- 8. Cualquier punto del mapa y los elementos de otras capas
