@@ -198,7 +198,54 @@ if (/^https?:$/.test(location.protocol)) {
   .marcas { display: flex; gap: 6px; margin-top: 12px; }
   .marcas button { flex: 1; border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 8px 4px; }
   .marcas button[aria-pressed=true] { background: var(--tinta); border-color: var(--tinta); color: var(--blanco); }
+
+  /* Lo que un programa ha visto en la foto aérea (vision.js). La leyenda va siempre sobre fondo
+     oscuro, como la foto: así los colores de las líneas se ven igual que en el mapa. */
+  .vision .veredicto { font: 600 20px/1.15 "Barlow Condensed", sans-serif; margin: 0 0 8px; }
+  .vision .sub-vision { margin: 10px 0 5px; font-size: 14px; color: var(--tinta-suave); }
+  .leyenda-vision { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 5px; }
+  .leyenda-vision li { display: flex; align-items: center; gap: 7px; padding: 3px 9px 3px 7px; border-radius: 4px;
+                     background: #17242e; border: 1px solid rgba(255,255,255,.16); color: #fff; font-size: 13px; }
+  .leyenda-vision svg { width: 30px; height: 8px; flex: none; }
+  #ver-vision { margin-top: 8px; border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 6px 12px; width: 100%; }
+  #ver-vision[aria-pressed=true] { background: var(--tinta); border-color: var(--tinta); color: var(--blanco); }
+  .fiar-vision { margin-top: 8px; font-size: 13px; color: var(--tinta-suave); }
+  .fiar-vision summary { cursor: pointer; }
+  .fiar-vision p { margin: 6px 0 0; }
+  .fiar-vision ul { margin: 4px 0 0; padding-left: 18px; }
   #nota-personal { width: 100%; min-height: 58px; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--linea); border-radius: 6px; background: var(--blanco); resize: vertical; }
+
+  /* La historia del sitio (historia.js). Las fechas van como las cotas de un plano: el año a la
+     izquierda, en la condensada de los rótulos, y al lado el hecho con su fuente en pequeño. */
+  .historia .resumen { margin: 0; font-size: 15px; line-height: 1.45; }
+  .historia .resumen b { font-weight: 600; }
+  .historia .suave { margin: 6px 0 0; font-size: 13px; line-height: 1.4; color: var(--tinta-suave); }
+  .historia .resumen.suave { margin: 0; font-size: 14px; }
+  .historia h4 { margin: 14px 0 5px; font-size: 13px; font-weight: 600; color: var(--tinta-suave); }
+  .historia .cita { margin: 8px 0 0; padding: 1px 0 1px 10px; border-left: 3px solid var(--linea); font-size: 14px; line-height: 1.45; }
+  .historia .cita small, .historia .noticias small { display: block; margin-top: 3px; font-size: 13px; color: var(--tinta-suave); }
+  .historia a { color: var(--tinta); }
+  .historia dl.cronologia { gap: 6px 12px; align-items: baseline; }
+  .historia dl.cronologia dt { font: 600 17px/1.2 "Barlow Condensed", sans-serif; color: var(--tinta); white-space: nowrap; }
+  .historia dl.cronologia small { display: block; color: var(--tinta-suave); font-size: 13px; }
+  .historia .sueltas small { color: var(--tinta-suave); font-size: 13px; }
+  .historia .sueltas { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.4; }
+  .historia .sueltas li + li { margin-top: 4px; }
+  .historia .sueltas b { font-weight: 500; }
+  .historia .noticias { list-style: none; margin: 0; padding: 0; font-size: 14px; line-height: 1.35; }
+  .historia .noticias li { padding: 7px 0; border-top: 1px solid var(--linea); }
+  .historia .noticias li:first-child { border-top: 0; padding-top: 0; }
+  .historia .noticias a { font-weight: 500; text-decoration: none; }
+  .historia .noticias a:hover { text-decoration: underline; }
+  .historia .noticias .floja a { font-weight: 400; color: var(--tinta-suave); }
+  .fotos.fechadas a { position: relative; display: block; }
+  .fotos.fechadas span { position: absolute; inset: auto 0 0 0; border-radius: 0 0 4px 4px; color: #fff; background: rgba(23,36,46,.78);
+                         font: 600 13px/1.5 "Barlow Condensed", sans-serif; text-align: center; }
+  .boton-historia { display: block; width: 100%; margin-top: 10px; padding: 8px 12px; border: 1px solid var(--tinta); border-radius: 6px; background: var(--tinta); color: var(--blanco); font-weight: 600; }
+  .boton-historia.secundario { background: var(--blanco); color: var(--tinta); border-color: var(--linea); font-weight: 400; }
+  .boton-historia:disabled { opacity: .6; cursor: default; }
+  .historia .como-enlace { border: 0; padding: 0; background: none; color: var(--tinta); text-decoration: underline; font: inherit; cursor: pointer; }
+  .ajuste-historia { display: flex; align-items: center; gap: 7px; margin-top: 10px; font-size: 13px; color: var(--tinta-suave); }
 
   #pie { padding: 12px 16px 16px; border-top: 1px solid var(--linea); font-size: 12.5px; color: var(--tinta-suave); display: flex; gap: 6px 12px; flex-wrap: wrap; }
   #pie button, #pie label { border: 0; background: none; padding: 0; text-decoration: underline; cursor: pointer; color: inherit; font-size: inherit; }
@@ -679,6 +726,16 @@ if (/^https?:$/.test(location.protocol)) {
         <option value="superficie">Superficie</option>
         <option value="cercania">Cercanía a mí</option>
         <option value="vista">Cercanía al centro del mapa</option>
+      </select>
+    </div>
+    <div class="fila" id="fila-vision" hidden>
+      <label for="f-vision">Desde el aire</label>
+      <select id="f-vision">
+        <option value="">Todo</option>
+        <option value="no-solar">Ocultar lo que ya no está en pie</option>
+        <option value="ruina">Solo ruinas en pie</option>
+        <option value="tejado">Solo con cubierta</option>
+        <option value="solar">Solo lo que ya no está en pie</option>
       </select>
     </div>
     <label class="casilla"><input id="f-multi" type="checkbox"> Solo confirmados por varias fuentes</label>
@@ -1189,14 +1246,28 @@ const SERIE_CIUDAD = [[2018, 21], [2012, 19], [2010, 19], [2008, 19], [2007, 19]
   .map(([anio, nativo, plano]) => ({ nombre: `ciudad-${anio}`, anio, nativo, rotulo: plano ? `Plano de ${anio}` : String(anio),
     url: `https://geoportal.valencia.es/server/rest/services/FotoAerea/FotoAerea_${anio}/MapServer/tile/{z}/{y}/{x}` }));
 const deLaCiudad = (nombre) => SERIE_CIUDAD.find((v) => v.nombre === nombre);
-/* La capa de una foto antigua (un vuelo nacional o una de las de la ciudad), para el mapa o para el visor. */
+/* La Comunitat Valenciana se fotografía entera cada año desde 2017 (ICV, 25 cm): la serie más tupida
+   para ver cómo cambia un sitio. El rectángulo es el que la contiene. */
+const COMUNITAT = { s: 37.84, o: -1.54, n: 40.8, e: 0.52 };
+const SERIE_ICV = [2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017].map((anio) => ({ nombre: `icv-${anio}`, anio, rotulo: String(anio),
+  url: `https://terramapas.icv.gva.es/0202_${anio}CVAL0025`, capa: `${anio}CVAL0025_RGB` }));
+const delICV = (nombre) => SERIE_ICV.find((v) => v.nombre === nombre);
+/* Los vuelos que hay para un punto, del más nuevo al más viejo. Dentro de la Comunitat, los anuales
+   del ICV ocupan el sitio de los nacionales de esos mismos años (son las mismas fotos o mejores). */
+function vuelosDe(lat, lon) {
+  if (!enCaja(COMUNITAT, lat, lon)) return vuelos;
+  const anuales = new Set(SERIE_ICV.map((v) => v.anio));
+  return [...SERIE_ICV, ...vuelos.filter((v) => !anuales.has(v.anio))].sort((x, y) => y.anio - x.anio);
+}
+/* La capa de una foto antigua (un vuelo nacional, uno del ICV o una de las de la ciudad), para el mapa o para el visor. */
 function capaAntigua(nombre, opciones) {
-  const c = deLaCiudad(nombre);
+  const c = deLaCiudad(nombre), a = delICV(nombre);
+  if (a) return wmsFoto(a.url, a.capa, Object.assign({ attribution: "ICV CC BY 4.0", bounds: [[COMUNITAT.s, COMUNITAT.o], [COMUNITAT.n, COMUNITAT.e]] }, opciones));
   return c ? teselasFoto(c.url, c.nativo, Object.assign({ attribution: "Ajuntament de València", bounds: [[VALENCIA_CIUDAD.s, VALENCIA_CIUDAD.o], [VALENCIA_CIUDAD.n, VALENCIA_CIUDAD.e]] }, opciones))
     : wmsFoto(WMS_HISTORICO, nombre, Object.assign({ attribution: "PNOA CC BY 4.0 scne.es" }, opciones));
 }
 function rotuloAntigua(nombre) {
-  const c = deLaCiudad(nombre), v = c || vuelo(nombre);
+  const c = deLaCiudad(nombre), v = c || delICV(nombre) || vuelo(nombre);
   return !v ? "" : c ? `${c.rotulo} (València)` : v.rotulo;
 }
 
@@ -1245,8 +1316,9 @@ function pintarVuelos() {
   const actual = $("capa-historica").value;
   $("capa-historica").replaceChildren(el("option", { value: "", textContent: "Ninguna" }),
     ...vuelos.map((v) => el("option", { value: v.nombre, textContent: v.rotulo })),
+    el("optgroup", { label: "Comunitat Valenciana, año a año (ICV)" }, ...SERIE_ICV.map((v) => el("option", { value: v.nombre, textContent: v.rotulo }))),
     el("optgroup", { label: "Solo la ciudad de València" }, ...SERIE_CIUDAD.map((v) => el("option", { value: v.nombre, textContent: v.rotulo }))));
-  $("capa-historica").value = vuelos.some((v) => v.nombre === actual) || deLaCiudad(actual) ? actual : "";
+  $("capa-historica").value = vuelos.some((v) => v.nombre === actual) || delICV(actual) || deLaCiudad(actual) ? actual : "";
 }
 pintarVuelos();
 /* La lista real de vuelos se pregunta al servicio del IGN; si no contesta, vale la de reserva. */
@@ -1342,9 +1414,11 @@ function cargar(geojson) {
   const limites = L.latLngBounds(candidatos.map((c) => [c.lat, c.lon]));
   // Si la dirección de la página traía una posición, se respeta. Si no, se recupera el
   // encuadre de la última vez si sigue cayendo sobre los datos.
+  // Sin animación: Leaflet la deja para el siguiente fotograma, y si entre tanto se abre una ficha
+  // (que encuadra el sitio), la animación llega después y devuelve el mapa a la vista general.
   if (vistaDeLaURL) vistaDeLaURL = null;
-  else if (Array.isArray(vista.centro) && limites.pad(0.5).contains(vista.centro)) mapa.setView(vista.centro, vista.zoom || 10);
-  else mapa.fitBounds(limites.pad(0.05));
+  else if (Array.isArray(vista.centro) && limites.pad(0.5).contains(vista.centro)) mapa.setView(vista.centro, vista.zoom || 10, { animate: false });
+  else mapa.fitBounds(limites.pad(0.05), { animate: false });
   filtrar();
 }
 
@@ -1367,6 +1441,7 @@ function pintarHuellas() {
     for (const c of visibles) { if (c !== seleccion && caja.contains([c.lat, c.lon])) { dibujar(c, false); if (++n >= 300) break; } }
   }
   if (seleccion) dibujar(seleccion, true);
+  if (typeof pintarVision === "function") pintarVision();      // y lo detectado alrededor del sitio abierto (vision.js)
 }
 $("capa-huellas").addEventListener("change", pintarHuellas);
 
@@ -1374,13 +1449,14 @@ function guardarVista() {
   const c = mapa.getCenter();
   guardarLocal("osintmaps.vista.v1", {
     centro: [c.lat, c.lng], zoom: mapa.getZoom(), nota: +$("f-nota").value, sup: $("f-sup").value, marca: $("f-marca").value,
-    orden: $("f-orden").value, multi: $("f-multi").checked, categorias: [...categoriasActivas],
+    orden: $("f-orden").value, multi: $("f-multi").checked, categorias: [...categoriasActivas], aire: $("f-vision").value,
   });
 }
 
 function filtrar() {
   const texto = sinAcentos($("buscar-texto").value.trim());
   const notaMin = +$("f-nota").value, supMin = +$("f-sup").value, soloMulti = $("f-multi").checked, marca = $("f-marca").value;
+  const aire = typeof pasaVision === "function" ? $("f-vision").value : "";      // lo visto en la foto aérea (vision.js)
   // Una búsqueda por texto mira todo el conjunto, no solo lo que hay en pantalla.
   const caja = $("f-vista").checked && !texto ? mapa.getBounds() : null;
   $("f-nota-valor").textContent = notaMin;
@@ -1396,6 +1472,7 @@ function filtrar() {
     if (marca === "pendientes" && m) return false;
     if (["favorito", "visitado", "descartado"].includes(marca) && m !== marca) return false;
     if (texto && !c.busca.includes(texto)) return false;
+    if (aire && !pasaVision(c, aire)) return false;
     return true;
   });
   visibles = caja ? pasan.filter((c) => caja.contains([c.lat, c.lon])) : pasan.slice();
@@ -1427,6 +1504,7 @@ function filtrar() {
   if (supMin) puestos.push(`más de ${miles(supMin)} m²`);
   if (marca !== "activos") puestos.push($("f-marca").selectedOptions[0].textContent.toLowerCase());
   if (soloMulti) puestos.push("varias fuentes");
+  if (aire) puestos.push($("f-vision").selectedOptions[0].textContent.toLowerCase());
   if (categoriasActivas.size) puestos.push(categoriasActivas.size === 1 ? "1 categoría" : `${categoriasActivas.size} categorías`);
   if ($("f-vista").checked) puestos.push("solo lo que se ve");
   $("resumen-filtros").textContent = puestos.join(", ");
@@ -1439,6 +1517,8 @@ function subtituloDe(c) {
   const p = c.p, trozos = [];
   if (c.km != null) trozos.push(c.km < 10 ? `${c.km.toFixed(1).replace(".", ",")} km` : `${Math.round(c.km)} km`);
   if (p.municipio) trozos.push(p.municipio);
+  const aire = typeof etiquetaVision === "function" ? etiquetaVision(c) : "";
+  if (aire) trozos.push(aire);
   if (p.nombre) trozos.push(NOMBRE_CATEGORIA[p.categoria] || p.categoria);
   if (p.superficie_m2) trozos.push(`${miles(p.superficie_m2)} m²`);
   if ((p.fuentes || []).length > 1) trozos.push(`${p.fuentes.length} fuentes`);
@@ -1489,13 +1569,13 @@ const ladoAereo = (c) => Math.min(900, Math.max(220, 4 * Math.sqrt(c.p.superfici
 function urlAerea(c, capa, px) {
   const lado = ladoAereo(c);
   const dLat = lado / 2 / 111320, dLon = lado / 2 / (111320 * Math.cos((c.lat * Math.PI) / 180));
-  const actual = capa === "actual";
+  const actual = capa === "actual", anual = delICV(capa);
   const q = new URLSearchParams({
-    SERVICE: "WMS", VERSION: "1.1.1", REQUEST: "GetMap", LAYERS: actual ? "OI.OrthoimageCoverage" : capa, STYLES: "",
+    SERVICE: "WMS", VERSION: "1.1.1", REQUEST: "GetMap", LAYERS: actual ? "OI.OrthoimageCoverage" : anual ? anual.capa : capa, STYLES: "",
     FORMAT: "image/jpeg", SRS: "EPSG:4326", WIDTH: px, HEIGHT: px,
     BBOX: [c.lon - dLon, c.lat - dLat, c.lon + dLon, c.lat + dLat].map((v) => v.toFixed(6)).join(","),
   });
-  return `${actual ? WMS_ACTUAL : WMS_HISTORICO}?${q}`;
+  return `${actual ? WMS_ACTUAL : anual ? anual.url : WMS_HISTORICO}?${q}`;
 }
 
 /* Una imagen lisa (toda blanca o toda negra) significa que ese vuelo no cubre la zona. */
@@ -1560,7 +1640,7 @@ function abrirFicha(c, mover) {
     comparar.textContent = v.nombre === "actual" ? "Elige un año para compararlo en el mapa" : `Comparar ${v.rotulo} con hoy en el mapa`;
   };
   comparar.addEventListener("click", () => { $("usar-cortina").checked = true; ponerHistorica(capaElegida); });
-  for (const v of [{ nombre: "actual", rotulo: "Hoy" }, ...vuelos]) {
+  for (const v of [{ nombre: "actual", rotulo: "Hoy" }, ...vuelosDe(c.lat, c.lon)]) {
     const mini = el("img", { alt: "", crossOrigin: "anonymous", referrerPolicy: "no-referrer" });
     const b = el("button", { type: "button", title: `Ortofoto de ${v.rotulo}` }, mini, el("span", { textContent: v.rotulo }));
     b.addEventListener("click", () => elegir(v, b));
@@ -1655,6 +1735,8 @@ function abrirFicha(c, mover) {
     el("h2", { textContent: tituloDe(c) }),
     el("div", { className: "lugar", textContent: [p.municipio, `nota ${Math.round(p.puntuacion || 0)} de 100`].filter(Boolean).join(", ") }),
     aereo, tira, comparar, botones, nota,
+    typeof bloqueVision === "function" ? bloqueVision(c) : null,       // lo que un programa ha visto en la foto (vision.js)
+    typeof bloqueHistoria === "function" ? bloqueHistoria(sujetoDeSitio(c)) : null,       // lo que se sabe de su pasado (historia.js)
     bloque("Comprobar en otras fuentes", enlaces),
     fachada,
     bloque("Por qué tiene esta nota", desglose),
@@ -2421,6 +2503,7 @@ if (vista.sup) $("f-sup").value = vista.sup;
 if (vista.marca) $("f-marca").value = vista.marca;
 if (vista.orden && vista.orden !== "cercania") $("f-orden").value = vista.orden;
 $("f-multi").checked = !!vista.multi;
+if (vista.aire) $("f-vision").value = vista.aire;      // no hace nada hasta que llega lo visto desde el aire (vision.js)
 
 $("f-nota").addEventListener("input", filtrar);
 /* Al buscar, la lista de sitios se filtra al momento. El mapa no se mueve solo: lo que se busca
@@ -2432,7 +2515,7 @@ function encuadrarResultados() {
   mapa.fitBounds(L.latLngBounds(visibles.map((c) => [c.lat, c.lon])).pad(0.15), { maxZoom: 16 });
 }
 $("buscar-texto").addEventListener("input", filtrar);      // (el resto del buscador, lugares y direcciones, está en capas.js)
-for (const id of ["f-sup", "f-marca", "f-multi", "f-vista"]) $(id).addEventListener("change", filtrar);
+for (const id of ["f-sup", "f-marca", "f-multi", "f-vista", "f-vision"]) $(id).addEventListener("change", filtrar);
 $("f-orden").addEventListener("change", () => { if ($("f-orden").value === "cercania" && !miPosicion) localizar(); else filtrar(); });      // (localizar() ordena al tener la posición)
 $("ver-mas").addEventListener("click", pintarMas);
 /* Los dos botones del mapa llevan icono y texto. En el móvil, para no comerse el mapa, solo se
@@ -2590,6 +2673,8 @@ if (window.OSINT_DATOS) {
 <script src="capas.js"></script>
 <script src="herramientas.js"></script>
 <script src="rutas.js"></script>
+<script src="vision.js"></script>
+<script src="historia.js"></script>
 <script src="tresd.js"></script>
 </body>
 </html>

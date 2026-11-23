@@ -56,6 +56,7 @@ function estilo3D() {
         attribution: "Relieve: Mapzen, SRTM y otros" },
       calles: { type: "vector", url: "https://tiles.openfreemap.org/planet", attribution: "OpenFreeMap © OpenMapTiles, datos © OpenStreetMap" },
       puntos: { type: "geojson", data: vacio }, ruta: { type: "geojson", data: vacio }, elegido: { type: "geojson", data: vacio },
+      vision: { type: "geojson", data: vacio },          // caminos, muros y vallas detectados alrededor del sitio abierto (vision.js)
     },
     sky: { "sky-color": "#7fb6ea", "horizon-color": "#dfeaf2", "fog-color": "#dfeaf2", "sky-horizon-blend": 0.6, "horizon-fog-blend": 0.6, "fog-ground-blend": 0.35 },
     layers: [
@@ -66,6 +67,8 @@ function estilo3D() {
       { id: "edificios", type: "fill-extrusion", source: "calles", "source-layer": "building", minzoom: 13.5,
         paint: { "fill-extrusion-color": ["interpolate", ["linear"], ["coalesce", ["get", "render_height"], 6], 0, "#e9e4da", 30, "#d9dde2", 90, "#c2cbd6"],
           "fill-extrusion-height": ["coalesce", ["get", "render_height"], 6], "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0], "fill-extrusion-opacity": 0.86 } },
+      { id: "vision-borde", type: "line", source: "vision", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#10181d", "line-width": 5.5, "line-opacity": 0.6 } },
+      { id: "vision-linea", type: "line", source: "vision", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 3 } },
       { id: "ruta-borde", type: "line", source: "ruta", filter: ["==", ["geometry-type"], "LineString"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": 9, "line-opacity": 0.9 } },
       { id: "ruta-linea", type: "line", source: "ruta", filter: ["==", ["geometry-type"], "LineString"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 5 } },
       { id: "ruta-extremos", type: "circle", source: "ruta", filter: ["==", ["geometry-type"], "Point"], paint: { "circle-radius": 7, "circle-color": ["get", "color"], "circle-stroke-color": "#ffffff", "circle-stroke-width": 3 } },
@@ -123,12 +126,13 @@ function refrescar3D() {
   const firma = [enMapa.length, $("capa-sitios").checked, $("capa-marcadores").checked, $("capa-camaras").checked, camaras.size, Object.keys(marcadores).length,
     [...capasActivas].map((id) => `${id}${estado[id] ? estado[id].elementos.size : 0}`).join(","), busquedaCerca ? busquedaCerca.elementos.length : 0,
     miPosicion ? `${miPosicion.lat.toFixed(5)},${miPosicion.lon.toFixed(5)}` : "", typeof ruta === "object" ? `${ruta.turno}/${ruta.modo}/${op ? op.duracion : 0}` : "",
-    seleccion ? seleccion.id : "", elementoAbierto ? elementoAbierto.id : "", marcadorAbierto || ""].join("|");
+    seleccion ? seleccion.id : "", elementoAbierto ? elementoAbierto.id : "", marcadorAbierto || "", typeof versionVision === "number" ? versionVision : 0].join("|");
   if (firma === firma3d) return;
   firma3d = firma;
   mapa3d.getSource("puntos").setData(puntos3D());
   mapa3d.getSource("ruta").setData(ruta3D());
   mapa3d.getSource("elegido").setData(elegido3D());
+  if (typeof lineasVision3D === "function") mapa3d.getSource("vision").setData(lineasVision3D());
 }
 function abrirDesde3D(p) {
   if (p.clase === "sitio") { const c = candidatos.find((x) => x.id === p.id); if (c) abrirFicha(c, false); }
@@ -457,7 +461,7 @@ function capaMalla() {
 /* Encender o apagar la maqueta. Con ella puesta, el relieve va a su altura real (sin exagerar) para que case. */
 function ponerMalla(si) {
   if (!mapa3d) return;
-  if (si && !mapa3d.getLayer("malla")) { malla = capaMalla(); mapa3d.addLayer(malla, "ruta-borde"); }
+  if (si && !mapa3d.getLayer("malla")) { malla = capaMalla(); mapa3d.addLayer(malla, "vision-borde"); }
   if (!si && mapa3d.getLayer("malla")) { mapa3d.removeLayer("malla"); malla = null; }
   mapa3d.setTerrain({ source: "relieve", exaggeration: si ? 1 : 1.3 });
   const boton = $("boton-malla");

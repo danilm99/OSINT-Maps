@@ -473,6 +473,12 @@ const CAPAS = [
       ["Puja mínima", e.p.puja_minima], ["Depósito", e.p.deposito], ["Situación posesoria", e.p.situacion_posesoria], ["Visitable", e.p.visitable],
       ["Vivienda habitual", e.p.vivienda_habitual], ["Referencia catastral", e.p.refcat], ["Descripción", e.p.descripcion], ["Cargas", e.p.cargas],
       ["Situado por", { parcela: "la parcela catastral (exacto)", portal: "el portal (bastante exacto)", calle: "la calle (aproximado)" }[e.p.situado_por]], ["Subasta", e.p.subasta]] },
+  /* Sale de experimentos/vision/cambios.py, no de «osintmaps capas»: si el fichero no está, la capa ni se enseña. */
+  { id: "posibles", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Han perdido el tejado desde 2017 (fotos de cada año)", uno: "Ha perdido el tejado", color: "#ff7a00", zoom: 0, tipo: "fija", opcional: true,
+    color_de: (p) => ({ derribado: "#8d99ae", vegetacion: "#2f9e44" }[p.clase] || "#ff7a00"),
+    filas: (e) => [["Qué parece", e.p.parece], ["Por qué sale", e.p.motivos], ["Tejado a la vista, año a año", e.p.tejado], ["Vegetación dentro, año a año", e.p.serie], ["Dirección", e.p.direccion], ["Referencia catastral", e.p.refcat], ["Uso", e.p.uso],
+      ["Construido en", e.p.anio], ["Planta", e.p.superficie ? `${miles(e.p.superficie)} m²` : null], ["Catastro lo da por", "en uso"],
+      ["Cuánto fiarse", "Es una sospecha sacada de comparar fotos aéreas y la maqueta 3D, sin comprobar sobre el terreno. Puede ser una obra, un derribo o un contorno de Catastro mal puesto. Mira la foto por años antes de darla por buena."]] },
   { id: "abandonado", pesada: true, forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Abandonado o en ruinas (OSM, al momento)", color: "#c026d3", zoom: 13, tipo: "osm",
     ql: ['nwr["abandoned"="yes"]', 'nwr["disused"="yes"]', 'nwr["ruins"="yes"]', 'nwr["building"="ruins"]', 'nwr["historic"="ruins"]', 'nwr[~"^abandoned:"~"."]'],
     es: (t) => t.abandoned === "yes" || t.disused === "yes" || t.ruins === "yes" || t.building === "ruins" || t.historic === "ruins" || Object.keys(t).some((k) => k.startsWith("abandoned:")),
@@ -549,7 +555,7 @@ const CAPAS = [
 ];
 const CAPA = Object.fromEntries(CAPAS.map((c) => [c.id, c]));
 /* Nombre corto de cada capa, para la tira de capas encendidas y los avisos. */
-const CORTO = { camaras: "Cámaras", dgt: "DGT", camvlc: "Tráfico València", policia: "Policía", radares: "Radares", listaroja: "Lista Roja", subastas: "Subastas",
+const CORTO = { camaras: "Cámaras", dgt: "DGT", camvlc: "Tráfico València", policia: "Policía", radares: "Radares", listaroja: "Lista Roja", subastas: "Subastas", posibles: "Sin tejado",
   abandonado: "Abandonado", descampados: "Descampados", solares: "Solares", bic: "BIC y BRL", refugios: "Refugios", militar: "Militar", historico: "Histórico",
   tren: "Ferrocarril", tuneles: "Túneles y puentes", muros: "Muros", energia: "Energía", antenas: "Antenas", industria: "Industria", canteras: "Canteras",
   agua: "Agua", farolas: "Farolas", arte: "Arte urbano", miradores: "Miradores", wikipedia: "Wikipedia", commons: "Commons", panoramax: "Panoramax",
@@ -1108,6 +1114,7 @@ function pintarEstadoCapas() {
     // (un fallo de una capa que a este zoom ni se pide no se anuncia: ya dirá «acerca el mapa»)
     if (estaActiva(capa)) { if (est.cargando) cargando.push(corto(capa)); else if (est.error && (z >= capa.zoom || capa.tipo === "vivo")) fallos.push(corto(capa)); }
     if (!nota) continue;
+    if (capa.opcional) nota.parentElement.hidden = !est.conDatos;
     nota.parentElement.classList.toggle("lejos", est.sinDatos || (estaActiva(capa) && z < capa.zoom));
     nota.textContent = est.sinDatos ? "sin descargar" : !estaActiva(capa) ? "" : z < capa.zoom ? "acerca el mapa" : est.cargando ? "cargando" : est.error ? (est.mensaje || "sin respuesta")
       : est.incompleta ? `${est.elementos.size}, hay más: acerca` : String(est.elementos.size);
@@ -1157,7 +1164,7 @@ const GRUPOS = [...new Set(CAPAS.filter((c) => !c.oculta).map((c) => c.grupo))];
     for (const capa of CAPAS.filter((c) => c.grupo === grupo && !c.oculta)) {
       const casilla = el("input", { id: `dato-${capa.id}`, type: "checkbox", checked: capasActivas.has(capa.id) });
       casilla.addEventListener("change", () => conmutarCapa(capa, casilla.checked));
-      caja.append(el("label", { className: "casilla" }, casilla, simboloDe(capa), el("span", { textContent: capa.nombre }), el("small", { id: `estado-${capa.id}` })));
+      caja.append(el("label", { className: "casilla", hidden: !!capa.opcional }, casilla, simboloDe(capa), el("span", { textContent: capa.nombre }), el("small", { id: `estado-${capa.id}` })));
     }
     $("capas-datos").append(caja);
   });
@@ -1195,6 +1202,7 @@ function cargarCapaFija(capa, geojson) {
   });
   incorporar(capa, elementos);
   estado[capa.id].sinDatos = false;
+  estado[capa.id].conDatos = elementos.length > 0;
 }
 {
   const base = new URLSearchParams(location.search).get("datos") || "datos/";
@@ -1508,6 +1516,7 @@ function abrirElemento(e, mover) {
   };
   pintarDatos();
   partes.push(zonaDatos);
+  if (typeof bloqueHistoria === "function" && tieneHistoria(e)) partes.push(bloqueHistoria(sujetoDeElemento(e)));      // lo que se sabe de su pasado (historia.js)
   const zonaCrudo = el("div");
   const pintarCrudo = () => zonaCrudo.replaceChildren(...(e.etiquetas ? [el("div", { className: "bloque" }, el("details", {}, el("summary", { textContent: "Todas las etiquetas de OpenStreetMap" }), tablaDatos(Object.entries(e.etiquetas))))] : []));
   if (e.osm && !e.etiquetas) {
@@ -1701,7 +1710,7 @@ function abrirVisor(e, pestana) {
       mini.on("zoomend moveend", () => describir());
       const hoy = chip("Hoy", () => poner(""), opciones); hoy.dataset.fila = "anio"; hoy.setAttribute("aria-pressed", "true");
       // En València ciudad hay además fotos y planos municipales, más antiguos y con más detalle.
-      const series = [...vuelos, ...(enCaja(VALENCIA_CIUDAD, e.lat, e.lon) ? SERIE_CIUDAD : [])].sort((a, b) => b.anio - a.anio);
+      const series = [...vuelosDe(e.lat, e.lon), ...(enCaja(VALENCIA_CIUDAD, e.lat, e.lon) ? SERIE_CIUDAD : [])].sort((a, b) => b.anio - a.anio);
       for (const v of series) chip(deLaCiudad(v.nombre) && !/^Plano/.test(v.rotulo) ? `${v.rotulo} ciudad` : v.rotulo, () => poner(v.nombre), opciones).dataset.fila = "anio";
       for (const [texto, metros0] of [["Muy cerca", 40], ["Cerca", 120], ["Entorno", 400], ["Zona", 1200]]) chip(texto, () => mini.setView([e.lat, e.lon], zoomDe(metros0)), tira).dataset.fila = "lado";
       poner("");
