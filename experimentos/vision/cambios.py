@@ -645,6 +645,143 @@ def capa(args) -> None:
 
 
 # --------------------------------------------------------------------------
+# ¿Hay tejado? El detector entrenado, año a año
+# --------------------------------------------------------------------------
+
+LADO_TEJADO = 512                # píxeles de la ventana que se le enseña al detector
+PIXEL_TEJADO = 0.15              # metros por píxel con los que aprendió
+
+
+def ventana_de(e: dict) -> tuple[float, float, float]:
+    """Esquina de abajo a la izquierda y metros por píxel de la ventana de un edificio: centrada en él y, si es muy grande, más alejada."""
+    bx0, by0, bx1, by1 = e["geom"].bounds
+    pixel = max(PIXEL_TEJADO, 1.4 * max(bx1 - bx0, by1 - by0) / LADO_TEJADO)
+    return e["x"] - LADO_TEJADO * pixel / 2, e["y"] - LADO_TEJADO * pixel / 2, pixel
+
+
+def pedir_ventana(sesion: requests.Session, anio: int, capa: str, x0: float, y0: float, pixel: float, copia: Path) -> np.ndarray | None:
+    """Una ventana de 512 píxeles de la foto de un año («RGB» o «IRG»), de disco si ya se bajó. None si no hay foto o falla la red."""
+    if copia.exists():
+        img = cv2.imdecode(np.fromfile(copia, np.uint8), cv2.IMREAD_COLOR)
+        return None if img is None or img.std() < 4 else img[:, :, ::-1]
+    url, vuelo = servicio(anio)
+    lado = LADO_TEJADO * pixel
+    for intento in range(3):
+        try:
+            r = sesion.get(url, params={"SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetMap", "LAYERS": f"{vuelo}_{capa}", "STYLES": "", "CRS": "EPSG:25830",
+                                        "BBOX": f"{x0:.2f},{y0:.2f},{x0 + lado:.2f},{y0 + lado:.2f}", "WIDTH": LADO_TEJADO, "HEIGHT": LADO_TEJADO, "FORMAT": "image/jpeg"}, timeout=60)
+            if r.status_code == 200 and r.headers.get("Content-Type", "").startswith("image/"):
+                img = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_COLOR)
+                if img is not None:
+                    copia.parent.mkdir(parents=True, exist_ok=True)
+                    copia.write_bytes(r.content)                       # también las lisas: así no se vuelven a pedir
+                    return None if img.std() < 4 else img[:, :, ::-1]
+        except requests.RequestException:
+            pass
+        time.sleep(1 + 3 * intento)
+    return None
+
+
+def mascara_interior(geom, x0: float, y0: float, pixel: float) -> np.ndarray:
+    """El interior del contorno en la ventana (sin el metro de borde, que es donde más baila el tejado de un año a otro)."""
+    y1 = y0 + LADO_TEJADO * pixel
+    mascara = np.zeros((LADO_TEJADO, LADO_TEJADO), np.uint8)
+    for parte in shapely.get_parts(geom):
+        a_px = lambda coords: np.column_stack([(np.asarray(coords)[:, 0] - x0) / pixel, (y1 - np.asarray(coords)[:, 1]) / pixel]).round().astype(np.int32)   # noqa: E731
+        cv2.fillPoly(mascara, [a_px(parte.exterior.coords)], 1)
+        for hueco in parte.interiors:
+            cv2.fillPoly(mascara, [a_px(hueco.coords)], 0)
+    lejos = cv2.distanceTransform(mascara, cv2.DIST_L2, 3) * pixel
+    dentro = lejos > min(1.0, 0.3 * float(lejos.max()))
+    return dentro if dentro.sum() >= 50 else mascara > 0
+
+
+def elegir_para_tejados(args, universo: dict[str, dict]) -> list[str]:
+    """A quién se le mira el tejado: a los señalados, a los que Catastro da por malos y a una muestra de los demás, que sirve de vara de medir."""
+    base = Path(args.carpeta) / "cambios"
+    if args.refs:
+        return [r for r in args.refs.split(",") if r in universo]
+    elegidos = [s["ref"] for s in json.loads((base / f"todos-{args.etiqueta}.json").read_text(encoding="utf-8"))]
+    elegidos += [ref for ref, e in universo.items() if e["estado"] in ("ruin", "declined") and ref not in elegidos]
+    resto = sorted(ref for ref, e in universo.items() if e["estado"] == "functional" and ref not in set(elegidos))
+    azar = np.random.default_rng(1)
+    return elegidos + [resto[k] for k in azar.choice(len(resto), min(args.muestra, len(resto)), replace=False)]
+
+
+def tejados(args) -> None:
+    """Pasa el detector entrenado por la ventana de cada edificio en cada año y apunta qué parte de su contorno ve como tejado.
+
+    El detector aprendió con la foto de 2025. Las de otros años salen con otros colores, así que antes se igualan, canal a canal,
+    a la de 2025 (misma media y misma dispersión sobre los mismos sitios)."""
+    import torch
+    import segmentation_models_pytorch as smp
+    from detectar import cortes_de
+    from preparar import CLASES
+    no_dormir()
+    base = Path(args.carpeta) / "cambios"
+    universo = {e["ref"]: e for e in cargar_universo(args)}
+    refs = elegir_para_tejados(args, universo)
+    anios = [int(a) for a in args.anios.split(",")]
+    fotos = base / "ventanas"
+    sesion = requests.Session()
+    sesion.headers["User-Agent"] = AGENTE
+    sesion.mount("https://", requests.adapters.HTTPAdapter(pool_connections=args.hilos, pool_maxsize=args.hilos))
+    print(f"{len(refs)} edificios; {len(anios)} años; hasta {2 * len(refs) * len(anios)} fotos por bajar", flush=True)
+
+    def bajar(ref: str, anio: int):
+        x0, y0, pixel = ventana_de(universo[ref])
+        rgb = pedir_ventana(sesion, anio, "RGB", x0, y0, pixel, fotos / ref / f"{anio}_rgb.jpg")
+        irg = pedir_ventana(sesion, anio, "IRG", x0, y0, pixel, fotos / ref / f"{anio}_irg.jpg") if rgb is not None else None
+        return None if irg is None else np.dstack([rgb, irg[:, :, 0]])
+
+    t0 = time.time()
+    with ThreadPoolExecutor(args.hilos) as hilos:
+        cubos = dict(zip([(r, a) for r in refs for a in anios], hilos.map(lambda ra: bajar(*ra), [(r, a) for r in refs for a in anios])))
+    cubos = {k: v for k, v in cubos.items() if v is not None}
+    print(f"fotos listas: {len(cubos)} ventanas en {time.time() - t0:.0f} s", flush=True)
+
+    # Igualar los colores de cada año a los de 2025, con los sitios que tienen foto en los dos.
+    patron = max(anios)
+    ajuste = {}
+    for anio in anios:
+        comunes = [r for r in refs if (r, anio) in cubos and (r, patron) in cubos][:400]
+        if anio == patron or len(comunes) < 5:
+            ajuste[anio] = (np.ones(4, np.float32), np.zeros(4, np.float32))
+            continue
+        suyo = np.concatenate([cubos[(r, anio)][::4, ::4].reshape(-1, 4) for r in comunes]).astype(np.float32)
+        bueno = np.concatenate([cubos[(r, patron)][::4, ::4].reshape(-1, 4) for r in comunes]).astype(np.float32)
+        gana = bueno.std(0) / np.maximum(suyo.std(0), 1e-3)
+        ajuste[anio] = (gana, bueno.mean(0) - gana * suyo.mean(0))
+
+    guardado = torch.load(Path(args.carpeta) / "modelos" / f"{args.modelo}.pt", map_location="cpu", weights_only=False)
+    dispositivo = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
+    modelo = smp.Unet("resnet34", encoder_weights=None, in_channels=4, classes=len(CLASES))
+    modelo.load_state_dict(guardado["modelo"])
+    modelo.to(dispositivo).eval()
+    media, desv = np.array(guardado["media"], np.float32), np.array(guardado["desv"], np.float32)
+    corte = cortes_de(Path(args.carpeta), args.modelo)["edificio"]
+    canal = CLASES.index("edificio")
+    salida: dict[str, dict] = defaultdict(dict)
+    claves = sorted(cubos)
+    t0 = time.time()
+    with torch.no_grad(), torch.autocast("cuda", enabled=dispositivo.type == "cuda"):
+        for k in range(0, len(claves), 16):
+            lote = claves[k:k + 16]
+            x = np.stack([(np.clip(cubos[c].astype(np.float32) * ajuste[c[1]][0] + ajuste[c[1]][1], 0, 255) / 255 - media) / desv for c in lote])
+            prob = torch.sigmoid(modelo(torch.from_numpy(np.ascontiguousarray(x.transpose(0, 3, 1, 2))).to(dispositivo)))[:, canal].float().cpu().numpy()
+            for (ref, anio), p in zip(lote, prob):
+                x0, y0, pixel = ventana_de(universo[ref])
+                dentro = mascara_interior(universo[ref]["geom"], x0, y0, pixel)
+                salida[ref][str(anio)] = round(float((p[dentro] > corte).mean()), 3)
+    (base / f"tejados-{args.etiqueta}.json").write_text(json.dumps(salida, separators=(",", ":")), encoding="utf-8")
+    print(f"tejado mirado en {len(salida)} edificios ({len(claves)} ventanas) en {time.time() - t0:.0f} s con {dispositivo}", flush=True)
+    for ref in refs[: args.cuantos]:
+        if ref in salida:
+            print(f"  {ref} {universo[ref]['estado'] or '-':10s} " + " ".join(f"{salida[ref].get(str(a), float('nan')):4.2f}" for a in anios), flush=True)
+    print("FIN-TEJADOS", flush=True)
+
+
+# --------------------------------------------------------------------------
 # Hojas para mirar a ojo
 # --------------------------------------------------------------------------
 
@@ -708,7 +845,7 @@ def hojas(args) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Posibles abandonos comparando las fotos de varios años.")
-    ap.add_argument("paso_a_dar", choices=("medir", "puntuar", "hojas", "capa"))
+    ap.add_argument("paso_a_dar", choices=("medir", "puntuar", "tejados", "hojas", "capa"))
     ap.add_argument("--carpeta", default="cache/_vision"); ap.add_argument("--catastro", default="cache/catastro"); ap.add_argument("--datos", default="datos")
     ap.add_argument("--municipios", default="", help="códigos de Catastro separados por comas (vacío: toda la provincia)")
     ap.add_argument("--etiqueta", default="piloto", help="nombre de esta tanda: va en los ficheros que se escriben")
@@ -722,11 +859,14 @@ def main() -> None:
     ap.add_argument("--direcciones", type=int, default=0, help="pide a Catastro la dirección de los primeros N")
     ap.add_argument("--nota-minima", type=float, default=12.0, help="capa: nota a partir de la cual un posible entra en el mapa")
     ap.add_argument("--con-derribados", action="store_true", help="capa: incluir también los que la maqueta 3D da por derribados")
+    ap.add_argument("--modelo", default="lineas-v1", help="tejados: el detector entrenado que se usa")
+    ap.add_argument("--muestra", type=int, default=150, help="tejados: cuántos edificios corrientes mirar además, como referencia")
+    ap.add_argument("--cpu", action="store_true", help="tejados: sin tarjeta gráfica")
     ap.add_argument("--alturas", type=int, default=0, help="comprueba los primeros N con la maqueta 3D de 2025 (copas de árboles, derribados)")
     ap.add_argument("--cuantos", type=int, default=40); ap.add_argument("--desde", type=int, default=0); ap.add_argument("--filas", type=int, default=6)
     ap.add_argument("--lista", default="posibles", choices=("posibles", "todos")); ap.add_argument("--anios-hoja", default="2017,2019,2021,2023,2025"); ap.add_argument("--refs", default=""); ap.add_argument("--nombre", default="", help="nombre de las hojas")
     args = ap.parse_args()
-    {"medir": medir, "puntuar": puntuar, "hojas": hojas, "capa": capa}[args.paso_a_dar](args)
+    {"medir": medir, "puntuar": puntuar, "tejados": tejados, "hojas": hojas, "capa": capa}[args.paso_a_dar](args)
 
 
 if __name__ == "__main__":
