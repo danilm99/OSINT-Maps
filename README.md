@@ -455,23 +455,27 @@ La propia ficha enseña lo que acertó el detector al examinarlo, clase por clas
 Solo cubre la provincia de València (la foto y la maqueta son del ICV); los
 sitios de provincias vecinas se quedan sin este bloque.
 
-### Posibles abandonos: comparar las fotos de varios años (en pruebas)
+### Edificios que han perdido el tejado: comparar las fotos de varios años (en pruebas)
 
-Otro experimento (`experimentos/vision/cambios.py`) mira los edificios que
-Catastro da **por buenos** y compara cada uno consigo mismo en las fotos de
-2017 a 2025. Si le va entrando vegetación, o tiene dentro más de la que explica
-el arbolado de alrededor, lo apunta. El resultado es la capa **Posibles
-abandonos**, en *Abandono y patrimonio*, que solo aparece si el fichero
-`datos/capa-posibles.geojson` existe.
+Otro experimento (`experimentos/vision/cambios.py` y `tejado.py`) mira los
+edificios que Catastro da **por buenos** y compara cada uno consigo mismo en
+las fotos de 2017 a 2025. Un detector entrenado con todos los años dice quién
+tenía tejado y ha dejado de tenerlo, y la maqueta 3D de 2025 confirma si de
+verdad ya no está en pie. El resultado es la capa **Han perdido el tejado**, en
+*Abandono y patrimonio*, que solo aparece si existe
+`datos/capa-posibles.geojson`. Cada ficha dice entre qué dos años dejó de verse
+el tejado.
 
-Es una lista de sospechas y falla mucho: en las dos zonas de prueba (Godella y
-los alrededores de Bétera), de los que señala acierta más o menos uno de cada
-ocho. El resto son copas de árboles sobre tejados sanos, contornos de Catastro
-corridos, patios y obras. Sirve para saber dónde mirar la tira de fotos por
-años, no para dar nada por abandonado.
+En las dos zonas de prueba (Godella y los alrededores de Bétera) acierta casi
+siempre en que ahí ha cambiado algo, pero **casi todo lo que encuentra son
+derribos**: de once casos, diez lo eran y uno era una nave que perdió la
+cubierta y conserva los muros. Los derribados no van al mapa salvo que se pidan.
+Un edificio cerrado con el tejado entero no se distingue desde arriba de uno
+habitado, así que esto no encuentra abandonos recientes: encuentra lo que se ha
+caído o han tirado.
 
-Por eso `osintmaps publicar` **no la sube** salvo que se pida con
-`--con-posibles`: son casas que pueden estar habitadas.
+`osintmaps publicar` **no sube la capa** salvo que se pida con
+`--con-posibles`: son sospechas sin comprobar sobre el terreno.
 
 ### En el móvil, sin el ordenador
 
@@ -518,7 +522,7 @@ Todo queda en la carpeta `datos/`, que no se sube a git:
 | `capa-dgt.geojson` | Cámaras de tráfico de la DGT |
 | `capa-subastas.geojson` | Inmuebles en subasta de la provincia |
 | `revision.json`, `vision/` | Lo visto desde el aire en cada sitio y las líneas detectadas (los escribe `experimentos/vision/detectar.py`, no `buscar`) |
-| `capa-posibles.geojson` | Posibles abandonos por comparación de fotos de varios años (lo escribe `experimentos/vision/cambios.py`; no se publica salvo con `--con-posibles`) |
+| `capa-posibles.geojson` | Edificios que han perdido el tejado entre 2017 y 2025 (lo escribe `experimentos/vision/cambios.py`; no se publica salvo con `--con-posibles`) |
 | `marcas.json` | Tus marcas y notas sobre los sitios (lo escribe el mapa) |
 | `marcadores.json` | Tus marcadores propios (lo escribe el mapa) |
 | `mapa.html` | El mapa autónomo (lo escribe `osintmaps paquete`) |
@@ -574,9 +578,9 @@ funciones cortas que hay debajo, y vuelve a ejecutar `buscar`.
   experimento aparte que necesita tarjeta gráfica y solo cubre la provincia de
   València. Acierta a medias y no está validado con una muestra grande: la
   comprobación sigue siendo tuya, en la ficha.
-- Los «posibles abandonos» sacados de comparar fotos de varios años aciertan
-  más o menos uno de cada ocho en las zonas de prueba. No se ha pasado a toda
-  la provincia.
+- Comparar fotos de varios años encuentra, sobre todo, derribos: lo que ha
+  perdido el tejado. No distingue un edificio cerrado de uno habitado. Solo se
+  ha probado en dos municipios.
 - Catastro no cubre País Vasco ni Navarra; ahí solo funcionan OSM y Wikidata.
 - Wikidata se consulta por rectángulo, así que en una búsqueda por provincia
   pueden colarse sitios de provincias vecinas cerca del límite.
@@ -648,7 +652,7 @@ osintmaps/
 tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
 pruebas_navegador/  pruebas del visor en un navegador de verdad (ver su README)
 experimentos/vision/  el detector por imagen: preparar datos, entrenar, calibrar y pasar por los sitios;
-                      y cambios.py, el repaso por años en busca de posibles abandonos
+                      y cambios.py y tejado.py, el repaso por años en busca de lo que ha perdido el tejado
 ```
 
 ## Fuentes y licencias de los datos

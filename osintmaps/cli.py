@@ -63,7 +63,8 @@ def _caja_de_candidatos(candidatos: list[Candidato]):
 # Capas extra: cada una va a datos/capa-<nombre>.geojson y el visor la enseña si existe.
 CAPAS_EXTRA = ("listaroja", "dgt", "subastas")
 # Capas que no baja «osintmaps capas», sino que saca un programa aparte, y que pueden no estar.
-# «posibles» son sospechas sin comprobar (experimentos/vision/cambios.py): solo se publican si se pide.
+# «posibles» son edificios que parecen haber perdido el tejado (experimentos/vision/cambios.py): sospechas
+# sin comprobar, que solo se publican si se pide.
 CAPAS_OPCIONALES = ("posibles",)
 CAPA_VACIA = '{"type":"FeatureCollection","features":[]}'
 
@@ -930,14 +931,14 @@ def crear_parser() -> argparse.ArgumentParser:
     p.add_argument("--datos", default="datos", help="carpeta con los resultados (por defecto: datos)")
     p.add_argument("--sin-datos", action="store_true", help="solo el visor, sin ningún resultado")
     p.add_argument("--con-notas", action="store_true", help="incluye también tus marcas y tus marcadores")
-    p.add_argument("--con-posibles", action="store_true", help="incluye también la capa de posibles abandonos (sospechas sin comprobar)")
+    p.add_argument("--con-posibles", action="store_true", help="incluye también la capa de edificios que han perdido el tejado (sospechas sin comprobar)")
     p.set_defaults(func=cmd_sitio)
 
     p = sub.add_parser("publicar", help="publica la web en GitHub Pages (rama gh-pages del repositorio)")
     p.add_argument("--datos", default="datos", help="carpeta con los resultados (por defecto: datos)")
     p.add_argument("--sin-datos", action="store_true", help="solo el visor, sin ningún resultado")
     p.add_argument("--con-notas", action="store_true", help="incluye también tus marcas y tus marcadores")
-    p.add_argument("--con-posibles", action="store_true", help="incluye también la capa de posibles abandonos (sospechas sin comprobar)")
+    p.add_argument("--con-posibles", action="store_true", help="incluye también la capa de edificios que han perdido el tejado (sospechas sin comprobar)")
     p.add_argument("--repo", default=None, help="dirección del repositorio (por defecto, el «origin» de esta carpeta)")
     p.set_defaults(func=cmd_publicar)
 

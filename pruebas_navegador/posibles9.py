@@ -1,4 +1,4 @@
-"""El repaso por años en el visor: la capa opcional de posibles abandonos y los vuelos anuales del ICV
+"""El repaso por años en el visor: la capa opcional de edificios que han perdido el tejado y los vuelos anuales del ICV
 (2017 a 2024) en la tira de la ficha y en la comparación de fotos."""
 exec(open("maps9.py", encoding="utf-8").read())
 sitios = json.load(open(datos / "candidatos.geojson"))["features"]
@@ -31,12 +31,12 @@ with sync_playwright() as p:
         # --- con el fichero
         fichero.write_text(json.dumps(CAPA_POSIBLES), encoding="utf-8")
         pg.reload(); pg.wait_for_selector("#lista li"); pg.wait_for_timeout(3600)
-        comprobar(nombre, "con datos, aparece en «Abandono y patrimonio»", pg.evaluate("(() => { const f = document.getElementById('estado-posibles').parentElement; return !f.hidden && f.textContent.includes('Posibles abandonos (fotos de 2017 a 2025)') && f.closest('details').querySelector('summary').textContent.includes('Abandono y patrimonio'); })()"))
+        comprobar(nombre, "con datos, aparece en «Abandono y patrimonio»", pg.evaluate("(() => { const f = document.getElementById('estado-posibles').parentElement; return !f.hidden && f.textContent.includes('Han perdido el tejado desde 2017') && f.closest('details').querySelector('summary').textContent.includes('Abandono y patrimonio'); })()"))
         pg.evaluate("conmutarCapa(CAPA.posibles, true); 0"); pg.wait_for_timeout(400)
         comprobar(nombre, "encendida, con su único elemento", pg.evaluate("estado.posibles.elementos.size") == 1 and pg.evaluate("document.getElementById('estado-posibles').textContent") == "1")
         pg.evaluate("abrirElemento([...estado.posibles.elementos.values()][0], true); 0"); pg.wait_for_timeout(500)
         texto = pg.inner_text("#ficha-elemento")
-        comprobar(nombre, "la ficha lleva el sitio por título", pg.inner_text("#ficha-elemento h2") == "Av Almendros Los 18 Godella" and "Posible abandono" in texto)
+        comprobar(nombre, "la ficha lleva el sitio por título", pg.inner_text("#ficha-elemento h2") == "Av Almendros Los 18 Godella" and "Ha perdido el tejado" in texto)
         comprobar(nombre, "el porqué y la serie por años", "Le crece vegetación dentro: del 9 % en 2017-2019 al 50 % en 2023-2025." in texto and "2017: 4 %, 2018: 9 %, 2025: 50 %" in texto
                    and "Tejado a la vista, año a año" in texto and "2017: 92 %, 2018: 90 %, 2025: 12 %" in texto)
         comprobar(nombre, "dirección, referencia, uso, año y planta con miles", all(x in texto for x in ("AV ALMENDROS LOS 18 GODELLA (VALENCIA)", "0892613YJ2709S", "residencial", "1960", "15.700 m²")))

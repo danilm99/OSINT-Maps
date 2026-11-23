@@ -474,7 +474,7 @@ const CAPAS = [
       ["Vivienda habitual", e.p.vivienda_habitual], ["Referencia catastral", e.p.refcat], ["Descripción", e.p.descripcion], ["Cargas", e.p.cargas],
       ["Situado por", { parcela: "la parcela catastral (exacto)", portal: "el portal (bastante exacto)", calle: "la calle (aproximado)" }[e.p.situado_por]], ["Subasta", e.p.subasta]] },
   /* Sale de experimentos/vision/cambios.py, no de «osintmaps capas»: si el fichero no está, la capa ni se enseña. */
-  { id: "posibles", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Posibles abandonos (fotos de 2017 a 2025)", uno: "Posible abandono", color: "#ff7a00", zoom: 0, tipo: "fija", opcional: true,
+  { id: "posibles", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Han perdido el tejado desde 2017 (fotos de cada año)", uno: "Ha perdido el tejado", color: "#ff7a00", zoom: 0, tipo: "fija", opcional: true,
     color_de: (p) => ({ derribado: "#8d99ae", vegetacion: "#2f9e44" }[p.clase] || "#ff7a00"),
     filas: (e) => [["Qué parece", e.p.parece], ["Por qué sale", e.p.motivos], ["Tejado a la vista, año a año", e.p.tejado], ["Vegetación dentro, año a año", e.p.serie], ["Dirección", e.p.direccion], ["Referencia catastral", e.p.refcat], ["Uso", e.p.uso],
       ["Construido en", e.p.anio], ["Planta", e.p.superficie ? `${miles(e.p.superficie)} m²` : null], ["Catastro lo da por", "en uso"],
@@ -555,7 +555,7 @@ const CAPAS = [
 ];
 const CAPA = Object.fromEntries(CAPAS.map((c) => [c.id, c]));
 /* Nombre corto de cada capa, para la tira de capas encendidas y los avisos. */
-const CORTO = { camaras: "Cámaras", dgt: "DGT", camvlc: "Tráfico València", policia: "Policía", radares: "Radares", listaroja: "Lista Roja", subastas: "Subastas", posibles: "Posibles",
+const CORTO = { camaras: "Cámaras", dgt: "DGT", camvlc: "Tráfico València", policia: "Policía", radares: "Radares", listaroja: "Lista Roja", subastas: "Subastas", posibles: "Sin tejado",
   abandonado: "Abandonado", descampados: "Descampados", solares: "Solares", bic: "BIC y BRL", refugios: "Refugios", militar: "Militar", historico: "Histórico",
   tren: "Ferrocarril", tuneles: "Túneles y puentes", muros: "Muros", energia: "Energía", antenas: "Antenas", industria: "Industria", canteras: "Canteras",
   agua: "Agua", farolas: "Farolas", arte: "Arte urbano", miradores: "Miradores", wikipedia: "Wikipedia", commons: "Commons", panoramax: "Panoramax",
