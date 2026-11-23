@@ -548,10 +548,10 @@ def sospecha(r: dict[str, np.ndarray], tejado: dict) -> dict | None:
     hechos = {"tenia": round(tenia, 2), "queda": round(queda, 2), "crece": round(crece, 2), "veg_antes": round(antes[cual], 2), "veg_ahora": round(ahora[cual], 2),
               "tej": [tejado.get(str(a)) for a in r["anios"].tolist()], **series_de(r)}
     if tenia >= 0.6 and queda <= 0.5 * tenia:
-        con_tejado = [a for a, v in zip(anios, visto) if v > 0.5 * tenia]      # el último año en que aún se le veía y el primero en que ya no
-        ultimo = max(con_tejado)
-        despues = [a for a in anios if a > ultimo]
-        return {"tipo": "perdio", "ultimo": ultimo, "sin": min(despues) if despues else None, **hechos}
+        # Cuándo: el primer año en que deja de verse y ya no vuelve (un año suelto sin tejado en medio, o con él al final, no cuenta).
+        poco = [v <= 0.5 * tenia for v in visto]
+        corte = next((i for i in range(1, len(visto)) if poco[i] and (i == len(visto) - 1 or poco[i + 1]) and float(np.median(visto[i:])) <= 0.5 * tenia), len(visto) - k)
+        return {"tipo": "perdio", "ultimo": anios[corte - 1], "sin": anios[corte], **hechos}
     if max(visto) < 0.4 and max(tenia, queda) < 0.3:
         return {"tipo": "nunca", **hechos}
     return None
@@ -568,8 +568,7 @@ def sentenciar(s: dict, altura: dict | None, plantas: int | None) -> dict | None
     pct = lambda v: f"{round(100 * v)} %"                             # noqa: E731
     copas = bool(altura and plantas and altura["altura_mediana_m"] > 3 * plantas + 4)
     if s["tipo"] == "perdio":
-        cuando = f"entre {s['ultimo']} y {s['sin']}" if s["sin"] else f"después de {s['ultimo']}"
-        base = f"tenía tejado ({pct(s['tenia'])} del contorno) y dejó de verse {cuando} (queda el {pct(s['queda'])})"
+        base = f"tenía tejado ({pct(s['tenia'])} del contorno) y dejó de verse entre {s['ultimo']} y {s['sin']} (queda el {pct(s['queda'])})"
         if altura is None:
             return {"clase": "sin_comprobar", "nota": round(20 + 10 * (s["tenia"] - s["queda"]), 1), "motivos": [base, "no se ha podido comprobar con la maqueta 3D"]}
         if altura["pct_en_pie"] < 15:

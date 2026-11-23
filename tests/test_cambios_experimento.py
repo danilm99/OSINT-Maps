@@ -125,8 +125,10 @@ def test_el_tejado_de_cada_ano_levanta_la_sospecha(K):
     perdio = K.sospecha(_serie(K, limpio, pelado), _tejado(K, [.9, .9, .9, .9, .85, .1, 0, 0, 0]))
     assert perdio["tipo"] == "perdio" and (perdio["ultimo"], perdio["sin"]) == (2021, 2022) and (perdio["tenia"], perdio["queda"]) == (0.9, 0.0)
     assert perdio["tej"] == [.9, .9, .9, .9, .85, .1, 0, 0, 0] and perdio["anios"] == list(K.ANIOS)
-    # Un año raro en medio no adelanta la fecha: cuenta el último en que aún se le veía.
+    # Un año raro en medio no adelanta la fecha, ni un tejado nuevo al final (una obra) la retrasa: cuenta cuándo dejó de verse para no volver.
     assert K.sospecha(_serie(K, limpio, pelado), _tejado(K, [.9, .9, .9, 0, .9, .9, 0, 0, 0]))["ultimo"] == 2022
+    en_obras = K.sospecha(_serie(K, limpio, pelado), _tejado(K, [.6, .65, .62, .5, .4, .1, .04, 0, .45]))
+    assert (en_obras["ultimo"], en_obras["sin"]) == (2021, 2022) and en_obras["queda"] == 0.04
     nunca = K.sospecha(_serie(K, [.6] * 9, [.2] * 9), _tejado(K, [.05, .1, 0, .2, .1, 0, 0, .1, .05]))
     assert nunca["tipo"] == "nunca" and nunca["veg_ahora"] == 0.6
     # Ni un tejado que sigue viéndose, ni uno que baja poco, ni uno que nunca se vio pero un año sí, levantan sospecha.
