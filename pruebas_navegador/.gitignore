@@ -1,6 +1,8 @@
-node_modules/
+node_modules
 datos/
 datos8/
 datos9/
 *.png
 package-lock.json
+datos-estatico/
+sitio-estatico/
