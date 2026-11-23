@@ -550,7 +550,7 @@ def hojas(args) -> None:
     posibles = json.loads((base / f"{args.lista}-{args.etiqueta}.json").read_text(encoding="utf-8"))
     if args.refs:
         quiero = args.refs.split(",")
-        posibles = [p for p in posibles if p["ref"] in quiero]
+        posibles = sorted((p for p in posibles if p["ref"] in quiero), key=lambda p: quiero.index(p["ref"]))
     universo = {e["ref"]: e for e in cargar_universo(args)}
     anios = [int(a) for a in args.anios_hoja.split(",")]
     sesion = requests.Session()
@@ -588,7 +588,7 @@ def hojas(args) -> None:
             rotulo = np.zeros((34, fila.shape[1], 3), np.uint8)
             cv2.putText(rotulo, f"{args.desde + len(filas) // 2 + n + 1}. {p['ref']}  nota {p['nota']}  {p['uso'] or ''} {p['area']} m2  {p['lat']},{p['lon']}  ({round(lado_m)} m)", (4, 13),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 255), 1, cv2.LINE_AA)
-            sin_tildes = "; ".join(p["motivos"]).translate(str.maketrans("áéíóúñ", "aeioun")).encode("ascii", "replace").decode()
+            sin_tildes = " | ".join(x for x in (p.get("direccion"), "; ".join(p["motivos"])) if x).translate(str.maketrans("áéíóúñÁÉÍÓÚÑ", "aeiounAEIOUN")).encode("ascii", "replace").decode()
             cv2.putText(rotulo, sin_tildes[:175], (4, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
             filas += [rotulo, fila]
         salida = destino / f"cambios-{args.etiqueta}-{args.lista}-{args.desde + n + 1:03d}.jpg"
