@@ -215,6 +215,38 @@ if (/^https?:$/.test(location.protocol)) {
   .fiar-vision ul { margin: 4px 0 0; padding-left: 18px; }
   #nota-personal { width: 100%; min-height: 58px; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--linea); border-radius: 6px; background: var(--blanco); resize: vertical; }
 
+  /* La historia del sitio (historia.js). Las fechas van como las cotas de un plano: el año a la
+     izquierda, en la condensada de los rótulos, y al lado el hecho con su fuente en pequeño. */
+  .historia .resumen { margin: 0; font-size: 15px; line-height: 1.45; }
+  .historia .resumen b { font-weight: 600; }
+  .historia .suave { margin: 6px 0 0; font-size: 13px; line-height: 1.4; color: var(--tinta-suave); }
+  .historia .resumen.suave { margin: 0; font-size: 14px; }
+  .historia h4 { margin: 14px 0 5px; font-size: 13px; font-weight: 600; color: var(--tinta-suave); }
+  .historia .cita { margin: 8px 0 0; padding: 1px 0 1px 10px; border-left: 3px solid var(--linea); font-size: 14px; line-height: 1.45; }
+  .historia .cita small, .historia .noticias small { display: block; margin-top: 3px; font-size: 13px; color: var(--tinta-suave); }
+  .historia a { color: var(--tinta); }
+  .historia dl.cronologia { gap: 6px 12px; align-items: baseline; }
+  .historia dl.cronologia dt { font: 600 17px/1.2 "Barlow Condensed", sans-serif; color: var(--tinta); white-space: nowrap; }
+  .historia dl.cronologia small { display: block; color: var(--tinta-suave); font-size: 13px; }
+  .historia .sueltas small { color: var(--tinta-suave); font-size: 13px; }
+  .historia .sueltas { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.4; }
+  .historia .sueltas li + li { margin-top: 4px; }
+  .historia .sueltas b { font-weight: 500; }
+  .historia .noticias { list-style: none; margin: 0; padding: 0; font-size: 14px; line-height: 1.35; }
+  .historia .noticias li { padding: 7px 0; border-top: 1px solid var(--linea); }
+  .historia .noticias li:first-child { border-top: 0; padding-top: 0; }
+  .historia .noticias a { font-weight: 500; text-decoration: none; }
+  .historia .noticias a:hover { text-decoration: underline; }
+  .historia .noticias .floja a { font-weight: 400; color: var(--tinta-suave); }
+  .fotos.fechadas a { position: relative; display: block; }
+  .fotos.fechadas span { position: absolute; inset: auto 0 0 0; border-radius: 0 0 4px 4px; color: #fff; background: rgba(23,36,46,.78);
+                         font: 600 13px/1.5 "Barlow Condensed", sans-serif; text-align: center; }
+  .boton-historia { display: block; width: 100%; margin-top: 10px; padding: 8px 12px; border: 1px solid var(--tinta); border-radius: 6px; background: var(--tinta); color: var(--blanco); font-weight: 600; }
+  .boton-historia.secundario { background: var(--blanco); color: var(--tinta); border-color: var(--linea); font-weight: 400; }
+  .boton-historia:disabled { opacity: .6; cursor: default; }
+  .historia .como-enlace { border: 0; padding: 0; background: none; color: var(--tinta); text-decoration: underline; font: inherit; cursor: pointer; }
+  .ajuste-historia { display: flex; align-items: center; gap: 7px; margin-top: 10px; font-size: 13px; color: var(--tinta-suave); }
+
   #pie { padding: 12px 16px 16px; border-top: 1px solid var(--linea); font-size: 12.5px; color: var(--tinta-suave); display: flex; gap: 6px 12px; flex-wrap: wrap; }
   #pie button, #pie label { border: 0; background: none; padding: 0; text-decoration: underline; cursor: pointer; color: inherit; font-size: inherit; }
   #pie .atajos { flex-basis: 100%; }
@@ -1703,6 +1735,7 @@ function abrirFicha(c, mover) {
     el("h2", { textContent: tituloDe(c) }),
     el("div", { className: "lugar", textContent: [p.municipio, `nota ${Math.round(p.puntuacion || 0)} de 100`].filter(Boolean).join(", ") }),
     aereo, tira, comparar, botones, nota,
+    typeof bloqueHistoria === "function" ? bloqueHistoria(sujetoDeSitio(c)) : null,       // lo que se sabe de su pasado (historia.js)
     typeof bloqueVision === "function" ? bloqueVision(c) : null,       // lo que un programa ha visto en la foto (vision.js)
     bloque("Comprobar en otras fuentes", enlaces),
     fachada,
@@ -2641,6 +2674,7 @@ if (window.OSINT_DATOS) {
 <script src="herramientas.js"></script>
 <script src="rutas.js"></script>
 <script src="vision.js"></script>
+<script src="historia.js"></script>
 <script src="tresd.js"></script>
 </body>
 </html>

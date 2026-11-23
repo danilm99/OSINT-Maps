@@ -1516,6 +1516,7 @@ function abrirElemento(e, mover) {
   };
   pintarDatos();
   partes.push(zonaDatos);
+  if (typeof bloqueHistoria === "function" && tieneHistoria(e)) partes.push(bloqueHistoria(sujetoDeElemento(e)));      // lo que se sabe de su pasado (historia.js)
   const zonaCrudo = el("div");
   const pintarCrudo = () => zonaCrudo.replaceChildren(...(e.etiquetas ? [el("div", { className: "bloque" }, el("details", {}, el("summary", { textContent: "Todas las etiquetas de OpenStreetMap" }), tablaDatos(Object.entries(e.etiquetas))))] : []));
   if (e.osm && !e.etiquetas) {

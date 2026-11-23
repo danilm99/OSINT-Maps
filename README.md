@@ -29,6 +29,9 @@ con datos e imágenes sin salir de la página.
   últimas pasadas del satélite Sentinel-2 y cámaras de tráfico en directo.
 - **Ficha de cualquier punto**: dirección, parcela catastral y su uso, altitud,
   tiempo, sol y luna, y qué hay alrededor.
+- **La historia de cada sitio**: de cuándo es, qué fue, si está protegido y
+  cuándo cerró, el arranque de su artículo, los nombres que le da el mapa,
+  fotos con su año y noticias; cada dato, con su fuente.
 - **Marcadores propios** con nota, y **parcelas, vallas y caminos** para leer
   el terreno.
 
@@ -49,7 +52,7 @@ Probado de principio a fin con la provincia de Valencia (noviembre de 2026):
 | Candidatos | 4.297 |
 | Con nota de 40 o más | 331 |
 
-Todas las fuentes responden y el mapa funciona con datos reales. Hay 93
+Todas las fuentes responden y el mapa funciona con datos reales. Hay 139
 pruebas automáticas (`pytest`) que no necesitan internet.
 
 Recuentos reales de esa misma prueba: 390 cámaras en OpenStreetMap, 1.980
@@ -105,6 +108,7 @@ los cambios que hagas en el código se apliquen sin reinstalar.
 osintmaps buscar --provincia 46 --fotos 200    # genera los datos en datos/
 osintmaps servir                               # abre el mapa en el navegador
 osintmaps capas --provincia 46                 # refresca Lista Roja, DGT y subastas
+osintmaps historia                             # busca en la prensa los sitios con nombre
 osintmaps publicar --con-notas                 # lo sube a GitHub Pages, para el móvil
 ```
 
@@ -321,6 +325,62 @@ minuto. Lo que sí se puede es no esperar dos veces por lo mismo:
 - La dirección de la página guarda dónde se está mirando: se puede copiar y
   volver al mismo sitio.
 
+### La historia de cada sitio
+
+La ficha de un sitio, y la de cualquier edificio o punto del mapa, lleva un
+bloque **Historia**. Enseña al momento lo que ya está en los datos: el año de
+Catastro, qué fue según OpenStreetMap, si tiene al lado una ficha de la Lista
+Roja o sale a subasta, entre qué años deja de verse el tejado y las noticias
+guardadas. Al pulsar **Buscar su historia** pregunta, además, a los servicios
+abiertos que dejan que una página web les pregunte:
+
+| Fuente | Qué aporta |
+|---|---|
+| Wikidata | La ficha del sitio: fechas de construcción, inauguración y cierre, protección (BIC, BRL), estado de uso y de conservación, estilo, y el enlace a la ficha de patrimonio de la Generalitat cuando la tiene. Y qué hay catalogado a 400 m |
+| Wikipedia, en castellano o en valenciano | El arranque del artículo |
+| Wikimedia Commons | Fotos de alrededor, ordenadas por el año en que se hicieron |
+| Nomenclátor del IGN, Nomenclàtor Toponímic Valencià (ICV) y OpenStreetMap | Los nombres del mapa: el del edificio si lo tiene, la partida, el paraje y el municipio |
+| Catastro | Dirección o paraje y para qué consta cada construcción |
+
+Con eso monta un resumen (qué es, de cuándo, si está protegido, cuándo cerró,
+cómo está hoy), una cronología y una fila de enlaces con la búsqueda ya escrita
+en Google Noticias, Google Libros, la Biblioteca Virtual de Prensa Histórica,
+la Biblioteca Valenciana Digital, el BOE y el DOGV, Dialnet, Europeana e
+Internet Archive. Lo encontrado se guarda dos semanas en el navegador, y una
+casilla hace que se busque solo al abrir cada ficha.
+
+**Las noticias** van aparte, porque Google Noticias solo contesta a un
+programa, no a una página:
+
+```bash
+osintmaps historia            # busca los sitios con nombre y lo deja en datos/historia.json
+osintmaps historia --max 50   # solo los 50 mejores que falten
+```
+
+Ese fichero viaja con la web publicada, así que las noticias se ven también
+desde el móvil. Con `osintmaps servir` abierto, además, la ficha las busca al
+momento. Se pregunta despacio (una vez cada 5 segundos) y, si Google contesta
+que son demasiadas peticiones, se para: repetir la orden más tarde sigue donde
+lo dejó. De cada noticia se guarda el titular, el medio, la fecha y el enlace.
+
+Lo que hay que saber antes de fiarse:
+
+- **Sin nombre no hay prensa ni archivos.** En la provincia de València tienen
+  nombre unos 700 sitios de 4.300. Para el resto, el bloque propone el nombre
+  del mapa más cercano («puede ser el suyo») y busca con ese, avisándolo.
+- **Casi nunca consta cuándo se abandonó.** Lo traen algunas fichas de Wikidata
+  (estaciones, sobre todo) y la capa de tejados. Cuando no, el bloque dice que
+  no consta y remite a las fotos por años.
+- Un sitio sin ficha de Wikidata se empareja por el nombre. Si tampoco tiene
+  nombre, con lo que Wikidata sitúe encima, y entonces va aparte y con el aviso
+  de que puede no ser el mismo sitio.
+- Google no busca la frase exacta aunque vaya entre comillas. Las noticias que
+  no nombran el sitio en el titular salen atenuadas; si el nombre está hecho de
+  palabras corrientes («Casa Alta»), se descartan.
+- El resumen son frases hechas sobre los datos encontrados: no lo redacta
+  nadie ni lo inventa ningún modelo. Lo que no está en una fuente, no sale.
+- No se busca ni se guarda nada sobre propietarios.
+
 ### La foto y el 3D
 
 - **La foto más nítida de cada sitio**: el fondo por defecto elige solo, para
@@ -523,6 +583,7 @@ Todo queda en la carpeta `datos/`, que no se sube a git:
 | `capa-subastas.geojson` | Inmuebles en subasta de la provincia |
 | `revision.json`, `vision/` | Lo visto desde el aire en cada sitio y las líneas detectadas (los escribe `experimentos/vision/detectar.py`, no `buscar`) |
 | `capa-posibles.geojson` | Edificios que han perdido el tejado entre 2017 y 2025 (lo escribe `experimentos/vision/cambios.py`; no se publica salvo con `--con-posibles`) |
+| `historia.json` | Noticias de los sitios con nombre: titular, medio, fecha y enlace (lo escribe `osintmaps historia`) |
 | `marcas.json` | Tus marcas y notas sobre los sitios (lo escribe el mapa) |
 | `marcadores.json` | Tus marcadores propios (lo escribe el mapa) |
 | `mapa.html` | El mapa autónomo (lo escribe `osintmaps paquete`) |
@@ -581,6 +642,13 @@ funciones cortas que hay debajo, y vuelve a ejecutar `buscar`.
 - Comparar fotos de varios años encuentra, sobre todo, derribos: lo que ha
   perdido el tejado. No distingue un edificio cerrado de uno habitado. Solo se
   ha probado en dos municipios.
+- La historia de un sitio depende de que alguien la haya escrito: de una nave
+  o una caseta sin nombre sale, como mucho, el año de Catastro, la partida y lo
+  que haya catalogado cerca. Las hemerotecas (la de la BNE, la prensa histórica
+  del Ministerio) no dejan preguntar desde un programa: solo se enlazan.
+- Las noticias salen del canal de titulares de Google Noticias, que cubre unos
+  pocos años y no busca la frase exacta: puede faltar lo viejo y colarse algo
+  que no tiene que ver. Si Google cambia o cierra ese canal, dejarán de salir.
 - Catastro no cubre País Vasco ni Navarra; ahí solo funcionan OSM y Wikidata.
 - Wikidata se consulta por rectángulo, así que en una búsqueda por provincia
   pueden colarse sitios de provincias vecinas cerca del límite.
@@ -636,6 +704,7 @@ osintmaps/
   fusion.py         une candidatos que son el mismo sitio
   puntuacion.py     la nota y sus pesos
   osint.py          enlaces de comprobación y fotos de Commons
+  historia.py       noticias de los sitios con nombre (Google Noticias), para la ficha
   imagen/
     pnoa.py         URL y descarga de ortofotos del IGN
     sentinel.py     vegetación con Sentinel-2 (experimental)
@@ -647,6 +716,7 @@ osintmaps/
   web/herramientas.js  pestañas del panel, medición, exportación, tira de capas y hoja del móvil
   web/rutas.js      cómo llegar: a pie, en coche, en bici y en transporte público
   web/vision.js     lo visto desde el aire: bloque de la ficha, líneas sobre el mapa y filtro
+  web/historia.js   la historia de un sitio: resumen, fechas, nombres del mapa, fotos con año y prensa
   web/tresd.js      la vista en 3D
   web/sw.js, manifest.webmanifest  lo que hace falta para instalarlo como aplicación
 tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
@@ -665,6 +735,11 @@ experimentos/vision/  el detector por imagen: preparar datos, entrenar, calibrar
 - Mapas antiguos, relieve y callejero: IGN, CC BY 4.0. Satélite alternativo: Esri.
 - Cámaras de tráfico: DGT y Ajuntament de València. Solares y patrimonio de
   València: geoportal municipal. Subastas: Portal de Subastas del BOE.
+- Historia de cada sitio: Wikidata (CC0); Wikipedia (CC BY-SA: se cita el
+  arranque del artículo con su enlace); Nomenclátor Geográfico Básico de España
+  (IGN, CC BY 4.0); Nomenclàtor Toponímic Valencià (ICV y Acadèmia Valenciana de
+  la Llengua, CC BY 4.0); Photon. Noticias: titulares de Google Noticias,
+  enlazados a su medio.
 - Iconos: Material Design Icons (Pictogrammers), Apache 2.0.
 - Patrimonio en riesgo: Hispania Nostra. Fotos de calle: Panoramax. Aviones:
   adsb.lol. Trenes: Renfe. Tiempo, altitud y aire: Open-Meteo. Lluvia:
