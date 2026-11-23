@@ -696,6 +696,16 @@ if (/^https?:$/.test(location.protocol)) {
         <option value="vista">Cercanía al centro del mapa</option>
       </select>
     </div>
+    <div class="fila" id="fila-vision" hidden>
+      <label for="f-vision">Desde el aire</label>
+      <select id="f-vision">
+        <option value="">Todo</option>
+        <option value="no-solar">Ocultar lo derribado</option>
+        <option value="ruina">Solo ruinas en pie</option>
+        <option value="tejado">Solo con cubierta</option>
+        <option value="solar">Solo lo derribado</option>
+      </select>
+    </div>
     <label class="casilla"><input id="f-multi" type="checkbox"> Solo confirmados por varias fuentes</label>
     <label class="casilla"><input id="f-vista" type="checkbox"> Solo lo que se ve en el mapa</label>
     <div id="categorias" role="group" aria-label="Categorías"></div>
@@ -1392,13 +1402,14 @@ function guardarVista() {
   const c = mapa.getCenter();
   guardarLocal("osintmaps.vista.v1", {
     centro: [c.lat, c.lng], zoom: mapa.getZoom(), nota: +$("f-nota").value, sup: $("f-sup").value, marca: $("f-marca").value,
-    orden: $("f-orden").value, multi: $("f-multi").checked, categorias: [...categoriasActivas],
+    orden: $("f-orden").value, multi: $("f-multi").checked, categorias: [...categoriasActivas], aire: $("f-vision").value,
   });
 }
 
 function filtrar() {
   const texto = sinAcentos($("buscar-texto").value.trim());
   const notaMin = +$("f-nota").value, supMin = +$("f-sup").value, soloMulti = $("f-multi").checked, marca = $("f-marca").value;
+  const aire = typeof pasaVision === "function" ? $("f-vision").value : "";      // lo visto en la foto aérea (vision.js)
   // Una búsqueda por texto mira todo el conjunto, no solo lo que hay en pantalla.
   const caja = $("f-vista").checked && !texto ? mapa.getBounds() : null;
   $("f-nota-valor").textContent = notaMin;
@@ -1414,6 +1425,7 @@ function filtrar() {
     if (marca === "pendientes" && m) return false;
     if (["favorito", "visitado", "descartado"].includes(marca) && m !== marca) return false;
     if (texto && !c.busca.includes(texto)) return false;
+    if (aire && !pasaVision(c, aire)) return false;
     return true;
   });
   visibles = caja ? pasan.filter((c) => caja.contains([c.lat, c.lon])) : pasan.slice();
@@ -1445,6 +1457,7 @@ function filtrar() {
   if (supMin) puestos.push(`más de ${miles(supMin)} m²`);
   if (marca !== "activos") puestos.push($("f-marca").selectedOptions[0].textContent.toLowerCase());
   if (soloMulti) puestos.push("varias fuentes");
+  if (aire) puestos.push($("f-vision").selectedOptions[0].textContent.toLowerCase());
   if (categoriasActivas.size) puestos.push(categoriasActivas.size === 1 ? "1 categoría" : `${categoriasActivas.size} categorías`);
   if ($("f-vista").checked) puestos.push("solo lo que se ve");
   $("resumen-filtros").textContent = puestos.join(", ");
@@ -1457,6 +1470,8 @@ function subtituloDe(c) {
   const p = c.p, trozos = [];
   if (c.km != null) trozos.push(c.km < 10 ? `${c.km.toFixed(1).replace(".", ",")} km` : `${Math.round(c.km)} km`);
   if (p.municipio) trozos.push(p.municipio);
+  const aire = typeof etiquetaVision === "function" ? etiquetaVision(c) : "";
+  if (aire) trozos.push(aire);
   if (p.nombre) trozos.push(NOMBRE_CATEGORIA[p.categoria] || p.categoria);
   if (p.superficie_m2) trozos.push(`${miles(p.superficie_m2)} m²`);
   if ((p.fuentes || []).length > 1) trozos.push(`${p.fuentes.length} fuentes`);
@@ -2440,6 +2455,7 @@ if (vista.sup) $("f-sup").value = vista.sup;
 if (vista.marca) $("f-marca").value = vista.marca;
 if (vista.orden && vista.orden !== "cercania") $("f-orden").value = vista.orden;
 $("f-multi").checked = !!vista.multi;
+if (vista.aire) $("f-vision").value = vista.aire;      // no hace nada hasta que llega lo visto desde el aire (vision.js)
 
 $("f-nota").addEventListener("input", filtrar);
 /* Al buscar, la lista de sitios se filtra al momento. El mapa no se mueve solo: lo que se busca
@@ -2451,7 +2467,7 @@ function encuadrarResultados() {
   mapa.fitBounds(L.latLngBounds(visibles.map((c) => [c.lat, c.lon])).pad(0.15), { maxZoom: 16 });
 }
 $("buscar-texto").addEventListener("input", filtrar);      // (el resto del buscador, lugares y direcciones, está en capas.js)
-for (const id of ["f-sup", "f-marca", "f-multi", "f-vista"]) $(id).addEventListener("change", filtrar);
+for (const id of ["f-sup", "f-marca", "f-multi", "f-vista", "f-vision"]) $(id).addEventListener("change", filtrar);
 $("f-orden").addEventListener("change", () => { if ($("f-orden").value === "cercania" && !miPosicion) localizar(); else filtrar(); });      // (localizar() ordena al tener la posición)
 $("ver-mas").addEventListener("click", pintarMas);
 /* Los dos botones del mapa llevan icono y texto. En el móvil, para no comerse el mapa, solo se

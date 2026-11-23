@@ -56,7 +56,25 @@ cuandoVision.then((r) => {
   if (!revisionAerea) return;
   if (fichaVision) rellenarVision(fichaVision.c, fichaVision.caja);
   pintarVision();
+  // Ya se puede filtrar por lo visto desde el aire y decirlo en la lista. Con una ficha abierta la lista
+  // no se toca (para que «siguiente» no cambie): se rehará al volver a ella.
+  if (Object.values(revisionAerea.sitios).some((s) => s.estado)) document.getElementById("fila-vision").hidden = false;
+  if (!seleccion && typeof filtrar === "function" && candidatos.length) filtrar();
 });
+
+/* Para el filtro «Desde el aire» y para la lista. De un sitio sin veredicto no se sabe nada:
+   «ocultar lo derribado» lo deja pasar y los «solo…» no. */
+const estadoVision = (c) => (revisionAerea && revisionAerea.sitios[c.id] ? revisionAerea.sitios[c.id].estado : null) || null;
+function pasaVision(c, modo) {
+  const e = estadoVision(c);
+  if (modo === "no-solar") return e !== "solar";
+  if (modo === "solar") return e === "solar";
+  if (modo === "tejado") return e === "tejado";
+  if (modo === "ruina") return e === "ruina" || e === "ruina_vegetacion";
+  return true;
+}
+const ETIQUETA_VISION = { solar: "sin nada en pie", ruina_vegetacion: "en pie, con vegetación", tejado: "en pie, con cubierta", ruina: "en pie a medias" };
+const etiquetaVision = (c) => ETIQUETA_VISION[estadoVision(c)] || "";
 
 /* Las líneas de un sitio vienen en poco sitio: cada coordenada en millonésimas de grado contadas
    desde el centro, y cada punto como salto desde el anterior (ver compacto() en detectar.py). */

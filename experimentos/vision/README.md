@@ -1,7 +1,9 @@
-# Análisis por imagen: qué se puede detectar (prueba del 22/11/2026)
+# Análisis por imagen: qué se puede detectar (pruebas del 22 y 23/11/2026)
 
-Experimentos, no producto: nada de esta carpeta se instala con el paquete ni lo
-usan las pruebas. Sirve para decidir qué merece la pena construir.
+Experimentos, no producto: nada de esta carpeta se instala con el paquete. Los apartados 1 a 3
+son la prueba de viabilidad; el 4, el detector entrenado en la tarjeta gráfica, cuyo resultado
+ya lee el visor (bloque «Visto desde el aire» de la ficha). De lo que hace `detectar.py` con la
+salida de la red hay una prueba en `tests/test_vision_experimento.py`.
 
 ## De dónde salen los datos
 
@@ -68,7 +70,79 @@ real de edificios y árboles) y cubre la provincia entera. Las hojas miden unos
 200 m de lado y tienen pocos miles de triángulos, así que es ligera. Falta probar
 con qué biblioteca se pinta mejor en el visor y cómo va en el móvil.
 
-## Cómo se hicieron las pruebas
+## 4. El detector entrenado (23/11/2026, a medias)
+
+Lo que la prueba 2 no sacaba con reglas a mano se intenta con una red entrenada en la
+tarjeta gráfica del PC. La idea: OpenStreetMap ya tiene dibujados miles de caminos,
+sendas, muros y vallas de la provincia; se recorta la foto de 15 cm donde los hay y la
+red aprende a encontrarlos en el resto.
+
+| Paso | Guion | Qué hace |
+|---|---|---|
+| 1 | `preparar.py` | Baja el extracto de OSM (Geofabrik), se queda con las vías que interesan, elige teselas de 77 m repartidas por clase, baja cada una en color y en infrarrojo y pinta las etiquetas. `--ampliar N` añade más. |
+| 2 | `entrenar.py` | Una U-Net (ResNet-34) con cuatro canales de entrada (color e infrarrojo cercano) y ocho de salida: camino, senda, carretera, muro, valla, seto, acequia y edificio. Si se corta, al relanzarlo sigue donde iba. |
+| 3 | `calibrar.py` | Elige para cada clase a partir de qué probabilidad se da algo por detectado, y mide con ese corte cuánto acierta y cuánto encuentra. |
+| 4 | `ver.py` | Hojas con la foto, lo de OSM y lo que marca la red, para juzgar a ojo. |
+| 5 | `detectar.py` | Pasa la red por una ventana de 307 m alrededor de cada candidato, convierte las manchas en líneas, mide cierre y accesos, añade altura y vegetación (apartado 1) y deja un JSON por sitio. Con `--empaquetar`, lo que lee el visor. |
+
+Todo corre en el PC, dentro de `cache/_vision` (entorno, fotos, modelos y resultados):
+
+    set HF_HOME=cache\_vision\hf
+    python experimentos/vision/preparar.py --carpeta cache/_vision --datos datos
+    python experimentos/vision/entrenar.py --carpeta cache/_vision --nombre lineas-v2 --vueltas 16 --lote 12
+    python experimentos/vision/calibrar.py --carpeta cache/_vision --modelo lineas-v2
+    python experimentos/vision/ver.py --carpeta cache/_vision --modelo lineas-v2
+    python experimentos/vision/detectar.py --carpeta cache/_vision --datos datos --modelo lineas-v2
+
+### Lo que se guarda y cuándo hay que rehacerlo
+
+- `cache/_vision/resultados/<foto>/<modelo>/<id>.json`: lo detectado en cada sitio. Va ligado
+  a la foto (`IMAGEN` en `preparar.py`, hoy `0202_2025PVAL0015`) y al modelo. **Mientras el
+  ICV no publique otro vuelo no hay que recalcular nada**; cuando lo haga, se cambian `IMAGEN`,
+  `WMS` y `CAPAS` y se vuelve a pasar `detectar.py`.
+- `cache/_vision/ventanas/<foto>/`: las fotos de cada sitio (unos 3 MB por sitio). Sirven para
+  pasar un modelo mejor sin volver a bajarlas. Se pueden borrar.
+- `cache/_vision/alturas/`: la altura de cada contorno según la maqueta 3D.
+- `datos/revision.json` y `datos/vision/<id>.json`: lo que publica la web (`osintmaps publicar`).
+
+### Lo aprendido hasta ahora
+
+- **OSM no es la verdad, es lo que alguien ha dibujado.** De los muros y vallas falta la
+  mayoría, y casi todo lo dibujado está en los pueblos. Mirando las hojas de `ver.py`, la red
+  marca tapias de chalés que existen y no están en OSM: en las cifras eso cuenta como fallo, y
+  al entrenar se le estaba enseñando a no marcarlas. Por eso ahora marcar un cierre donde OSM
+  calla se castiga poco (y menos aún en teselas donde nadie ha dibujado ninguno).
+- **Las sendas de OSM son trazas de GPS**: van a varios metros de la senda que se ve, o por
+  debajo de los pinos, donde no se ve nada. La red casi no aprende a nombrarlas. Lo que sí hace
+  es verlas como un camino estrecho, así que al trazar las líneas una franja de tierra de menos
+  de 1,8 m de ancho se da por senda.
+- **Muro o valla, desde arriba, a menudo no se distingue.** Se trazan juntos y cada tramo se
+  queda con lo que más pesa; `calibrar.py` mide también el acierto en «hay un cierre», sin
+  distinguir cuál.
+- Una de cada cuatro teselas pedidas cae fuera de la foto (el recuadro de la provincia coge
+  trozos de Alicante y Castellón). Se descartan solas.
+- El portátil en modo «equilibrado» deja la gráfica en unos 30 W: una vuelta de entrenamiento
+  con 2.700 teselas son 2 minutos y medio.
+
+### Cifras
+
+El primer entrenamiento (2.950 teselas) **se cortó en la vuelta 7 de 24** porque el PC se
+reinició. A esa altura, comparando con OSM en teselas apartadas y con 1,2 m de manga:
+
+| Clase | De lo que marca, coincide con OSM | De lo que hay en OSM, encuentra |
+|---|---|---|
+| Camino | 41 % | 71 % |
+| Muro | 41 % | 67 % |
+| Seto | 28 % | 36 % |
+| Valla | 20 % | 39 % |
+| Senda | 7 % | 20 % |
+
+Son cifras de un modelo a medio entrenar y contra unas etiquetas incompletas: sirven para
+saber que va en la dirección buena, no para fiarse. **Falta**: acabar el entrenamiento (ya con
+4.981 teselas y los cambios de arriba), mirar las hojas, pasar el detector por los 4.314
+candidatos y comprobar a ojo una muestra de lo que sale.
+
+## Cómo se hicieron las pruebas de los apartados 1 y 2
 
 Los recortes se pidieron al WMS desde el PC (300 m de lado, 2.000 píxeles) y se
 analizaron con OpenCV y scikit-image. `lineas.py` y `estado_imagen.py` esperan los

@@ -406,6 +406,39 @@ Lo que estos datos **no** dicen, y conviene no suponer:
 Las vallas y caminos pueden tardar hasta un minuto en cargar: el servicio de
 OpenStreetMap es gratuito y compartido.
 
+### Visto desde el aire: lo que un programa detecta en la foto
+
+OpenStreetMap solo tiene las vallas y sendas que alguien ha dibujado. Para lo
+demás hay un detector que mira la foto de 15 cm de 2025 (color e infrarrojo) y
+la maqueta 3D alrededor de cada sitio. Cuando se ha pasado, la ficha gana un
+bloque **Visto desde el aire** con:
+
+- si queda algo en pie y cuánta vegetación hay dentro (altura de la maqueta 3D
+  e infrarrojo);
+- cuánto del contorno está cerrado por muro, valla o seto, y cuántos caminos o
+  sendas llegan a menos de 20 m;
+- los metros de muro, valla, seto, camino y senda detectados a 150 m a la
+  redonda, y el botón *Verlo sobre el mapa*, que los pinta encima de la foto
+  (también en 3D): muros en naranja, vallas en amarillo a trazos, setos en
+  verde, caminos en blanco y sendas en azul claro a puntos.
+
+En la lista, cada sitio dice lo que se ve («sin nada en pie», «en pie, con
+vegetación»...) y en *Filtros y orden* aparece **Desde el aire**, que permite
+ocultar lo que ya está derribado.
+
+Esto no lo hace `osintmaps buscar`: necesita una tarjeta gráfica y es un
+experimento aparte (`experimentos/vision/`, con su README). Deja en `datos/` un
+`revision.json` y una carpeta `vision/`, y `osintmaps publicar` los sube con lo
+demás. Los resultados van ligados a la foto usada: mientras el ICV no publique
+otro vuelo, no hay que recalcular nada.
+
+Cuánto fiarse: **es una pista, no un dato.** El detector aprende de lo dibujado
+en OpenStreetMap, que es incompleto; confunde bordes de bancal con muros, no ve
+las vallas de alambre fino y pierde los caminos bajo los árboles. Lo de «sin
+nada en pie» sale de una regla ajustada con ocho sitios. La propia ficha enseña
+lo que acertó el detector al examinarlo, clase por clase. Solo cubre la
+provincia de València (la foto y la maqueta son del ICV).
+
 ### En el móvil, sin el ordenador
 
 - **Publicado como página web**: `osintmaps publicar` sube el mapa a GitHub
@@ -450,6 +483,7 @@ Todo queda en la carpeta `datos/`, que no se sube a git:
 | `capa-listaroja.geojson` | Lista Roja, Verde y Negra de Hispania Nostra |
 | `capa-dgt.geojson` | Cámaras de tráfico de la DGT |
 | `capa-subastas.geojson` | Inmuebles en subasta de la provincia |
+| `revision.json`, `vision/` | Lo visto desde el aire en cada sitio y las líneas detectadas (los escribe `experimentos/vision/detectar.py`, no `buscar`) |
 | `marcas.json` | Tus marcas y notas sobre los sitios (lo escribe el mapa) |
 | `marcadores.json` | Tus marcadores propios (lo escribe el mapa) |
 | `mapa.html` | El mapa autónomo (lo escribe `osintmaps paquete`) |
@@ -501,9 +535,10 @@ funciones cortas que hay debajo, y vuelve a ejecutar `buscar`.
 
 ## Limitaciones conocidas
 
-- No detecta nada «por imagen». Reconocer tejados hundidos o solares vacíos en
-  la ortofoto con un modelo de visión es el siguiente paso natural y no está
-  hecho; hoy esa comprobación la haces tú en la ficha.
+- La detección «por imagen» (caminos, muros, vallas, si queda algo en pie) es un
+  experimento aparte que necesita tarjeta gráfica y solo cubre la provincia de
+  València. Acierta a medias y no está validado con una muestra grande: la
+  comprobación sigue siendo tuya, en la ficha.
 - Catastro no cubre País Vasco ni Navarra; ahí solo funcionan OSM y Wikidata.
 - Wikidata se consulta por rectángulo, así que en una búsqueda por provincia
   pueden colarse sitios de provincias vecinas cerca del límite.
@@ -569,9 +604,12 @@ osintmaps/
   web/capas.js      fondos, capas de datos, ficha general, visor, buscador y menú
   web/herramientas.js  pestañas del panel, medición, exportación, tira de capas y hoja del móvil
   web/rutas.js      cómo llegar: a pie, en coche, en bici y en transporte público
+  web/vision.js     lo visto desde el aire: bloque de la ficha, líneas sobre el mapa y filtro
   web/tresd.js      la vista en 3D
   web/sw.js, manifest.webmanifest  lo que hace falta para instalarlo como aplicación
 tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
+pruebas_navegador/  pruebas del visor en un navegador de verdad (ver su README)
+experimentos/vision/  el detector por imagen: preparar datos, entrenar, calibrar y pasar por los sitios
 ```
 
 ## Fuentes y licencias de los datos

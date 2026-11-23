@@ -24,6 +24,7 @@ Siempre desde esta carpeta. Cada fichero es una prueba suelta y acaba con `ERROR
     python sup9.py       # imágenes superpuestas e identificar
     python tresd9.py     # vista 3D
     python malla9.py     # maqueta 3D del ICV, con un servicio I3S simulado
+    python vision9.py    # lo visto desde el aire: bloque de la ficha, líneas en 2D y 3D, filtro
     python estatico.py   # la versión web publicada (`osintmaps sitio`)
 
 ## Cómo están hechas
