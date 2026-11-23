@@ -4,6 +4,7 @@
     osintmaps buscar --provincia 46         ejecuta la búsqueda completa
     osintmaps capas --provincia 46          refresca las capas extra (Lista Roja, DGT, subastas)
     osintmaps miniaturas --top 50           baja ortofotos de los mejores
+    osintmaps historia                      busca en la prensa los sitios con nombre
     osintmaps servir                        abre el mapa en el navegador
     osintmaps servir --pulso                además va guardando el histórico de la ciudad
     osintmaps paquete                       mapa en un solo HTML, para llevar
@@ -27,7 +28,7 @@ from collections import OrderedDict
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import __version__, exportar, fusion, osint, puntuacion
+from . import __version__, exportar, fusion, historia, osint, puntuacion
 from .fuentes import camaras as fuente_camaras
 from .fuentes import catastro, dgt, listaroja, osm, subastas, wikidata
 from .geo import parsear_caja
@@ -63,6 +64,11 @@ def _caja_de_candidatos(candidatos: list[Candidato]):
 
 # Capas extra: cada una va a datos/capa-<nombre>.geojson y el visor la enseña si existe.
 CAPAS_EXTRA = ("listaroja", "dgt", "subastas")
+# Capas que no baja «osintmaps capas», sino que saca un programa aparte, y que pueden no estar.
+# «posibles» son edificios que parecen haber perdido el tejado (experimentos/vision/cambios.py): sospechas
+# sin comprobar, que solo se publican si se pide.
+CAPAS_OPCIONALES = ("posibles",)
+CAPA_VACIA = '{"type":"FeatureCollection","features":[]}'
 
 
 def _geojson_de_puntos(puntos: list[dict]) -> dict:
@@ -297,9 +303,29 @@ def _cargar_candidatos(carpeta: Path) -> list[Candidato]:
         p = f["properties"]
         lon, lat = f["geometry"]["coordinates"]
         candidatos.append(Candidato(id=p["id"], lat=lat, lon=lon, nombre=p.get("nombre"),
-                                    superficie_m2=p.get("superficie_m2"),
+                                    superficie_m2=p.get("superficie_m2"), municipio=p.get("municipio"),
+                                    wikipedia=p.get("wikipedia"),
                                     puntuacion=p.get("puntuacion", 0)))
     return candidatos
+
+
+def cmd_historia(args: argparse.Namespace) -> int:
+    """Busca en Google Noticias los sitios con nombre y deja lo encontrado en datos/historia.json."""
+    carpeta = Path(args.datos)
+    candidatos = _cargar_candidatos(carpeta)
+    con_nombre = sum(1 for c in candidatos if c.nombre)
+    if not con_nombre:
+        _decir("Ningún sitio de la lista tiene nombre: no hay nada que buscar en la prensa.")
+        return 0
+    _decir(f"{con_nombre} de {len(candidatos)} sitios tienen nombre. Se pregunta a Google Noticias uno a uno, "
+           f"con {args.pausa:g} s de pausa (lo ya buscado en los últimos {args.dias} días no se repite).")
+    r = historia.repasar(nueva_sesion(), candidatos, carpeta / historia.FICHERO, maximo=args.max, pausa=args.pausa,
+                         dias=args.dias, rehacer=args.rehacer, decir=_decir)
+    _decir(f"Consultados ahora: {r['consultados']}. Con noticias: {r['con_noticias']} de {r['guardados']} guardados. "
+           f"Quedan por consultar: {r['pendientes']}.")
+    _decir(f"Guardado en {(carpeta / historia.FICHERO).resolve()}. Se ve en la ficha de cada sitio, en «Historia»; "
+           "para verlo desde la web, vuelve a publicarla.")
+    return 3 if r["bloqueado"] else 0
 
 
 def cmd_miniaturas(args: argparse.Namespace) -> int:
@@ -352,6 +378,10 @@ _RELEVO: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
 _CANDADO_RELEVO = threading.Lock()
 _CANDADOS_RELEVO: dict[str, threading.Lock] = {}      # uno por clave, para la petición a la web de fuera
 VIDA_AVIONES = 8.0       # segundos que se reutiliza una respuesta
+# Si Google Noticias contesta «demasiadas peticiones», no se le vuelve a preguntar en un cuarto de hora.
+_PAUSA_NOTICIAS = [0.0]  # hasta cuándo (reloj del sistema que nunca retrocede); en una lista para poder cambiarlo desde dentro
+ESPERA_TRAS_BLOQUEO = 900.0
+VIDA_NOTICIAS = 6 * 3600.0     # segundos que vale lo que contestó Google Noticias sobre un sitio
 MAX_ZONAS_AVIONES = 32
 
 
@@ -392,6 +422,9 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
 
     def translate_path(self, path: str) -> str:
         limpio = path.split("?", 1)[0].split("#", 1)[0]
+        if limpio.startswith(f"/datos/{CARPETA_VISION}/"):
+            # La única subcarpeta que se sirve: las líneas detectadas alrededor de cada sitio.
+            return str(self.carpeta_datos / CARPETA_VISION / Path(limpio).name)
         if limpio.startswith("/datos/"):
             # Solo el nombre del fichero: impide salirse de la carpeta con "../".
             return str(self.carpeta_datos / Path(limpio).name)
@@ -500,9 +533,10 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
             return
         self._responder_json(200, guardado[1])
 
-    def _relevo(self, clave: str, url: str, vida: float, convertir=None) -> None:
+    def _relevo(self, clave: str, url: str, vida: float, convertir=None, al_fallar=None) -> None:
         """Devuelve como JSON lo que contesta un servicio que no deja que una página web le
-        pregunte directamente. Guarda la respuesta `vida` segundos para no repetir la consulta."""
+        pregunte directamente. Guarda la respuesta `vida` segundos para no repetir la consulta.
+        Si la petición falla y se da `al_fallar`, se le pasa el error (para que quien llama decida)."""
         # Dos candados. El general solo se coge un instante, para tocar la tabla de respuestas
         # guardadas. La petición a la web de fuera, que puede tardar 20 segundos, se hace con el
         # candado de su propia clave: dos peticiones de lo mismo no salen dos veces, y una ficha
@@ -517,8 +551,10 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
                     resp = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0 OSINT-Maps"})
                     resp.raise_for_status()
                     contenido = convertir(resp) if convertir else resp.content
-                except Exception:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001
                     guardado = None
+                    if al_fallar:
+                        al_fallar(exc)
                 else:
                     guardado = (time.monotonic(), contenido)
                 with _CANDADO_RELEVO:
@@ -543,6 +579,33 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
             self.send_error(400)
             return
         self._relevo(f"ficha:{url}", url, 86400, lambda resp: json.dumps(listaroja.detalle(resp.text)).encode("utf-8"))
+
+    def _noticias(self) -> None:
+        """Noticias de un sitio en Google Noticias, que solo contesta a programas. Lo mismo que
+        hace «osintmaps historia», pero al momento y para el sitio que el visor tiene abierto."""
+        q = parse_qs(urlparse(self.path).query)
+        nombre = " ".join((q.get("nombre") or [""])[0].split())[:120]
+        municipio = " ".join((q.get("municipio") or [""])[0].split())[:80]
+        if len(nombre) < 3:
+            self.send_error(400)
+            return
+        clave = f"noticias:{nombre}|{municipio}"
+        with _CANDADO_RELEVO:
+            guardada = _RELEVO.get(clave)
+        fresca = guardada is not None and time.monotonic() - guardada[0] <= VIDA_NOTICIAS
+        if not fresca and time.monotonic() < _PAUSA_NOTICIAS[0]:      # Google ha pedido parar hace poco: no se le insiste
+            self.send_error(503)
+            return
+
+        def convertir(resp) -> bytes:
+            return json.dumps({"consulta": historia.consulta_de(nombre, municipio),
+                               "noticias": historia.leer_rss(resp.content, nombre, municipio)}, ensure_ascii=False).encode("utf-8")
+
+        def al_fallar(exc: Exception) -> None:
+            if getattr(getattr(exc, "response", None), "status_code", None) in (429, 503):
+                _PAUSA_NOTICIAS[0] = time.monotonic() + ESPERA_TRAS_BLOQUEO
+
+        self._relevo(clave, historia.direccion(nombre, municipio), VIDA_NOTICIAS, convertir, al_fallar)
 
     def _pulso(self, ruta: str) -> None:
         """El histórico de la ciudad. Un trozo grande son cientos de KB de cifras: va comprimido."""
@@ -577,6 +640,9 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         if ruta == "/vivo/ficha":
             self._ficha_externa()
             return
+        if ruta == "/vivo/noticias":
+            self._noticias()
+            return
         if ruta.startswith("/vivo/pulso/"):
             self._pulso(ruta)
             return
@@ -585,6 +651,14 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         nombre = self._fichero_editable()
         if nombre and not (self.carpeta_datos / nombre).exists():
             self._responder_json(200, b"{}")
+            return
+        # Lo visto desde el aire es opcional y el visor lo pide siempre: si no está, un objeto
+        # vacío en vez de un 404 (que saldría como error en la consola del navegador).
+        if ruta in ("/datos/revision.json", f"/datos/{historia.FICHERO}") and not (self.carpeta_datos / Path(ruta).name).exists():
+            self._responder_json(200, b"{}")
+            return
+        if ruta in {f"/datos/capa-{n}.geojson" for n in CAPAS_OPCIONALES} and not (self.carpeta_datos / Path(ruta).name).exists():
+            self._responder_json(200, CAPA_VACIA.encode("utf-8"))
             return
         super().do_GET()
 
@@ -753,7 +827,19 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
         ruta = carpeta_datos / f"capa-{nombre}.geojson"
         if ruta.exists():
             capas[nombre] = json.loads(ruta.read_text(encoding="utf-8"))
-    incrustado = (f"<script>window.OSINT_DATOS={_json_para_script(datos)};"
+    revision = None
+    ruta_revision = carpeta_datos / "revision.json"
+    if ruta_revision.exists():
+        revision = json.loads(ruta_revision.read_text(encoding="utf-8"))
+        revision["sitios"] = {k: v for k, v in revision.get("sitios", {}).items() if k in ids}
+    prensa = None
+    ruta_prensa = carpeta_datos / historia.FICHERO
+    if ruta_prensa.exists():
+        prensa = json.loads(ruta_prensa.read_text(encoding="utf-8"))
+        prensa["sitios"] = {k: v for k, v in prensa.get("sitios", {}).items() if k in ids and v.get("noticias")}
+    incrustado = ("<script>" + (f"window.OSINT_HISTORIA={_json_para_script(prensa)};" if prensa and prensa["sitios"] else "")
+                  + (f"window.OSINT_REVISION={_json_para_script(revision)};" if revision else "")
+                  + f"window.OSINT_DATOS={_json_para_script(datos)};"
                   f"window.OSINT_HUELLAS={_json_para_script(huellas)};"
                   f"window.OSINT_CAMARAS={_json_para_script(camaras)};"
                   f"window.OSINT_CAPAS={_json_para_script(capas)};</script>")
@@ -763,7 +849,7 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
     if hay and "<!--/PRONTO-->" in resto:
         pagina = antes + resto.split("<!--/PRONTO-->", 1)[1]
     # El resto del programa del visor va en un fichero aparte: dentro también.
-    for fichero in ("iconos.js", "capas.js", "herramientas.js", "rutas.js", "tresd.js", "pulso.js"):
+    for fichero in ("iconos.js", "capas.js", "herramientas.js", "rutas.js", "vision.js", "historia.js", "tresd.js", "pulso.js"):
         etiqueta = f'<script src="{fichero}"></script>'
         if etiqueta in pagina:
             codigo = (CARPETA_WEB / fichero).read_text(encoding="utf-8").replace("</script", "<\\/script")
@@ -776,11 +862,14 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
 # --------------------------------------------------------------------------
 
 # Lo que se copia de la carpeta de datos a la web. Las notas (marcas y marcadores propios) solo si se pide.
-DATOS_DEL_SITIO = ("candidatos.geojson", "huellas.geojson", "camaras.geojson", *(f"capa-{n}.geojson" for n in CAPAS_EXTRA), "pulso.json")
+DATOS_DEL_SITIO = ("candidatos.geojson", "huellas.geojson", "camaras.geojson", *(f"capa-{n}.geojson" for n in CAPAS_EXTRA), "revision.json", historia.FICHERO, "pulso.json")
+# Lo que un programa aparte ha visto en la foto aérea alrededor de cada sitio (experimentos/vision):
+# revision.json es el resumen y en esta subcarpeta va un fichero de líneas por sitio.
+CARPETA_VISION = "vision"
 NOTAS_DEL_SITIO = tuple(LIMPIADORES)
 
 
-def crear_sitio(destino: Path, carpeta_datos: Path | None, con_notas: bool = False) -> list[str]:
+def crear_sitio(destino: Path, carpeta_datos: Path | None, con_notas: bool = False, con_posibles: bool = False) -> list[str]:
     """Deja en `destino` el visor como web estática: los ficheros del visor y, bajo datos/,
     los resultados. Vale para cualquier alojamiento de páginas (GitHub Pages, por ejemplo):
     no necesita ningún programa detrás. Devuelve los ficheros de datos que ha copiado."""
@@ -812,13 +901,33 @@ def crear_sitio(destino: Path, carpeta_datos: Path | None, con_notas: bool = Fal
             if origen.is_file():
                 shutil.copy2(origen, destino / "datos" / nombre)
                 copiados.append(nombre)
+        for capa in CAPAS_OPCIONALES:
+            # El visor las pide siempre: van vacías salvo que se pida publicarlas, para que no den un 404.
+            origen = carpeta_datos / f"capa-{capa}.geojson"
+            if con_posibles and origen.is_file():
+                shutil.copy2(origen, destino / "datos" / origen.name)
+                copiados.append(origen.name)
+            else:
+                (destino / "datos" / origen.name).write_text(CAPA_VACIA, encoding="utf-8")
+        lineas = sorted((carpeta_datos / CARPETA_VISION).glob("*.json")) if "revision.json" in copiados else []
+        if "revision.json" not in copiados:
+            # El visor lo pide siempre: vacío si no se ha pasado el detector, para que no dé un 404.
+            (destino / "datos" / "revision.json").write_text("{}", encoding="utf-8")
+        if historia.FICHERO not in copiados:
+            # Lo mismo con las noticias: vacío si no se ha ejecutado «osintmaps historia».
+            (destino / "datos" / historia.FICHERO).write_text("{}", encoding="utf-8")
+        if lineas:
+            (destino / "datos" / CARPETA_VISION).mkdir(exist_ok=True)
+            for origen in lineas:
+                shutil.copy2(origen, destino / "datos" / CARPETA_VISION / origen.name)
+            copiados.append(f"{CARPETA_VISION}/ ({len(lineas)} sitios)")
     return copiados
 
 
 def cmd_sitio(args: argparse.Namespace) -> int:
     destino = Path(args.salida)
     datos = None if args.sin_datos else Path(args.datos)
-    copiados = crear_sitio(destino, datos, args.con_notas)
+    copiados = crear_sitio(destino, datos, args.con_notas, args.con_posibles)
     _decir(f"Web estática en {destino.resolve()} ({len(copiados)} ficheros de datos: {', '.join(copiados) or 'ninguno'}).")
     _decir("Súbela a cualquier alojamiento de páginas, o usa «osintmaps publicar» para GitHub Pages.")
     return 0
@@ -842,7 +951,7 @@ def cmd_publicar(args: argparse.Namespace) -> int:
     datos = None if args.sin_datos else Path(args.datos)
     with tempfile.TemporaryDirectory(prefix="osintmaps-sitio-") as tmp:
         sitio = Path(tmp)
-        copiados = crear_sitio(sitio, datos, args.con_notas)
+        copiados = crear_sitio(sitio, datos, args.con_notas, args.con_posibles)
         git("init", "-q", "-b", "gh-pages", carpeta=sitio)
         git("add", "-A", carpeta=sitio)
         git("-c", "user.name=OSINT Maps", "-c", "user.email=osintmaps@users.noreply.github.com", "commit", "-q", "-m",
@@ -926,6 +1035,14 @@ def crear_parser() -> argparse.ArgumentParser:
     p.add_argument("--datos", default="datos")
     p.set_defaults(func=cmd_miniaturas)
 
+    p = sub.add_parser("historia", help="busca en la prensa (Google Noticias) los sitios con nombre")
+    p.add_argument("--datos", default="datos", help="carpeta con los resultados")
+    p.add_argument("--max", type=int, default=None, help="como mucho, tantos sitios en esta tanda (por defecto, todos los que falten)")
+    p.add_argument("--pausa", type=float, default=5.0, help="segundos entre una pregunta y la siguiente")
+    p.add_argument("--dias", type=int, default=30, help="no repetir lo consultado hace menos de estos días")
+    p.add_argument("--rehacer", action="store_true", help="volver a consultar todos, aunque sean recientes")
+    p.set_defaults(func=cmd_historia)
+
     p = sub.add_parser("servir", help="abre el mapa web con los resultados")
     p.add_argument("--puerto", type=int, default=8000)
     p.add_argument("--datos", default="datos")
@@ -944,12 +1061,14 @@ def crear_parser() -> argparse.ArgumentParser:
     p.add_argument("--datos", default="datos", help="carpeta con los resultados (por defecto: datos)")
     p.add_argument("--sin-datos", action="store_true", help="solo el visor, sin ningún resultado")
     p.add_argument("--con-notas", action="store_true", help="incluye también tus marcas y tus marcadores")
+    p.add_argument("--con-posibles", action="store_true", help="incluye también la capa de edificios que han perdido el tejado (sospechas sin comprobar)")
     p.set_defaults(func=cmd_sitio)
 
     p = sub.add_parser("publicar", help="publica la web en GitHub Pages (rama gh-pages del repositorio)")
     p.add_argument("--datos", default="datos", help="carpeta con los resultados (por defecto: datos)")
     p.add_argument("--sin-datos", action="store_true", help="solo el visor, sin ningún resultado")
     p.add_argument("--con-notas", action="store_true", help="incluye también tus marcas y tus marcadores")
+    p.add_argument("--con-posibles", action="store_true", help="incluye también la capa de edificios que han perdido el tejado (sospechas sin comprobar)")
     p.add_argument("--repo", default=None, help="dirección del repositorio (por defecto, el «origin» de esta carpeta)")
     p.set_defaults(func=cmd_publicar)
 

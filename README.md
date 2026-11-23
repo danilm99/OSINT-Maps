@@ -29,6 +29,9 @@ con datos e imágenes sin salir de la página.
   últimas pasadas del satélite Sentinel-2 y cámaras de tráfico en directo.
 - **Ficha de cualquier punto**: dirección, parcela catastral y su uso, altitud,
   tiempo, sol y luna, y qué hay alrededor.
+- **La historia de cada sitio**: de cuándo es, qué fue, si está protegido y
+  cuándo cerró, el arranque de su artículo, los nombres que le da el mapa,
+  fotos con su año y noticias; cada dato, con su fuente.
 - **Marcadores propios** con nota, y **parcelas, vallas y caminos** para leer
   el terreno.
 
@@ -49,7 +52,7 @@ Probado de principio a fin con la provincia de Valencia (noviembre de 2026):
 | Candidatos | 4.297 |
 | Con nota de 40 o más | 331 |
 
-Todas las fuentes responden y el mapa funciona con datos reales. Hay 93
+Todas las fuentes responden y el mapa funciona con datos reales. Hay 142
 pruebas automáticas (`pytest`) que no necesitan internet.
 
 Recuentos reales de esa misma prueba: 390 cámaras en OpenStreetMap, 1.980
@@ -105,6 +108,7 @@ los cambios que hagas en el código se apliquen sin reinstalar.
 osintmaps buscar --provincia 46 --fotos 200    # genera los datos en datos/
 osintmaps servir                               # abre el mapa en el navegador
 osintmaps capas --provincia 46                 # refresca Lista Roja, DGT y subastas
+osintmaps historia                             # busca en la prensa los sitios con nombre
 osintmaps publicar --con-notas                 # lo sube a GitHub Pages, para el móvil
 osintmaps servir --pulso --publicar-datos      # el mapa, el histórico de la ciudad y la web al día
 ```
@@ -322,6 +326,65 @@ minuto. Lo que sí se puede es no esperar dos veces por lo mismo:
 - La dirección de la página guarda dónde se está mirando: se puede copiar y
   volver al mismo sitio.
 
+### La historia de cada sitio
+
+La ficha de un sitio, y la de cualquier edificio o punto del mapa, lleva un
+bloque **Historia**. Enseña al momento lo que ya está en los datos: el año de
+Catastro, qué fue según OpenStreetMap, si tiene al lado una ficha de la Lista
+Roja o sale a subasta, entre qué años deja de verse el tejado y las noticias
+guardadas. Al pulsar **Buscar su historia** pregunta, además, a los servicios
+abiertos que dejan que una página web les pregunte:
+
+| Fuente | Qué aporta |
+|---|---|
+| Wikidata | La ficha del sitio: fechas de construcción, inauguración y cierre, protección (BIC, BRL), estado de uso y de conservación, estilo, y el enlace a la ficha de patrimonio de la Generalitat cuando la tiene. Y qué hay catalogado a 400 m |
+| Wikipedia, en castellano o en valenciano | El arranque del artículo |
+| Wikimedia Commons | Fotos de alrededor, ordenadas por el año en que se hicieron |
+| Nomenclátor del IGN, Nomenclàtor Toponímic Valencià (ICV) y OpenStreetMap | Los nombres del mapa: el del edificio si lo tiene, la partida, el paraje y el municipio |
+| Catastro | Dirección o paraje y para qué consta cada construcción |
+
+Con eso monta un resumen (qué es, de cuándo, si está protegido, cuándo cerró,
+cómo está hoy), una cronología y una fila de enlaces con la búsqueda ya escrita
+en Google Noticias, Google Libros, la Biblioteca Virtual de Prensa Histórica,
+la Biblioteca Valenciana Digital, el BOE y el DOGV, Dialnet, Europeana e
+Internet Archive. Lo encontrado se guarda dos semanas en el navegador, y una
+casilla hace que se busque solo al abrir cada ficha.
+
+**Las noticias** van aparte, porque Google Noticias solo contesta a un
+programa, no a una página:
+
+```bash
+osintmaps historia            # busca los sitios con nombre y lo deja en datos/historia.json
+osintmaps historia --max 50   # solo los 50 mejores que falten
+```
+
+Ese fichero viaja con la web publicada, así que las noticias se ven también
+desde el móvil. Con `osintmaps servir` abierto, además, la ficha las busca al
+momento. Se pregunta despacio (una vez cada 5 segundos) y, si Google contesta
+que son demasiadas peticiones, se para: repetir la orden más tarde sigue donde
+lo dejó. De cada noticia se guarda el titular, el medio, la fecha y el enlace.
+
+Lo que hay que saber antes de fiarse:
+
+- **Sin nombre no hay prensa ni archivos.** En la provincia de València tienen
+  nombre unos 700 sitios de 4.300. Para el resto, el bloque propone el nombre
+  del mapa más cercano («puede ser el suyo») y busca con ese, avisándolo.
+- **Casi nunca consta cuándo se abandonó.** Lo traen algunas fichas de Wikidata
+  (estaciones, sobre todo) y la capa de tejados. Cuando no, el bloque dice que
+  no consta y remite a las fotos por años.
+- Un sitio sin ficha de Wikidata se empareja por el nombre. Si tampoco tiene
+  nombre, con lo que Wikidata sitúe encima, y entonces va aparte y con el aviso
+  de que puede no ser el mismo sitio.
+- Google no busca la frase exacta aunque vaya entre comillas: devuelve también
+  noticias del pueblo que no tienen que ver. Se guardan las que nombran el sitio
+  en el titular y, atenuadas, hasta tres que no lo nombran pero hablan de
+  patrimonio, de abandono o del mismo tipo de edificio. Si el nombre está hecho
+  de palabras corrientes («Casa Alta»), solo valen las que traen además el
+  municipio. Aun así se cuela alguna.
+- El resumen son frases hechas sobre los datos encontrados: no lo redacta
+  nadie ni lo inventa ningún modelo. Lo que no está en una fuente, no sale.
+- No se busca ni se guarda nada sobre propietarios.
+
 ### La foto y el 3D
 
 - **La foto más nítida de cada sitio**: el fondo por defecto elige solo, para
@@ -335,14 +398,23 @@ minuto. Lo que sí se puede es no esperar dos veces por lo mismo:
   de Google y de Esri (otras fechas), el satélite de ayer de todo el planeta
   (250 m, para ver humo, riadas o nieve), y en València ciudad los vuelos
   desde 1956 y los planos desde 1738 para comparar con cortina.
-- **3D**: el botón *3D* cambia el mapa por una vista en perspectiva con el
-  relieve, la foto aérea pegada encima y los edificios levantados con su
-  altura. Encima siguen los sitios, tus marcadores, lo cargado de las capas,
-  la ruta y tu posición, y al tocar un punto se abre su ficha. Se gira y se
-  inclina con el botón derecho (o con dos dedos). No es una maqueta
-  fotográfica como la de Google Earth: cada edificio es un prisma con la
-  altura que consta en OpenStreetMap. La biblioteca que lo dibuja (MapLibre)
-  pesa un megabyte y solo se descarga la primera vez que se pulsa el botón.
+- **Año a año desde 2017**: en la Comunitat Valenciana, la tira de fotos de
+  cada ficha y la lista de *foto antigua* ofrecen los vuelos anuales del ICV
+  (2017 a 2024, 25 cm). Es la manera más rápida de ver cuándo se cayó un
+  tejado o desde cuándo crece la maleza.
+- **3D**: el botón *3D* cambia el mapa por una vista en perspectiva. Encima
+  siguen los sitios, tus marcadores, lo cargado de las capas, la ruta y tu
+  posición, y al tocar un punto se abre su ficha. Se gira y se inclina con el
+  botón derecho (o con dos dedos). La biblioteca que lo dibuja (MapLibre) pesa
+  un megabyte y solo se descarga la primera vez que se pulsa el botón.
+- **3D real, en la provincia de València**: dentro del 3D, el botón *Real*
+  (encendido de entrada) pone la maqueta fotográfica del ICV, hecha con el
+  vuelo de 2025: edificios, árboles y taludes con su forma de verdad, como en
+  Google Earth. Es el mismo servicio público que usa el «Visor 3D GVA» y se
+  lee directamente, sin clave. Cada trozo que se ve son entre 0,3 y 2 MB:
+  con datos móviles conviene apagarla. Sin ella, o fuera de la provincia,
+  queda el relieve con la foto pegada y cada edificio como un prisma con la
+  altura que consta en OpenStreetMap.
 
 ### Cámaras
 
@@ -401,6 +473,73 @@ Lo que estos datos **no** dicen, y conviene no suponer:
 
 Las vallas y caminos pueden tardar hasta un minuto en cargar: el servicio de
 OpenStreetMap es gratuito y compartido.
+
+### Visto desde el aire: lo que un programa detecta en la foto
+
+OpenStreetMap solo tiene las vallas y sendas que alguien ha dibujado. Para lo
+demás hay un detector que mira la foto de 15 cm de 2025 (color e infrarrojo) y
+la maqueta 3D alrededor de cada sitio. Cuando se ha pasado, la ficha gana un
+bloque **Visto desde el aire** con:
+
+- si queda algo en pie y cuánta vegetación hay dentro (altura de la maqueta 3D
+  e infrarrojo);
+- cuánto del contorno está cerrado por muro, valla o seto, y cuántos caminos o
+  sendas llegan a menos de 20 m;
+- los metros de muro, valla, seto, camino y senda detectados a 150 m a la
+  redonda, y el botón *Verlo sobre el mapa*, que los pinta encima de la foto
+  (también en 3D): muros en naranja, vallas en amarillo a trazos, setos en
+  verde, caminos en blanco y sendas en azul claro a puntos.
+
+En la lista, cada sitio dice lo que se ve («casi nada en pie», «en pie, con
+vegetación»...) y en *Filtros y orden* aparece **Desde el aire**, que permite
+ocultar lo que ya no está en pie.
+
+Esto no lo hace `osintmaps buscar`: necesita una tarjeta gráfica y es un
+experimento aparte (`experimentos/vision/`, con su README). Deja en `datos/` un
+`revision.json` y una carpeta `vision/`, y `osintmaps publicar` los sube con lo
+demás. Los resultados van ligados a la foto usada: mientras el ICV no publique
+otro vuelo, no hay que recalcular nada.
+
+Cuánto fiarse: **es una pista, no un dato.** El detector aprende de lo dibujado
+en OpenStreetMap, que es incompleto.
+
+- Los **caminos** son lo que mejor saca.
+- De los **cierres** acierta dónde hay uno bastante más que cuál es: confunde a
+  menudo muro con valla, y los quitamiedos de las autovías le salen como vallas.
+- **Sendas** encuentra pocas (mejor en monte bajo abierto), y bajo los árboles no
+  ve nada.
+- **«Casi nada en pie»** sale de la altura de la maqueta 3D y es lo más sólido:
+  de doce sitios así mirados uno a uno, once eran solares o losas vacías y uno
+  conservaba muros bajos.
+- Los demás veredictos («con cubierta», «con vegetación dentro») son más toscos:
+  un patio con plantas cuenta como vegetación dentro y un árbol cuenta como algo
+  en pie.
+
+La propia ficha enseña lo que acertó el detector al examinarlo, clase por clase.
+Solo cubre la provincia de València (la foto y la maqueta son del ICV); los
+sitios de provincias vecinas se quedan sin este bloque.
+
+### Edificios que han perdido el tejado: comparar las fotos de varios años (en pruebas)
+
+Otro experimento (`experimentos/vision/cambios.py` y `tejado.py`) mira los
+edificios que Catastro da **por buenos** y compara cada uno consigo mismo en
+las fotos de 2017 a 2025. Un detector entrenado con todos los años dice quién
+tenía tejado y ha dejado de tenerlo, y la maqueta 3D de 2025 confirma si de
+verdad ya no está en pie. El resultado es la capa **Han perdido el tejado**, en
+*Abandono y patrimonio*, que solo aparece si existe
+`datos/capa-posibles.geojson`. Cada ficha dice entre qué dos años dejó de verse
+el tejado.
+
+En las dos zonas de prueba (Godella y los alrededores de Bétera) acierta casi
+siempre en que ahí ha cambiado algo, pero **casi todo lo que encuentra son
+derribos**: de once casos, diez lo eran y uno era una nave que perdió la
+cubierta y conserva los muros. Los derribados no van al mapa salvo que se pidan.
+Un edificio cerrado con el tejado entero no se distingue desde arriba de uno
+habitado, así que esto no encuentra abandonos recientes: encuentra lo que se ha
+caído o han tirado.
+
+`osintmaps publicar` **no sube la capa** salvo que se pida con
+`--con-posibles`: son sospechas sin comprobar sobre el terreno.
 
 ### En el móvil, sin el ordenador
 
@@ -520,6 +659,9 @@ Todo queda en la carpeta `datos/`, que no se sube a git:
 | `capa-listaroja.geojson` | Lista Roja, Verde y Negra de Hispania Nostra |
 | `capa-dgt.geojson` | Cámaras de tráfico de la DGT |
 | `capa-subastas.geojson` | Inmuebles en subasta de la provincia |
+| `revision.json`, `vision/` | Lo visto desde el aire en cada sitio y las líneas detectadas (los escribe `experimentos/vision/detectar.py`, no `buscar`) |
+| `capa-posibles.geojson` | Edificios que han perdido el tejado entre 2017 y 2025 (lo escribe `experimentos/vision/cambios.py`; no se publica salvo con `--con-posibles`) |
+| `historia.json` | Noticias de los sitios con nombre: titular, medio, fecha y enlace (lo escribe `osintmaps historia`) |
 | `marcas.json` | Tus marcas y notas sobre los sitios (lo escribe el mapa) |
 | `marcadores.json` | Tus marcadores propios (lo escribe el mapa) |
 | `mapa.html` | El mapa autónomo (lo escribe `osintmaps paquete`) |
@@ -571,9 +713,20 @@ funciones cortas que hay debajo, y vuelve a ejecutar `buscar`.
 
 ## Limitaciones conocidas
 
-- No detecta nada «por imagen». Reconocer tejados hundidos o solares vacíos en
-  la ortofoto con un modelo de visión es el siguiente paso natural y no está
-  hecho; hoy esa comprobación la haces tú en la ficha.
+- La detección «por imagen» (caminos, muros, vallas, si queda algo en pie) es un
+  experimento aparte que necesita tarjeta gráfica y solo cubre la provincia de
+  València. Acierta a medias y no está validado con una muestra grande: la
+  comprobación sigue siendo tuya, en la ficha.
+- Comparar fotos de varios años encuentra, sobre todo, derribos: lo que ha
+  perdido el tejado. No distingue un edificio cerrado de uno habitado. Solo se
+  ha probado en dos municipios.
+- La historia de un sitio depende de que alguien la haya escrito: de una nave
+  o una caseta sin nombre sale, como mucho, el año de Catastro, la partida y lo
+  que haya catalogado cerca. Las hemerotecas (la de la BNE, la prensa histórica
+  del Ministerio) no dejan preguntar desde un programa: solo se enlazan.
+- Las noticias salen del canal de titulares de Google Noticias, que cubre unos
+  pocos años y no busca la frase exacta: puede faltar lo viejo y colarse algo
+  que no tiene que ver. Si Google cambia o cierra ese canal, dejarán de salir.
 - Catastro no cubre País Vasco ni Navarra; ahí solo funcionan OSM y Wikidata.
 - Wikidata se consulta por rectángulo, así que en una búsqueda por provincia
   pueden colarse sitios de provincias vecinas cerca del límite.
@@ -605,8 +758,12 @@ funciones cortas que hay debajo, y vuelve a ejecutar `buscar`.
 - Los buscadores, las rutas y OpenStreetMap son servidores públicos
   mantenidos por voluntarios: a ratos tardan o no contestan, y no están
   pensados para un uso masivo.
-- El 3D no es fotogramétrico: relieve, foto y prismas. La altura de un
-  edificio es la que consta en OpenStreetMap, que a veces falta.
+- La maqueta 3D real solo existe en la provincia de València y sale de un
+  vuelo vertical: las fachadas son aproximadas y lo que queda bajo un árbol o
+  un voladizo no se ve. Depende de un servidor del ICV que no promete nada:
+  si lo cambian, esa vista deja de salir y queda la de prismas. En el móvil
+  está sin probar a fondo. Fuera de la provincia, la altura de un edificio es
+  la que consta en OpenStreetMap, que a veces falta.
 
 ## Estructura del código
 
@@ -625,6 +782,7 @@ osintmaps/
   fusion.py         une candidatos que son el mismo sitio
   puntuacion.py     la nota y sus pesos
   osint.py          enlaces de comprobación y fotos de Commons
+  historia.py       noticias de los sitios con nombre (Google Noticias), para la ficha
   imagen/
     pnoa.py         URL y descarga de ortofotos del IGN
     sentinel.py     vegetación con Sentinel-2 (experimental)
@@ -635,6 +793,8 @@ osintmaps/
   web/capas.js      fondos, capas de datos, ficha general, visor, buscador y menú
   web/herramientas.js  pestañas del panel, medición, exportación, tira de capas y hoja del móvil
   web/rutas.js      cómo llegar: a pie, en coche, en bici y en transporte público
+  web/vision.js     lo visto desde el aire: bloque de la ficha, líneas sobre el mapa y filtro
+  web/historia.js   la historia de un sitio: resumen, fechas, nombres del mapa, fotos con año y prensa
   web/tresd.js      la vista en 3D
   web/pulso.js      la consola del pulso: línea de tiempo, indicadores y capas en el tiempo
   pulso/
@@ -647,6 +807,9 @@ osintmaps/
     servidor.py     las direcciones /vivo/pulso/...
   web/sw.js, manifest.webmanifest  lo que hace falta para instalarlo como aplicación
 tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
+pruebas_navegador/  pruebas del visor en un navegador de verdad (ver su README)
+experimentos/vision/  el detector por imagen: preparar datos, entrenar, calibrar y pasar por los sitios;
+                      y cambios.py y tejado.py, el repaso por años en busca de lo que ha perdido el tejado
 ```
 
 ## Fuentes y licencias de los datos
@@ -654,10 +817,16 @@ tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
 - Edificios: Dirección General del Catastro, servicio INSPIRE.
 - OpenStreetMap: © colaboradores de OpenStreetMap, licencia ODbL.
 - Wikidata: CC0. Fotos: Wikimedia Commons, cada una con su licencia.
-- Ortofotos: PNOA, CC BY 4.0 scne.es. Sentinel-2: Copernicus, vía Earth Search.
+- Ortofotos: PNOA, CC BY 4.0 scne.es; Institut Cartogràfic Valencià (vuelos de
+  2017 a 2025 y maqueta 3D), CC BY 4.0. Sentinel-2: Copernicus, vía Earth Search.
 - Mapas antiguos, relieve y callejero: IGN, CC BY 4.0. Satélite alternativo: Esri.
 - Cámaras de tráfico: DGT y Ajuntament de València. Solares y patrimonio de
   València: geoportal municipal. Subastas: Portal de Subastas del BOE.
+- Historia de cada sitio: Wikidata (CC0); Wikipedia (CC BY-SA: se cita el
+  arranque del artículo con su enlace); Nomenclátor Geográfico Básico de España
+  (IGN, CC BY 4.0); Nomenclàtor Toponímic Valencià (ICV y Acadèmia Valenciana de
+  la Llengua, CC BY 4.0); Photon. Noticias: titulares de Google Noticias,
+  enlazados a su medio.
 - Iconos: Material Design Icons (Pictogrammers), Apache 2.0.
 - Patrimonio en riesgo: Hispania Nostra. Fotos de calle: Panoramax. Aviones:
   adsb.lol. Trenes: Renfe. Tiempo, altitud y aire: Open-Meteo. Lluvia:
