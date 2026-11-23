@@ -135,6 +135,7 @@ def main() -> None:
     ap.add_argument("--lote", type=int, default=8); ap.add_argument("--nombre", default="lineas-v1")
     ap.add_argument("--prueba", action="store_true", help="64 teselas y una vuelta, para ver que todo funciona")
     ap.add_argument("--cpu", action="store_true", help="sin la gráfica (lento: solo para probar mientras está ocupada)")
+    ap.add_argument("--de-cero", action="store_true", help="no retomar un entrenamiento a medias con ese nombre")
     args = ap.parse_args()
     no_dormir()
     base = Path(args.carpeta)
@@ -152,17 +153,32 @@ def main() -> None:
     cargar = dict(batch_size=args.lote, num_workers=4, pin_memory=True, persistent_workers=True)
     aprender = torch.utils.data.DataLoader(Teselas(base, resto, True), shuffle=True, drop_last=True, **cargar)
     examen = torch.utils.data.DataLoader(Teselas(base, aparte, False), shuffle=False, **cargar)
-    modelo = crear_modelo().to(dispositivo)
+    modelo = crear_modelo().to(dispositivo).to(memory_format=torch.channels_last)
     ajuste = torch.optim.AdamW(modelo.parameters(), lr=3e-4, weight_decay=1e-4)
     ritmo = torch.optim.lr_scheduler.OneCycleLR(ajuste, max_lr=6e-4, total_steps=args.vueltas * len(aprender), pct_start=0.15)
     escala = torch.amp.GradScaler("cuda", enabled=dispositivo.type == "cuda")
     peso = torch.tensor([PESO[c] for c in CLASES], device=dispositivo).view(1, -1, 1, 1)
-    mejor, diario = -1.0, []
-    for vuelta in range(1, args.vueltas + 1):
+    mejor, diario, hechas = -1.0, [], 0
+    # Un entrenamiento dura una hora larga y el ordenador puede reiniciarse a media noche (ya pasó): al acabar
+    # cada vuelta se guarda todo lo necesario para seguir, y al arrancar se retoma si casa con lo que se pide.
+    seguir = base / "modelos" / f"{args.nombre}.seguir.pt"
+    huella = {"vueltas": args.vueltas, "lote": args.lote, "teselas": len(resto)}
+    if seguir.exists() and not args.de_cero:
+        previo = torch.load(seguir, map_location="cpu", weights_only=False)
+        if previo.get("huella") == huella:
+            modelo.load_state_dict(previo["modelo"]); ajuste.load_state_dict(previo["ajuste"])
+            ritmo.load_state_dict(previo["ritmo"]); escala.load_state_dict(previo["escala"])
+            mejor, diario, hechas = previo["mejor"], previo["diario"], previo["vuelta"]
+            print(f"se retoma tras la vuelta {hechas} (mejor nota hasta ahora {mejor:.3f})", flush=True)
+        else:
+            print(f"hay un entrenamiento a medias con otros ajustes ({previo.get('huella')}): se empieza de cero", flush=True)
+        del previo
+    for vuelta in range(hechas + 1, args.vueltas + 1):
         modelo.train()
         t0, suma = time.time(), 0.0
         for x, y, cuenta in aprender:
-            x, y, cuenta = x.to(dispositivo, non_blocking=True), y.to(dispositivo, non_blocking=True), cuenta.to(dispositivo, non_blocking=True)
+            x = x.to(dispositivo, non_blocking=True).contiguous(memory_format=torch.channels_last)
+            y, cuenta = y.to(dispositivo, non_blocking=True), cuenta.to(dispositivo, non_blocking=True)
             ajuste.zero_grad(set_to_none=True)
             with torch.autocast("cuda", enabled=dispositivo.type == "cuda"):
                 error = perdida(modelo(x), y, cuenta, peso)
@@ -178,6 +194,11 @@ def main() -> None:
             mejor = nota
             torch.save({"modelo": modelo.state_dict(), "clases": CLASES, "imagen": IMAGEN, "media": MEDIA.tolist(), "desv": DESV.tolist(),
                         "vuelta": vuelta, "cifras": cifras}, base / "modelos" / f"{args.nombre}.pt")
+        # Primero a un fichero aparte y luego se cambia el nombre: si se va la luz mientras escribe, queda el anterior.
+        provisional = seguir.with_suffix(".tmp")
+        torch.save({"huella": huella, "vuelta": vuelta, "mejor": mejor, "diario": diario, "modelo": modelo.state_dict(), "ajuste": ajuste.state_dict(),
+                    "ritmo": ritmo.state_dict(), "escala": escala.state_dict()}, provisional)
+        provisional.replace(seguir)
     print("FIN-ENTRENAR mejor nota", round(mejor, 4), flush=True)
 
 

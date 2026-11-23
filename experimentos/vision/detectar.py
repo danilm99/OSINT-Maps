@@ -11,6 +11,12 @@ Para cada sitio (por nota, de mayor a menor) se baja una ventana de 307 m de lad
 Todo queda ligado a la foto usada (`IMAGEN`): mientras el ICV no publique otra, no hay que
 rehacer nada. Se puede cortar y volver a lanzar: se salta los sitios ya hechos.
 
+Lo que se guarda en la carpeta de trabajo (`cache/_vision`), para no pedirlo dos veces:
+- `ventanas/<foto>/`: las fotos bajadas de cada sitio, tal cual llegan (unos 3 MB por sitio). Con un
+  modelo nuevo se vuelve a pasar todo sin bajar nada. Se pueden borrar: solo cuesta volver a bajarlas.
+- `alturas/`: la altura de cada contorno medida en la maqueta 3D (no depende de la foto).
+- `resultados/<foto>/<modelo>/`: un JSON por sitio con lo detectado.
+
     python experimentos/vision/detectar.py --carpeta cache/_vision --datos datos
     python experimentos/vision/detectar.py --carpeta cache/_vision --datos datos --empaquetar
 """
@@ -20,6 +26,7 @@ import argparse
 import json
 import math
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -39,7 +46,12 @@ a_utm = Transformer.from_crs(4326, 25830, always_xy=True).transform
 a_geo = Transformer.from_crs(25830, 4326, always_xy=True).transform
 
 
-def pedir_foto(sesion: requests.Session, capa: str, x0: float, y0: float) -> np.ndarray | None:
+def pedir_foto(sesion: requests.Session, capa: str, x0: float, y0: float, copia: Path | None = None) -> np.ndarray | None:
+    """Una ventana de la foto. Si se da `copia`, se lee de ahí si ya está y se guarda ahí si no."""
+    if copia is not None and copia.exists():
+        img = cv2.imdecode(np.fromfile(str(copia), np.uint8), cv2.IMREAD_COLOR)
+        if img is not None and img.shape[:2] == (VENTANA, VENTANA):
+            return img[:, :, ::-1]
     lado = VENTANA * PIXEL
     for intento in range(3):
         try:
@@ -48,6 +60,10 @@ def pedir_foto(sesion: requests.Session, capa: str, x0: float, y0: float) -> np.
             if r.status_code == 200 and r.headers.get("Content-Type", "").startswith("image/"):
                 img = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_COLOR)
                 if img is not None:
+                    if copia is not None and img.std() >= 4:           # una ventana en blanco (fuera de la foto) no se guarda
+                        provisional = copia.with_suffix(".tmp")
+                        provisional.write_bytes(r.content)
+                        provisional.replace(copia)
                     return img[:, :, ::-1]
         except requests.RequestException:
             pass
@@ -126,9 +142,30 @@ def lineas_de(prob: np.ndarray, corte: dict) -> list[tuple[str, float, np.ndarra
     sobra = {c: prob[n[c]] / corte[c] for c in CLASES}                   # más de 1: detectado
     salida = []
     cierres = ("muro", "valla", "seto")
-    for vertices, ys, xs in trazar(np.maximum.reduce([sobra[c] for c in cierres]) > 1, min(LARGO_MIN_M[c] for c in cierres) / paso):
-        clase = max(cierres, key=lambda c: float(sobra[c][ys, xs].mean()))
-        salida.append((clase, float(prob[n[clase]][ys, xs].mean()), vertices))
+    for _, ys, xs in trazar(np.maximum.reduce([sobra[c] for c in cierres]) > 1, min(LARGO_MIN_M[c] for c in cierres) / paso):
+        # Un cercado puede ser tapia por tres lados y valla por el cuarto: la línea se parte donde cambia la clase
+        # que manda, pero solo si el cambio dura (5 m o más); un tramo corto de otra cosa es ruido y no la parte.
+        fuerza = np.stack([sobra[c][ys, xs] for c in cierres])
+        ancho = max(3, int(round(5 / paso)) | 1)
+        suave = np.stack([np.convolve(f, np.ones(ancho) / ancho, mode="same") for f in fuerza]).argmax(0)
+        cortes_en = [0, *(np.flatnonzero(np.diff(suave)) + 1).tolist(), len(suave)]
+        tramos = [[a, b] for a, b in zip(cortes_en[:-1], cortes_en[1:])]
+        k = 0
+        while len(tramos) > 1 and k < len(tramos):                 # los tramos cortos se funden con su vecino
+            if tramos[k][1] - tramos[k][0] < ancho:
+                if k:
+                    tramos[k - 1][1] = tramos.pop(k)[1]
+                else:
+                    tramos[1][0] = tramos.pop(0)[0]
+                k = 0
+            else:
+                k += 1
+        for a, b in tramos:
+            clase = cierres[int(np.bincount(suave[a:b], minlength=len(cierres)).argmax())]
+            puntos = np.column_stack([xs[a:b], ys[a:b]]).astype(np.float32)
+            vertices = cv2.approxPolyDP(puntos.reshape(-1, 1, 2), 1.5, False).reshape(-1, 2)
+            if len(vertices) >= 2:
+                salida.append((clase, float(prob[n[clase]][ys[a:b], xs[a:b]].mean()), vertices))
     tierra = np.maximum(sobra["camino"], sobra["senda"])
     via = (tierra > 1) & (tierra >= sobra["carretera"])
     ancho_m = cv2.distanceTransform(via.astype(np.uint8), cv2.DIST_L2, 3) * 2 * paso        # ancho de la franja, medido en su eje
@@ -188,16 +225,32 @@ def veredicto(m: dict) -> str | None:
     return "ruina"
 
 
-def bajar_sitio(sesion, mallas, sitio: dict, huella, con_altura: bool) -> dict:
+def nombre_de(sitio: dict) -> str:
+    return sitio["properties"]["id"].replace("/", "_").replace(":", "_")
+
+
+def bajar_sitio(sesion, mallas, sitio: dict, huella, base: Path, con_altura: bool, guardar_fotos: bool) -> dict:
     """Todo lo que es esperar a internet para un sitio: las dos fotos y la altura de la maqueta."""
     lon, lat = sitio["geometry"]["coordinates"][:2]
     x, y = a_utm(lon, lat)
     x0, y0 = round(x - VENTANA * PIXEL / 2, 2), round(y - VENTANA * PIXEL / 2, 2)
-    salida = {"sitio": sitio, "x0": x0, "y0": y0, "rgb": pedir_foto(sesion, CAPAS["rgb"], x0, y0), "irg": pedir_foto(sesion, CAPAS["irg"], x0, y0), "altura": None}
+    salida = {"sitio": sitio, "x0": x0, "y0": y0, "rgb": None, "irg": None, "altura": None}
+    try:
+        copia = (lambda capa: base / "ventanas" / IMAGEN / f"{nombre_de(sitio)}_{capa}.jpg") if guardar_fotos else (lambda capa: None)
+        salida["rgb"] = pedir_foto(sesion, CAPAS["rgb"], x0, y0, copia("rgb"))
+        salida["irg"] = pedir_foto(sesion, CAPAS["irg"], x0, y0, copia("irg"))
+    except Exception as e:                        # disco lleno, imagen rota…: el sitio se queda sin hacer y se sigue
+        print("  fallo al bajar", sitio["properties"]["id"], repr(e)[:200], flush=True)
     if con_altura and huella is not None:
+        apunte = base / "alturas" / f"{nombre_de(sitio)}.json"
         try:
-            from malla import medir
-            salida["altura"] = medir(mallas, huella, lat)
+            if apunte.exists():
+                salida["altura"] = json.loads(apunte.read_text(encoding="utf-8"))
+            else:
+                from malla import medir
+                salida["altura"] = medir(mallas, huella, lat)
+                if salida["altura"]:
+                    apunte.write_text(json.dumps(salida["altura"]), encoding="utf-8")
         except Exception:                         # la maqueta falla a ratos: el sitio sigue sin altura
             salida["altura"] = None
     return salida
@@ -287,19 +340,22 @@ def compacto(r: dict) -> dict:
     return {"imagen": r["imagen"], "modelo": r["modelo"], "o": [lon0, lat0], "l": lineas}
 
 
-def empaquetar(base: Path, datos: Path) -> None:
-    """Junta lo calculado en lo que publica la web: un resumen de todos y un fichero de líneas por sitio."""
-    origen = base / "resultados" / IMAGEN
+def empaquetar(base: Path, datos: Path, modelo: str) -> None:
+    """Junta lo calculado con un modelo en lo que publica la web: un resumen de todos y un fichero de líneas por sitio."""
+    origen = base / "resultados" / IMAGEN / modelo
     destino = datos / "vision"
     destino.mkdir(parents=True, exist_ok=True)
-    resumen, modelo, peso = {}, "", 0
+    resumen, peso, nuevos = {}, 0, set()
     for f in sorted(origen.glob("*.json")):
         r = json.loads(f.read_text(encoding="utf-8"))
-        modelo = r.get("modelo", modelo)
         resumen[r["id"]] = {k: r[k] for k in ("estado", "altura_m", "en_pie_pct", "vegetacion_pct", "cerrado_pct", "accesos", "largo_m") if r.get(k) not in (None, {})}
         texto = json.dumps(compacto(r), separators=(",", ":"))
         peso += len(texto)
         (destino / f.name).write_text(texto, encoding="utf-8")
+        nuevos.add(f.name)
+    for viejo in destino.glob("*.json"):                      # lo de una pasada anterior que ya no toca
+        if viejo.name not in nuevos:
+            viejo.unlink()
     # Lo que acertó el modelo en las teselas que no vio al entrenar: la web lo enseña junto a lo detectado.
     fiabilidad = {}
     cifras, calibrado = base / "modelos" / f"{modelo}.json", base / "modelos" / f"{modelo}-umbrales.json"
@@ -320,17 +376,19 @@ def main() -> None:
     ap.add_argument("--carpeta", default="cache/_vision"); ap.add_argument("--datos", default="datos")
     ap.add_argument("--modelo", default="lineas-v1"); ap.add_argument("--cuantos", type=int, default=0, help="solo los N primeros por nota")
     ap.add_argument("--hilos", type=int, default=4); ap.add_argument("--sin-altura", action="store_true")
+    ap.add_argument("--sin-guardar-fotos", action="store_true", help="no dejar copia de las fotos bajadas (unos 3 MB por sitio)")
     ap.add_argument("--empaquetar", action="store_true", help="solo juntar lo ya calculado en datos/")
     args = ap.parse_args()
     base, datos = Path(args.carpeta), Path(args.datos)
     if args.empaquetar:
-        return empaquetar(base, datos)
+        return empaquetar(base, datos, args.modelo)
     import torch
     import segmentation_models_pytorch as smp
     from malla import ZONAS, Malla
     no_dormir()
-    destino = base / "resultados" / IMAGEN
-    destino.mkdir(parents=True, exist_ok=True)
+    destino = base / "resultados" / IMAGEN / args.modelo
+    for carpeta in (destino, base / "ventanas" / IMAGEN, base / "alturas"):
+        carpeta.mkdir(parents=True, exist_ok=True)
     guardado = torch.load(base / "modelos" / f"{args.modelo}.pt", map_location="cpu", weights_only=False)
     dispositivo = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     modelo = smp.Unet("resnet34", encoder_weights=None, in_channels=4, classes=len(CLASES))
@@ -344,29 +402,43 @@ def main() -> None:
     if args.cuantos:
         sitios = sitios[:args.cuantos]
     huellas = {f["properties"]["id"]: shape(f["geometry"]) for f in json.loads((datos / "huellas.geojson").read_text(encoding="utf-8"))["features"]}
-    nombre = lambda s: destino / (s["properties"]["id"].replace("/", "_").replace(":", "_") + ".json")
-    faltan = [s for s in sitios if not nombre(s).exists()]
-    print(f"{len(sitios)} sitios, {len(faltan)} por hacer | {dispositivo}", flush=True)
+    faltan = [s for s in sitios if not (destino / f"{nombre_de(s)}.json").exists()]
+    print(f"{len(sitios)} sitios, {len(faltan)} por hacer | {dispositivo} | modelo de la vuelta {guardado.get('vuelta')}", flush=True)
     sesion = requests.Session()
     sesion.headers["User-Agent"] = "osintmaps (uso personal; revisión de candidatos)"
     mallas = {zona: Malla(sesion, zona) for zona in ZONAS}
     t0, hechos, fallos = time.time(), 0, 0
+    # Bajar y calcular a la vez: unos hilos van pidiendo las fotos de los sitios siguientes mientras la gráfica
+    # trabaja con el actual. Nunca hay más de una docena esperando (cada sitio son 25 MB en memoria).
     with ThreadPoolExecutor(args.hilos) as hilos:
-        for k in range(0, len(faltan), 12):
-            tanda = faltan[k:k + 12]
-            for bajado in hilos.map(lambda s: bajar_sitio(sesion, mallas, s, huellas.get(s["properties"]["id"]), not args.sin_altura), tanda):
-                try:
-                    r = analizar(modelo, dispositivo, media, desv, bajado, huellas.get(bajado["sitio"]["properties"]["id"]), args.modelo, corte)
-                except Exception as e:                                  # un sitio raro no debe parar la noche
-                    print("  fallo en", bajado["sitio"]["properties"]["id"], repr(e)[:200], flush=True)
-                    r = None
-                if r is None:
-                    fallos += 1
-                    continue
-                nombre(bajado["sitio"]).write_text(json.dumps(r, separators=(",", ":")), encoding="utf-8")
+        cola, siguiente = deque(), iter(faltan)
+
+        def reponer() -> None:
+            while len(cola) < args.hilos * 3:
+                s = next(siguiente, None)
+                if s is None:
+                    return
+                cola.append(hilos.submit(bajar_sitio, sesion, mallas, s, huellas.get(s["properties"]["id"]), base, not args.sin_altura, not args.sin_guardar_fotos))
+
+        reponer()
+        while cola:
+            bajado = cola.popleft().result()
+            reponer()
+            try:
+                r = analizar(modelo, dispositivo, media, desv, bajado, huellas.get(bajado["sitio"]["properties"]["id"]), args.modelo, corte)
+            except Exception as e:                                  # un sitio raro no debe parar la noche
+                print("  fallo en", bajado["sitio"]["properties"]["id"], repr(e)[:200], flush=True)
+                r = None
+            if r is None:
+                fallos += 1
+            else:
+                (destino / f"{nombre_de(bajado['sitio'])}.json").write_text(json.dumps(r, separators=(",", ":")), encoding="utf-8")
                 hechos += 1
-            print(f"{hechos + fallos}/{len(faltan)} ({hechos} bien, {fallos} sin foto o con fallo) {time.time() - t0:.0f} s", flush=True)
-    empaquetar(base, datos)
+            if (hechos + fallos) % 20 == 0 or not cola:
+                va = time.time() - t0
+                queda = va / (hechos + fallos) * (len(faltan) - hechos - fallos)
+                print(f"{hechos + fallos}/{len(faltan)} ({hechos} bien, {fallos} sin foto o con fallo) {va:.0f} s; quedan unos {queda / 60:.0f} min", flush=True)
+    empaquetar(base, datos, args.modelo)
     print("FIN-DETECTAR", flush=True)
 
 
