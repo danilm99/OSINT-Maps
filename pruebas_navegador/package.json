@@ -1,0 +1,11 @@
+{
+  "name": "osintmaps-pruebas-navegador",
+  "private": true,
+  "description": "Bibliotecas que las pruebas sirven desde disco en vez de pedirlas a internet",
+  "dependencies": {
+      "@mdi/js": "^7.4.47",
+      "leaflet": "^1.9.4",
+      "leaflet.markercluster": "^1.5.3",
+      "maplibre-gl": "^5.24.1"
+  }
+}

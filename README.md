@@ -334,14 +334,19 @@ minuto. Lo que sí se puede es no esperar dos veces por lo mismo:
   de Google y de Esri (otras fechas), el satélite de ayer de todo el planeta
   (250 m, para ver humo, riadas o nieve), y en València ciudad los vuelos
   desde 1956 y los planos desde 1738 para comparar con cortina.
-- **3D**: el botón *3D* cambia el mapa por una vista en perspectiva con el
-  relieve, la foto aérea pegada encima y los edificios levantados con su
-  altura. Encima siguen los sitios, tus marcadores, lo cargado de las capas,
-  la ruta y tu posición, y al tocar un punto se abre su ficha. Se gira y se
-  inclina con el botón derecho (o con dos dedos). No es una maqueta
-  fotográfica como la de Google Earth: cada edificio es un prisma con la
-  altura que consta en OpenStreetMap. La biblioteca que lo dibuja (MapLibre)
-  pesa un megabyte y solo se descarga la primera vez que se pulsa el botón.
+- **3D**: el botón *3D* cambia el mapa por una vista en perspectiva. Encima
+  siguen los sitios, tus marcadores, lo cargado de las capas, la ruta y tu
+  posición, y al tocar un punto se abre su ficha. Se gira y se inclina con el
+  botón derecho (o con dos dedos). La biblioteca que lo dibuja (MapLibre) pesa
+  un megabyte y solo se descarga la primera vez que se pulsa el botón.
+- **3D real, en la provincia de València**: dentro del 3D, el botón *Real*
+  (encendido de entrada) pone la maqueta fotográfica del ICV, hecha con el
+  vuelo de 2025: edificios, árboles y taludes con su forma de verdad, como en
+  Google Earth. Es el mismo servicio público que usa el «Visor 3D GVA» y se
+  lee directamente, sin clave. Cada trozo que se ve son entre 0,3 y 2 MB:
+  con datos móviles conviene apagarla. Sin ella, o fuera de la provincia,
+  queda el relieve con la foto pegada y cada edificio como un prisma con la
+  altura que consta en OpenStreetMap.
 
 ### Cámaras
 
@@ -530,8 +535,12 @@ funciones cortas que hay debajo, y vuelve a ejecutar `buscar`.
 - Los buscadores, las rutas y OpenStreetMap son servidores públicos
   mantenidos por voluntarios: a ratos tardan o no contestan, y no están
   pensados para un uso masivo.
-- El 3D no es fotogramétrico: relieve, foto y prismas. La altura de un
-  edificio es la que consta en OpenStreetMap, que a veces falta.
+- La maqueta 3D real solo existe en la provincia de València y sale de un
+  vuelo vertical: las fachadas son aproximadas y lo que queda bajo un árbol o
+  un voladizo no se ve. Depende de un servidor del ICV que no promete nada:
+  si lo cambian, esa vista deja de salir y queda la de prismas. En el móvil
+  está sin probar a fondo. Fuera de la provincia, la altura de un edificio es
+  la que consta en OpenStreetMap, que a veces falta.
 
 ## Estructura del código
 
