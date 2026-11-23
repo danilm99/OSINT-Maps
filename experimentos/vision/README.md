@@ -70,7 +70,7 @@ real de edificios y árboles) y cubre la provincia entera. Las hojas miden unos
 200 m de lado y tienen pocos miles de triángulos, así que es ligera. Falta probar
 con qué biblioteca se pinta mejor en el visor y cómo va en el móvil.
 
-## 4. El detector entrenado (23/11/2026, a medias)
+## 4. El detector entrenado (23/11/2026)
 
 Lo que la prueba 2 no sacaba con reglas a mano se intenta con una red entrenada en la
 tarjeta gráfica del PC. La idea: OpenStreetMap ya tiene dibujados miles de caminos,
@@ -124,23 +124,70 @@ Todo corre en el PC, dentro de `cache/_vision` (entorno, fotos, modelos y result
 - El portátil en modo «equilibrado» deja la gráfica en unos 30 W: una vuelta de entrenamiento
   con 2.700 teselas son 2 minutos y medio.
 
-### Cifras
+### Cifras del primer modelo (`lineas-v1`)
 
-El primer entrenamiento (2.950 teselas) **se cortó en la vuelta 7 de 24** porque el PC se
-reinició. A esa altura, comparando con OSM en teselas apartadas y con 1,2 m de manga:
+Entrenado con 2.950 teselas, 24 vueltas, 58 minutos con la gráfica a 30 W. Examinado con
+510 teselas apartadas (ninguna vista al entrenar), comparando con OSM con 1,2 m de manga y
+con el corte que elige `calibrar.py`:
 
 | Clase | De lo que marca, coincide con OSM | De lo que hay en OSM, encuentra |
 |---|---|---|
-| Camino | 41 % | 71 % |
-| Muro | 41 % | 67 % |
-| Seto | 28 % | 36 % |
-| Valla | 20 % | 39 % |
-| Senda | 7 % | 20 % |
+| Carretera | 89 % | 88 % |
+| Edificio | 74 % | 92 % |
+| Camino | 59 % | 62 % |
+| Seto | 60 % | 60 % |
+| Muro | 54 % | 66 % |
+| Senda | 41 % | 34 % |
+| Valla | 25 % | 37 % |
+| Acequia | 16 % | 21 % |
+| **Cierre** (muro, valla o seto, sin distinguir) | 62 % | 70 % |
 
-Son cifras de un modelo a medio entrenar y contra unas etiquetas incompletas: sirven para
-saber que va en la dirección buena, no para fiarse. **Falta**: acabar el entrenamiento (ya con
-4.981 teselas y los cambios de arriba), mirar las hojas, pasar el detector por los 4.314
-candidatos y comprobar a ojo una muestra de lo que sale.
+Cómo leerlas:
+
+- Son contra OSM, que está incompleto: lo que el modelo ve y nadie ha dibujado cuenta como
+  fallo. La primera columna es un suelo, no la cifra real.
+- **Valla sale mal y «cierre» sale bien**: encuentra la barrera y falla al decir cuál es.
+- Mover el corte apenas cambia nada (el modelo responde casi siempre cerca de 0 o de 1): lo
+  que limita son las etiquetas, no el umbral.
+
+### Lo visto a ojo en sitios de verdad
+
+Con `ver_sitios.py`, sobre la foto de cada candidato:
+
+- **Caminos**: los traza bien y enteros; es lo más fiable. Las carreteras asfaltadas no se
+  pintan (salen por otra clase).
+- **Muros y vallas**: marca los cierres de naves, desguaces y corrales, a trozos. Muro y
+  valla se intercambian a menudo. Los quitamiedos de las autovías salen como valla. En casco
+  urbano marca muchos tramos cortos.
+- **Sendas**: pocas, salvo en monte bajo abierto (dunas, matorral), donde sí las sigue.
+- **«Casi nada en pie»** (menos del 15 % de la planta por encima de 2,5 m): de 12 mirados,
+  11 eran solares o losas vacías y 1 conservaba muros bajos sin techo. Es lo más sólido.
+- **Tapado por vegetación**: un contorno bajo un pinar salía como «en pie al 92 %» porque la
+  maqueta mide las copas. Con el 70 % o más de vegetación se dice que no se ve qué hay.
+- **«Con vegetación dentro»** se pasa de listo: una masía con patio ajardinado y tejados
+  enteros sale así. Hace falta medir la vegetación solo en lo que levanta del suelo.
+
+### Tiempos y tamaños (portátil con RTX 4060 a 30 W)
+
+- Entrenar: 2 min 23 s por vuelta con 2.664 teselas.
+- Detectar: entre 0,9 y 1,6 s por sitio (dos fotos, la altura y la red); los 4.314, hora y media.
+- Fotos guardadas: 1 MB por sitio. Líneas publicadas: unos 2 KB por sitio.
+
+### Tropiezos de la primera pasada (ya arreglados)
+
+- Con una «ó» en la cabecera `User-Agent`, el servidor de la maqueta 3D contesta con un 500:
+  todo salía sin altura y el fallo se tragaba en silencio.
+- Los sitios de provincias vecinas (OSM y Wikidata se buscan por rectángulo) reciben una
+  imagen en blanco: ahora se apuntan y no se vuelven a pedir.
+- El PC se reinició de madrugada por una actualización de Windows. No se perdió nada, pero
+  desde entonces el entrenamiento y el detector retoman donde iban.
+
+### Siguiente modelo
+
+`entrenar.py` ya no castiga marcar un cierre donde OSM calla ni marcar camino junto a una
+senda, y hay 4.981 teselas en vez de 2.950 (un 30 % junto a los candidatos). Está sin
+entrenar: `cadena.py --modelo lineas-v2` lo hace todo seguido. Las fotos ya están guardadas,
+así que volver a pasar el detector cuesta solo el tiempo de gráfica.
 
 ## Cómo se hicieron las pruebas de los apartados 1 y 2
 

@@ -24,7 +24,7 @@ const CLASES_VISION = {
   senda: { nombre: "Senda", color: "#6fd6ff", trazo: "2 7" },
 };
 const ESTADO_VISION = {
-  solar: "Sin nada en pie",
+  solar: "Casi nada en pie",
   vegetacion: "Tapado por árboles o maleza",
   ruina_vegetacion: "En pie, con vegetación dentro",
   tejado: "En pie y con cubierta",
@@ -64,7 +64,7 @@ cuandoVision.then((r) => {
 });
 
 /* Para el filtro «Desde el aire» y para la lista. De un sitio sin veredicto no se sabe nada:
-   «ocultar lo derribado» lo deja pasar y los «solo…» no. */
+   «ocultar lo que ya no está en pie» lo deja pasar y los «solo…» no. */
 const estadoVision = (c) => (revisionAerea && revisionAerea.sitios[c.id] ? revisionAerea.sitios[c.id].estado : null) || null;
 function pasaVision(c, modo) {
   const e = estadoVision(c);
@@ -74,7 +74,7 @@ function pasaVision(c, modo) {
   if (modo === "ruina") return e === "ruina" || e === "ruina_vegetacion";
   return true;
 }
-const ETIQUETA_VISION = { solar: "sin nada en pie", vegetacion: "tapado por vegetación", ruina_vegetacion: "en pie, con vegetación", tejado: "en pie, con cubierta", ruina: "en pie a medias" };
+const ETIQUETA_VISION = { solar: "casi nada en pie", vegetacion: "tapado por vegetación", ruina_vegetacion: "en pie, con vegetación", tejado: "en pie, con cubierta", ruina: "en pie a medias" };
 const etiquetaVision = (c) => ETIQUETA_VISION[estadoVision(c)] || "";
 
 /* Las líneas de un sitio vienen en poco sitio: cada coordenada en millonésimas de grado contadas

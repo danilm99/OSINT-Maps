@@ -422,9 +422,9 @@ bloque **Visto desde el aire** con:
   (también en 3D): muros en naranja, vallas en amarillo a trazos, setos en
   verde, caminos en blanco y sendas en azul claro a puntos.
 
-En la lista, cada sitio dice lo que se ve («sin nada en pie», «en pie, con
+En la lista, cada sitio dice lo que se ve («casi nada en pie», «en pie, con
 vegetación»...) y en *Filtros y orden* aparece **Desde el aire**, que permite
-ocultar lo que ya está derribado.
+ocultar lo que ya no está en pie.
 
 Esto no lo hace `osintmaps buscar`: necesita una tarjeta gráfica y es un
 experimento aparte (`experimentos/vision/`, con su README). Deja en `datos/` un
@@ -433,11 +433,23 @@ demás. Los resultados van ligados a la foto usada: mientras el ICV no publique
 otro vuelo, no hay que recalcular nada.
 
 Cuánto fiarse: **es una pista, no un dato.** El detector aprende de lo dibujado
-en OpenStreetMap, que es incompleto; confunde bordes de bancal con muros, no ve
-las vallas de alambre fino y pierde los caminos bajo los árboles. Lo de «sin
-nada en pie» sale de una regla ajustada con ocho sitios. La propia ficha enseña
-lo que acertó el detector al examinarlo, clase por clase. Solo cubre la
-provincia de València (la foto y la maqueta son del ICV).
+en OpenStreetMap, que es incompleto.
+
+- Los **caminos** son lo que mejor saca.
+- De los **cierres** acierta dónde hay uno bastante más que cuál es: confunde a
+  menudo muro con valla, y los quitamiedos de las autovías le salen como vallas.
+- **Sendas** encuentra pocas (mejor en monte bajo abierto), y bajo los árboles no
+  ve nada.
+- **«Casi nada en pie»** sale de la altura de la maqueta 3D y es lo más sólido:
+  de doce sitios así mirados uno a uno, once eran solares o losas vacías y uno
+  conservaba muros bajos.
+- Los demás veredictos («con cubierta», «con vegetación dentro») son más toscos:
+  un patio con plantas cuenta como vegetación dentro y un árbol cuenta como algo
+  en pie.
+
+La propia ficha enseña lo que acertó el detector al examinarlo, clase por clase.
+Solo cubre la provincia de València (la foto y la maqueta son del ICV); los
+sitios de provincias vecinas se quedan sin este bloque.
 
 ### En el móvil, sin el ordenador
 
