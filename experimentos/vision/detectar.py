@@ -47,8 +47,12 @@ a_utm = Transformer.from_crs(4326, 25830, always_xy=True).transform
 a_geo = Transformer.from_crs(25830, 4326, always_xy=True).transform
 
 
-def pedir_foto(sesion: requests.Session, capa: str, x0: float, y0: float, copia: Path | None = None) -> np.ndarray | None:
-    """Una ventana de la foto. Si se da `copia`, se lee de ahí si ya está y se guarda ahí si no."""
+FUERA = "fuera"                                  # lo que devuelve pedir_foto cuando la foto no cubre ese sitio
+
+
+def pedir_foto(sesion: requests.Session, capa: str, x0: float, y0: float, copia: Path | None = None):
+    """Una ventana de la foto, o FUERA si la foto no llega hasta ahí (el servicio devuelve entonces una imagen
+    en blanco), o None si la red ha fallado. Si se da `copia`, se lee de ahí si ya está y se guarda ahí si no."""
     if copia is not None and copia.exists():
         img = cv2.imdecode(np.fromfile(str(copia), np.uint8), cv2.IMREAD_COLOR)
         if img is not None and img.shape[:2] == (VENTANA, VENTANA):
@@ -61,7 +65,9 @@ def pedir_foto(sesion: requests.Session, capa: str, x0: float, y0: float, copia:
             if r.status_code == 200 and r.headers.get("Content-Type", "").startswith("image/"):
                 img = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_COLOR)
                 if img is not None:
-                    if copia is not None and img.std() >= 4:           # una ventana en blanco (fuera de la foto) no se guarda
+                    if img.std() < 4:                                  # toda del mismo color: ahí no hay foto
+                        return FUERA
+                    if copia is not None:
                         provisional = copia.with_suffix(".tmp")
                         provisional.write_bytes(r.content)
                         provisional.replace(copia)
@@ -244,10 +250,11 @@ def bajar_sitio(sesion, mallas, sitio: dict, huella, base: Path, con_altura: boo
     try:
         copia = (lambda capa: base / "ventanas" / IMAGEN / f"{nombre_de(sitio)}_{capa}.jpg") if guardar_fotos else (lambda capa: None)
         salida["rgb"] = pedir_foto(sesion, CAPAS["rgb"], x0, y0, copia("rgb"))
-        salida["irg"] = pedir_foto(sesion, CAPAS["irg"], x0, y0, copia("irg"))
+        if isinstance(salida["rgb"], np.ndarray):                      # si no hay foto en color, ni se pide lo demás
+            salida["irg"] = pedir_foto(sesion, CAPAS["irg"], x0, y0, copia("irg"))
     except Exception as e:                        # disco lleno, imagen rota…: el sitio se queda sin hacer y se sigue
         print("  fallo al bajar", sitio["properties"]["id"], repr(e)[:200], flush=True)
-    if con_altura and huella is not None:
+    if con_altura and huella is not None and isinstance(salida["irg"], np.ndarray):
         apunte = base / "alturas" / f"{nombre_de(sitio)}.json"
         try:
             if apunte.exists():
@@ -287,7 +294,7 @@ def predecir(modelo, dispositivo, rgb: np.ndarray, irg: np.ndarray, media, desv)
 
 def analizar(modelo, dispositivo, media, desv, bajado: dict, huella, nombre_modelo: str, corte: dict) -> dict | None:
     sitio, x0, y0 = bajado["sitio"], bajado["x0"], bajado["y0"]
-    if bajado["rgb"] is None or bajado["irg"] is None or bajado["rgb"].std() < 4:
+    if not isinstance(bajado["rgb"], np.ndarray) or not isinstance(bajado["irg"], np.ndarray) or bajado["rgb"].std() < 4:
         return None
     prob = predecir(modelo, dispositivo, bajado["rgb"], bajado["irg"], media, desv)
     paso = PIXEL * 2
@@ -354,7 +361,11 @@ def empaquetar(base: Path, datos: Path, modelo: str) -> None:
     destino.mkdir(parents=True, exist_ok=True)
     resumen, peso, nuevos = {}, 0, set()
     for f in sorted(origen.glob("*.json")):
-        r = json.loads(f.read_text(encoding="utf-8"))
+        try:
+            r = json.loads(f.read_text(encoding="utf-8"))
+        except ValueError:                            # a medio escribir por un corte: se rehará en la siguiente pasada
+            print("  ilegible, se salta:", f.name, flush=True)
+            continue
         r["estado"] = veredicto(r)                    # con la regla de ahora: afinarla no obliga a volver a pasar el detector
         resumen[r["id"]] = {k: r[k] for k in ("estado", "altura_m", "en_pie_pct", "vegetacion_pct", "cerrado_pct", "accesos", "largo_m") if r.get(k) not in (None, {})}
         texto = json.dumps(compacto(r), separators=(",", ":"))
@@ -410,7 +421,9 @@ def main() -> None:
     if args.cuantos:
         sitios = sitios[:args.cuantos]
     huellas = {f["properties"]["id"]: shape(f["geometry"]) for f in json.loads((datos / "huellas.geojson").read_text(encoding="utf-8"))["features"]}
-    faltan = [s for s in sitios if not (destino / f"{nombre_de(s)}.json").exists()]
+    # Los sitios que caen fuera de la foto (los hay: OSM y Wikidata se buscan por rectángulo y entran de provincias
+    # vecinas) dejan un fichero vacío `.fuera`, para no volver a pedirlos cada vez que se retoma.
+    faltan = [s for s in sitios if not (destino / f"{nombre_de(s)}.json").exists() and not (destino / f"{nombre_de(s)}.fuera").exists()]
     print(f"{len(sitios)} sitios, {len(faltan)} por hacer | {dispositivo} | modelo de la vuelta {guardado.get('vuelta')}", flush=True)
     sesion = requests.Session()
     # Sin acentos: con una «ó» en esta cabecera el servidor de la maqueta 3D contesta con un error 500.
@@ -445,13 +458,18 @@ def main() -> None:
                 r = None
             if r is None:
                 fallos += 1
+                if any(isinstance(bajado[k], str) and bajado[k] == FUERA for k in ("rgb", "irg")):
+                    (destino / f"{nombre_de(bajado['sitio'])}.fuera").touch()
             else:
-                (destino / f"{nombre_de(bajado['sitio'])}.json").write_text(json.dumps(r, separators=(",", ":")), encoding="utf-8")
+                # A un fichero provisional y luego el nombre bueno: si se corta a media escritura no queda un JSON roto.
+                provisional = destino / f"{nombre_de(bajado['sitio'])}.tmp"
+                provisional.write_text(json.dumps(r, separators=(",", ":")), encoding="utf-8")
+                provisional.replace(destino / f"{nombre_de(bajado['sitio'])}.json")
                 hechos += 1
             if (hechos + fallos) % 20 == 0 or not cola:
                 va = time.time() - t0
                 queda = va / (hechos + fallos) * (len(faltan) - hechos - fallos)
-                print(f"{hechos + fallos}/{len(faltan)} ({hechos} bien, {fallos} sin foto o con fallo, {sin_altura} sin altura) {va:.0f} s; quedan unos {queda / 60:.0f} min", flush=True)
+                print(f"{hechos + fallos}/{len(faltan)} ({hechos} bien, {fallos} fuera de la foto o con fallo, {sin_altura} sin altura) {va:.0f} s; quedan unos {queda / 60:.0f} min", flush=True)
     empaquetar(base, datos, args.modelo)
     print("FIN-DETECTAR", flush=True)
 

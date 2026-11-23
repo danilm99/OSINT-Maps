@@ -168,3 +168,18 @@ def test_de_un_sitio_a_los_ficheros_de_la_web(D, tmp_path, monkeypatch):
     assert sorted(p.name for p in (base / "ventanas" / IMAGEN).iterdir()) == ["cat-PRUEBA1_irg.jpg", "cat-PRUEBA1_rgb.jpg"]
     D.bajar_sitio(Sesion(), {}, sitio, huella, base, True, False)                       # sin guardar copia, vuelve a pedir
     assert Sesion.veces == 4
+
+    # Un sitio fuera de la foto: el servicio devuelve una imagen en blanco. No se pide el infrarrojo ni la altura,
+    # y no se guarda nada.
+    class SesionFuera:
+        veces = 0
+
+        def get(self, url, params=None, timeout=None):
+            SesionFuera.veces += 1
+            return Respuesta(np.full((V, V, 3), 255, np.uint8))
+
+    lejos = {"type": "Feature", "geometry": {"type": "Point", "coordinates": [-0.27, 38.77]}, "properties": {"id": "wd-LEJOS"}}
+    fuera = D.bajar_sitio(SesionFuera(), {}, lejos, huella, base, True, True)
+    assert fuera["rgb"] == D.FUERA and fuera["irg"] is None and fuera["altura"] is None and SesionFuera.veces == 1 and len(medidas) == 1
+    assert D.analizar(None, None, None, None, fuera, None, "m", corte) is None
+    assert not list((base / "ventanas" / IMAGEN).glob("wd-LEJOS*"))
