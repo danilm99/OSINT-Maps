@@ -295,6 +295,9 @@ def repasar(sesion: requests.Session, candidatos: Iterable[Candidato], ruta: Pat
     tanda = pendientes if maximo is None else pendientes[:max(0, maximo)]
     hechos = fallos = 0
     bloqueado = False
+    # Varios sitios pueden llamarse igual y estar en el mismo municipio (los tramos de una vía abandonada):
+    # la misma pregunta no se hace dos veces, ni en esta tanda ni si ya se hizo hace poco.
+    ya_preguntado = {e["consulta"]: e["noticias"] for e in sitios.values() if e.get("consulta") and _reciente(e, dias, hoy) and not rehacer}
     for c in tanda:
         nombre = nombre_de_busqueda(c.nombre, c.wikipedia)
         municipio = c.municipio or (sitios.get(c.id) or {}).get("municipio") or municipio_de(sesion, c.lat, c.lon) or ""
@@ -302,6 +305,11 @@ def repasar(sesion: requests.Session, candidatos: Iterable[Candidato], ruta: Pat
         # Un nombre de palabras corrientes y sin municipio que lo acote, o que es el del municipio, no merece la pregunta.
         if se_puede_buscar(nombre, municipio):
             entrada["consulta"] = consulta_de(nombre, municipio)
+            if entrada["consulta"] in ya_preguntado:
+                entrada["noticias"] = [dict(n) for n in ya_preguntado[entrada["consulta"]]]
+                sitios[c.id] = entrada
+                hechos += 1
+                continue
             try:
                 entrada["noticias"] = buscar_noticias(sesion, nombre, municipio)
             except Bloqueado as exc:
@@ -318,6 +326,7 @@ def repasar(sesion: requests.Session, candidatos: Iterable[Candidato], ruta: Pat
                 dormir(pausa)
                 continue
             fallos = 0
+            ya_preguntado[entrada["consulta"]] = entrada["noticias"]
             dormir(pausa)
         sitios[c.id] = entrada
         hechos += 1

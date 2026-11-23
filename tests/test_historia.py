@@ -187,6 +187,20 @@ def test_repasar_busca_por_orden_de_nota_y_se_puede_repetir(tmp_path):
     assert "a" not in json.loads(ruta.read_text(encoding="utf-8"))["sitios"]
 
 
+def test_la_misma_pregunta_no_se_hace_dos_veces(tmp_path):
+    ruta, pausas = tmp_path / "historia.json", []
+    canal = rss(("La vía de Baeza a Utiel, abandonada", "Las Provincias", "Wed, 06 May 2026 07:00:00 GMT", "https://news.google.com/rss/articles/v"))
+    red = Sesion(canales={"Baeza": canal})
+    tramos = [sitio(f"t{k}", "Baeza-Utiel", 60 - k, "Venta del Moro") for k in range(4)] + [sitio("u", "Baeza-Utiel", 10, "Requena")]
+    r = historia.repasar(red, tramos, ruta, pausa=5, decir=lambda t: None, dormir=pausas.append, hoy=date(2026, 11, 23))
+    assert r["consultados"] == 5 and r["con_noticias"] == 5
+    assert len(red.pedidas) == 2 and pausas == [5, 5]      # una vez por cada pareja de nombre y municipio, y sin esperar por las repetidas
+    # Un tramo nuevo, otro día: aprovecha lo que ya se preguntó hace poco para el mismo nombre y municipio.
+    tramos.append(sitio("t9", "Baeza-Utiel", 5, "Venta del Moro"))
+    historia.repasar(red, tramos, ruta, pausa=5, decir=lambda t: None, dormir=pausas.append, hoy=date(2026, 11, 25))
+    assert len(red.pedidas) == 2 and json.loads(ruta.read_text(encoding="utf-8"))["sitios"]["t9"]["noticias"][0]["medio"] == "Las Provincias"
+
+
 def test_repasar_se_detiene_y_guarda_cuando_google_bloquea(tmp_path):
     ruta, avisos = tmp_path / "historia.json", []
     candidatos = [sitio("b", "Castell del Borró", 70, "Ròtova"), sitio("d", "Molino Barrioso", 50, "Castielfabib"), sitio("f", "Mas del Frare", 40, "Chelva")]
