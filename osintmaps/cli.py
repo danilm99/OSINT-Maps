@@ -5,6 +5,7 @@
     osintmaps capas --provincia 46          refresca las capas extra (Lista Roja, DGT, subastas)
     osintmaps miniaturas --top 50           baja ortofotos de los mejores
     osintmaps servir                        abre el mapa en el navegador
+    osintmaps servir --pulso                además va guardando el histórico de la ciudad
     osintmaps paquete                       mapa en un solo HTML, para llevar
 """
 
@@ -387,6 +388,7 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
     """
 
     carpeta_datos: Path = Path("datos")
+    pulso = None        # el histórico de la ciudad (osintmaps.pulso.servidor.Pulso), si lo hay
 
     def translate_path(self, path: str) -> str:
         limpio = path.split("?", 1)[0].split("#", 1)[0]
@@ -542,6 +544,22 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
             return
         self._relevo(f"ficha:{url}", url, 86400, lambda resp: json.dumps(listaroja.detalle(resp.text)).encode("utf-8"))
 
+    def _pulso(self, ruta: str) -> None:
+        """El histórico de la ciudad. Un trozo grande son cientos de KB de cifras: va comprimido."""
+        from .pulso.servidor import atender
+        codigo, cuerpo = atender(self.pulso, ruta, urlparse(self.path).query)
+        comprimir = "gzip" in self.headers.get("Accept-Encoding", "") and len(cuerpo) >= 1024
+        if comprimir:
+            cuerpo = gzip.compress(cuerpo, compresslevel=5)
+        self._sin_guardar = True
+        self.send_response(codigo)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        if comprimir:
+            self.send_header("Content-Encoding", "gzip")
+        self.send_header("Content-Length", str(len(cuerpo)))
+        self.end_headers()
+        self.wfile.write(cuerpo)
+
     def do_GET(self) -> None:
         self._sin_guardar = False
         ruta = urlparse(self.path).path
@@ -558,6 +576,9 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
             return
         if ruta == "/vivo/ficha":
             self._ficha_externa()
+            return
+        if ruta.startswith("/vivo/pulso/"):
+            self._pulso(ruta)
             return
         # Si el fichero aún no existe se responde con un objeto vacío en vez de un
         # 404: así el visor sabe que puede guardar aquí.
@@ -648,8 +669,30 @@ def _ip_local() -> str | None:
         return None
 
 
+def _arrancar_pulso(args: argparse.Namespace):
+    """Pone en marcha el histórico de la ciudad si se ha pedido (--pulso); si no, pero ya hay uno
+    guardado, lo abre solo para consultarlo."""
+    from .pulso.servidor import Pulso
+    carpeta = Path(args.datos).resolve()
+    if not getattr(args, "pulso", False):
+        return Pulso.si_hay(carpeta)
+    carpeta.mkdir(parents=True, exist_ok=True)
+    pulso = Pulso(carpeta, dias_valores=args.guardar_dias)
+    pulso.arrancar()
+    _decir("Pulso: guardando el histórico de la ciudad mientras esto esté abierto (datos/pulso.sqlite).")
+    if args.publicar_datos is not None:
+        try:
+            publicador = pulso.publicar_cada(args.publicar_datos, args.repo, Path("cache") / "pulso-web", Path.cwd())
+        except Exception as exc:  # noqa: BLE001  (sin git o sin repositorio: el mapa funciona igual, sin publicar)
+            _decir(f"Pulso: no se publicará en la web ({exc}).")
+        else:
+            _decir(f"Pulso: la web recibirá los datos al minuto y medio de arrancar y luego cada {publicador.minutos:g} minutos.")
+    return pulso
+
+
 def cmd_servir(args: argparse.Namespace) -> int:
     _Servidor.carpeta_datos = Path(args.datos).resolve()
+    _Servidor.pulso = _arrancar_pulso(args)
     manejador = functools.partial(_Servidor, directory=str(CARPETA_WEB))
     # Por defecto, 127.0.0.1: el mapa solo se ve desde este ordenador. Con --red
     # se abre a la red local para usarlo desde el móvil en la misma wifi.
@@ -667,6 +710,10 @@ def cmd_servir(args: argparse.Namespace) -> int:
             servidor.serve_forever()
         except KeyboardInterrupt:
             _decir("\nParado.")
+        finally:
+            if _Servidor.pulso is not None:
+                _Servidor.pulso.parar()
+                _Servidor.pulso = None
     return 0
 
 
@@ -714,7 +761,7 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
     if hay and "<!--/PRONTO-->" in resto:
         pagina = antes + resto.split("<!--/PRONTO-->", 1)[1]
     # El resto del programa del visor va en un fichero aparte: dentro también.
-    for fichero in ("iconos.js", "capas.js", "herramientas.js", "rutas.js", "tresd.js"):
+    for fichero in ("iconos.js", "capas.js", "herramientas.js", "rutas.js", "tresd.js", "pulso.js"):
         etiqueta = f'<script src="{fichero}"></script>'
         if etiqueta in pagina:
             codigo = (CARPETA_WEB / fichero).read_text(encoding="utf-8").replace("</script", "<\\/script")
@@ -727,7 +774,7 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
 # --------------------------------------------------------------------------
 
 # Lo que se copia de la carpeta de datos a la web. Las notas (marcas y marcadores propios) solo si se pide.
-DATOS_DEL_SITIO = ("candidatos.geojson", "huellas.geojson", "camaras.geojson", *(f"capa-{n}.geojson" for n in CAPAS_EXTRA))
+DATOS_DEL_SITIO = ("candidatos.geojson", "huellas.geojson", "camaras.geojson", *(f"capa-{n}.geojson" for n in CAPAS_EXTRA), "pulso.json")
 NOTAS_DEL_SITIO = tuple(LIMPIADORES)
 
 
@@ -882,6 +929,12 @@ def crear_parser() -> argparse.ArgumentParser:
     p.add_argument("--datos", default="datos")
     p.add_argument("--sin-navegador", action="store_true")
     p.add_argument("--red", action="store_true", help="lo abre a la red local, para usarlo desde el móvil")
+    p.add_argument("--pulso", action="store_true",
+                   help="va guardando el histórico de la ciudad (bicis, aparcamientos, tráfico, aire, aviones, trenes) mientras esté abierto")
+    p.add_argument("--publicar-datos", type=float, nargs="?", const=15.0, default=None, metavar="MINUTOS",
+                   help="con --pulso: sube a la web el resumen de las últimas horas al arrancar y cada MINUTOS (15 si no se dice; mínimo 10)")
+    p.add_argument("--guardar-dias", type=int, default=90, help="con --pulso: días que se conserva el detalle punto a punto (90; 0 = siempre)")
+    p.add_argument("--repo", default=None, help="con --publicar-datos: dirección del repositorio (por defecto, el «origin» de esta carpeta)")
     p.set_defaults(func=cmd_servir)
 
     p = sub.add_parser("sitio", help="deja el mapa como web estática en una carpeta, para alojarla donde quieras")
