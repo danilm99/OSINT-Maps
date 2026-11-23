@@ -557,7 +557,7 @@ def sospecha(r: dict[str, np.ndarray], tejado: dict) -> dict | None:
     return None
 
 
-CLASES_POSIBLE = {"caido": "Ha perdido el tejado y queda en pie a medias", "ruina_vieja": "Sin tejado en ninguna foto y en pie solo a medias",
+CLASES_POSIBLE = {"caido": "Ha perdido el tejado y algo queda en pie (ruina, derribo a medias u obra)", "ruina_vieja": "Sin tejado en ninguna foto y en pie solo a medias",
                   "vegetacion": "El tejado ha dejado de verse y dentro crece vegetación", "derribado": "Derribado", "sin_comprobar": "Ha dejado de verse el tejado (sin comprobar en 3D)",
                   "vegetacion_sola": "Vegetación dentro (sin detector de tejado)"}
 
@@ -714,7 +714,9 @@ def capa(args) -> None:
     rasgos_geo, vistos = [], set()
     for etiqueta in args.etiqueta.split(","):
         for s in json.loads((base / f"posibles-{etiqueta}.json").read_text(encoding="utf-8")):
-            if s["ref"] in vistos or s["nota"] < args.nota_minima or (s["clase"] == "derribado" and not args.con_derribados):
+            # Al mapa van los que han perdido el tejado y siguen, enteros o a medias, en pie. Los derribados (ya no hay nada que ver)
+            # y los que nunca tuvieron tejado a la vista (casi siempre, un contorno de Catastro mal puesto) solo si se piden.
+            if s["ref"] in vistos or s["nota"] < args.nota_minima or (s["clase"] == "derribado" and not args.con_derribados) or (s["clase"] == "ruina_vieja" and not args.con_dudosos):
                 continue
             vistos.add(s["ref"])
             sitio = (s.get("direccion") or "").split(" (")[0].strip().title()
@@ -948,6 +950,7 @@ def main() -> None:
     ap.add_argument("--direcciones", type=int, default=0, help="pide a Catastro la dirección de los primeros N")
     ap.add_argument("--nota-minima", type=float, default=12.0, help="capa: nota a partir de la cual un posible entra en el mapa")
     ap.add_argument("--con-derribados", action="store_true", help="capa: incluir también los que la maqueta 3D da por derribados")
+    ap.add_argument("--con-dudosos", action="store_true", help="capa: incluir también los que nunca tuvieron tejado a la vista (suelen ser contornos de Catastro mal puestos)")
     ap.add_argument("--modelo", default="lineas-v1", help="tejados: el detector entrenado que se usa")
     ap.add_argument("--muestra", type=int, default=150, help="tejados: cuántos edificios corrientes mirar además, como referencia")
     ap.add_argument("--cpu", action="store_true", help="tejados: sin tarjeta gráfica")

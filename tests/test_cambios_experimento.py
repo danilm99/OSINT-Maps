@@ -213,7 +213,7 @@ def municipio(tmp_path):
 def _args(carpeta, **mas):
     base = dict(carpeta=str(carpeta / "vision"), catastro=str(carpeta / "catastro"), datos=str(carpeta / "datos"), municipios="46999", etiqueta="prueba",
                 anios=",".join(str(a) for a in range(2017, 2026)), hilos=2, paso=0.5, min_superficie=60.0, max_vecinos=12, todos=False, guardar_fotos=False, rehacer=False,
-                direcciones=0, alturas=0, cuantos=10, nota_minima=12.0, con_derribados=False, sin_tejados=False)
+                direcciones=0, alturas=0, cuantos=10, nota_minima=12.0, con_derribados=False, con_dudosos=False, sin_tejados=False)
     base.update(mas)
     return types.SimpleNamespace(**base)
 
@@ -360,10 +360,18 @@ def test_puntuar_con_tejados_y_maqueta(K, municipio, monkeypatch, capsys):
     K.capa(args)
     (rasgo,) = json.loads((municipio / "datos" / "capa-posibles.geojson").read_text(encoding="utf-8"))["features"]      # los derribados no van al mapa…
     p = rasgo["properties"]
-    assert p["clase"] == "caido" and p["parece"] == "Ha perdido el tejado y queda en pie a medias" and p["tejado"].startswith("2017: 90 %") and p["tejado"].endswith("2025: 5 %")
+    assert p["clase"] == "caido" and p["parece"] == "Ha perdido el tejado y algo queda en pie (ruina, derribo a medias u obra)" and p["tejado"].startswith("2017: 90 %") and p["tejado"].endswith("2025: 5 %")
     assert p["motivos"].startswith("Tenía tejado (90 % del contorno)") and "caído a medias o en obras." in p["motivos"]
     K.capa(_args(municipio, todos=True, con_derribados=True))         # …salvo que se pidan
     assert [f["properties"]["clase"] for f in json.loads((municipio / "datos" / "capa-posibles.geojson").read_text(encoding="utf-8"))["features"]] == ["caido", "derribado"]
+    # Los que nunca tuvieron tejado a la vista tampoco van al mapa si no se piden: casi siempre son contornos mal puestos.
+    ruta = municipio / "vision" / "cambios" / "posibles-prueba.json"
+    lista = json.loads(ruta.read_text(encoding="utf-8"))
+    ruta.write_text(json.dumps(lista + [{**lista[0], "ref": "0009999YJ0000X", "clase": "ruina_vieja", "nota": 45.0}]), encoding="utf-8")
+    K.capa(args)
+    assert len(json.loads((municipio / "datos" / "capa-posibles.geojson").read_text(encoding="utf-8"))["features"]) == 1
+    K.capa(_args(municipio, todos=True, con_dudosos=True))
+    assert [f["properties"]["clase"] for f in json.loads((municipio / "datos" / "capa-posibles.geojson").read_text(encoding="utf-8"))["features"]] == ["caido", "ruina_vieja"]
     # Y sin fiarse del detector de tejado, la misma tanda se puntúa solo con la vegetación (aquí no hay ninguna: nada).
     K.puntuar(_args(municipio, todos=True, sin_tejados=True))
     assert json.loads((municipio / "vision" / "cambios" / "posibles-prueba.json").read_text(encoding="utf-8")) == []
