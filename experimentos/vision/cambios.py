@@ -548,10 +548,15 @@ def hojas(args) -> None:
     """Cada fila es un edificio; cada columna, un año. El contorno de Catastro va en magenta."""
     base = Path(args.carpeta) / "cambios"
     posibles = json.loads((base / f"{args.lista}-{args.etiqueta}.json").read_text(encoding="utf-8"))
+    universo = {e["ref"]: e for e in cargar_universo(args)}
+    for ref in (args.refs.split(",") if args.refs else []):           # pedidos a mano que no están en la lista: se enseñan igual
+        if ref in universo and all(p["ref"] != ref for p in posibles):
+            e = universo[ref]
+            lon, lat = a_geo(e["x"], e["y"])
+            posibles.append({"ref": ref, "nota": 0, "uso": e["uso"], "area": e["area"], "lat": round(lat, 6), "lon": round(lon, 6), "motivos": [f"sin motivo; Catastro: {e['estado']}"]})
     if args.refs:
         quiero = args.refs.split(",")
         posibles = sorted((p for p in posibles if p["ref"] in quiero), key=lambda p: quiero.index(p["ref"]))
-    universo = {e["ref"]: e for e in cargar_universo(args)}
     anios = [int(a) for a in args.anios_hoja.split(",")]
     sesion = requests.Session()
     sesion.headers["User-Agent"] = AGENTE
@@ -591,7 +596,7 @@ def hojas(args) -> None:
             sin_tildes = " | ".join(x for x in (p.get("direccion"), "; ".join(p["motivos"])) if x).translate(str.maketrans("áéíóúñÁÉÍÓÚÑ", "aeiounAEIOUN")).encode("ascii", "replace").decode()
             cv2.putText(rotulo, sin_tildes[:175], (4, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
             filas += [rotulo, fila]
-        salida = destino / f"cambios-{args.etiqueta}-{args.lista}-{args.desde + n + 1:03d}.jpg"
+        salida = destino / f"cambios-{args.etiqueta}-{args.nombre or args.lista}-{args.desde + n + 1:03d}.jpg"
         cv2.imencode(".jpg", np.vstack(filas), [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tofile(salida)
         print(" ", salida, flush=True)
     print("FIN-HOJAS", flush=True)
@@ -612,7 +617,7 @@ def main() -> None:
     ap.add_argument("--rehacer", action="store_true", help="vuelve a medir todo (si hay fotos guardadas, sin bajarlas otra vez)")
     ap.add_argument("--direcciones", type=int, default=0, help="pide a Catastro la dirección de los primeros N")
     ap.add_argument("--cuantos", type=int, default=40); ap.add_argument("--desde", type=int, default=0); ap.add_argument("--filas", type=int, default=6)
-    ap.add_argument("--lista", default="posibles", choices=("posibles", "todos")); ap.add_argument("--anios-hoja", default="2017,2019,2021,2023,2025"); ap.add_argument("--refs", default="")
+    ap.add_argument("--lista", default="posibles", choices=("posibles", "todos")); ap.add_argument("--anios-hoja", default="2017,2019,2021,2023,2025"); ap.add_argument("--refs", default=""); ap.add_argument("--nombre", default="", help="nombre de las hojas")
     args = ap.parse_args()
     {"medir": medir, "puntuar": puntuar, "hojas": hojas}[args.paso_a_dar](args)
 
