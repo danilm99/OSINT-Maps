@@ -54,6 +54,12 @@ def test_las_clases_parecidas_se_trazan_juntas(D):
     prob = _lienzo(D, 1024)
     _raya(prob, "muro", (100, 300), (500, 300), 3, 0.8); _raya(prob, "valla", (300, 300), (307, 300), 3, 0.95)
     assert _resumen(D, prob, corte) == [("muro", 119)]
+    # Lo mismo si el tramo corto de otra cosa cae al principio de la línea, o al principio y al final.
+    prob = _lienzo(D, 1024)
+    _raya(prob, "muro", (100, 400), (500, 400), 3, 0.8); _raya(prob, "valla", (100, 400), (108, 400), 3, 0.95)
+    assert _resumen(D, prob, corte) == [("muro", 119)]
+    _raya(prob, "seto", (492, 400), (500, 400), 3, 0.95)
+    assert _resumen(D, prob, corte) == [("muro", 119)]
     # Mitad muro y mitad valla, sesenta metros de cada: dos líneas.
     prob = _lienzo(D, 1024)
     _raya(prob, "muro", (100, 600), (300, 600), 3, 0.8); _raya(prob, "valla", (300, 600), (500, 600), 3, 0.8)

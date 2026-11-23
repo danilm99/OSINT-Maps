@@ -26,6 +26,7 @@ import argparse
 import json
 import math
 import time
+import traceback
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -153,10 +154,11 @@ def lineas_de(prob: np.ndarray, corte: dict) -> list[tuple[str, float, np.ndarra
         k = 0
         while len(tramos) > 1 and k < len(tramos):                 # los tramos cortos se funden con su vecino
             if tramos[k][1] - tramos[k][0] < ancho:
+                corto = tramos.pop(k)
                 if k:
-                    tramos[k - 1][1] = tramos.pop(k)[1]
+                    tramos[k - 1][1] = corto[1]             # se lo queda el tramo anterior
                 else:
-                    tramos[1][0] = tramos.pop(0)[0]
+                    tramos[0][0] = corto[0]                 # era el primero: se lo queda el siguiente
                 k = 0
             else:
                 k += 1
@@ -427,7 +429,8 @@ def main() -> None:
             try:
                 r = analizar(modelo, dispositivo, media, desv, bajado, huellas.get(bajado["sitio"]["properties"]["id"]), args.modelo, corte)
             except Exception as e:                                  # un sitio raro no debe parar la noche
-                print("  fallo en", bajado["sitio"]["properties"]["id"], repr(e)[:200], flush=True)
+                donde = traceback.extract_tb(e.__traceback__)[-1]
+                print("  fallo en", bajado["sitio"]["properties"]["id"], repr(e)[:200], f"({donde.name}, línea {donde.lineno})", flush=True)
                 r = None
             if r is None:
                 fallos += 1
