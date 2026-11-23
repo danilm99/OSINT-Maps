@@ -280,6 +280,7 @@ def medir_edificio(irg: np.ndarray, geom, x0: float, y1: float, paso: float) -> 
     nir, rojo, verde = trozo[..., 0], trozo[..., 1], trozo[..., 2]
     ndvi = (nir - rojo) / (nir + rojo + 1e-6)
     ndvi[verde + 0.02 < 0.9 * rojo] = 0.0                             # lo rojizo no es planta: la teja también refleja mucho infrarrojo
+    ndvi[nir - rojo < 0.06] = np.minimum(ndvi[nir - rojo < 0.06], 0.0)   # ni lo muy oscuro: en una pizarra en sombra el cociente se dispara con nada
     brillo = (rojo + verde) / 2
     grad = np.hypot(cv2.Sobel(brillo, cv2.CV_32F, 1, 0, ksize=3), cv2.Sobel(brillo, cv2.CV_32F, 0, 1, ksize=3))
 
