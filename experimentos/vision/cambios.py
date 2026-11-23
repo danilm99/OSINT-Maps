@@ -18,6 +18,7 @@ bruto: de cada año se saca primero qué es «vegetación» y qué es «oscuro»
     python cambios.py medir   --carpeta cache/_vision --catastro cache/catastro --municipios 46137 --todos
     python cambios.py puntuar --carpeta cache/_vision --datos datos --municipios 46137 --todos
     python cambios.py hojas   --carpeta cache/_vision --municipios 46137 --todos --cuantos 24
+    python cambios.py capa    --carpeta cache/_vision --datos datos
 
 `medir` se puede cortar y relanzar: se salta lo ya medido. Guarda cifras, no fotos (salvo que
 se pida con --guardar-fotos, que viene bien para una zona de prueba)."""
@@ -151,8 +152,11 @@ def leer_piezas(ruta: Path) -> dict[str, tuple]:
 
 
 def fuera_de_casco(ref: str) -> bool:
-    """Por la referencia: parcela rústica (46137A00500001) o «diseminado» (empieza por 00)."""
-    return bool(re.match(r"^\d{5}[A-Z]\d{8}", ref)) or ref.startswith("00")
+    """Por la forma de la referencia: parcela rústica (46137A00500001) o «diseminado» (001540100YJ18B).
+
+    Las urbanas llevan siete caracteres y la hoja de plano detallado (0892613YJ2709S); las de diseminado, nueve y la hoja a
+    escala 1:5.000, que es más corta (YJ18B)."""
+    return bool(re.match(r"^\d{5}[A-Z]\d{8}$", ref) or re.match(r"^[0-9A-Z]{9}[A-Z]{2}\d{2}[A-Z]$", ref))
 
 
 def vecinos(centros: np.ndarray, radio: float = 150.0) -> np.ndarray:
@@ -616,6 +620,29 @@ def puntuar(args) -> None:
     print("FIN-PUNTUAR", flush=True)
 
 
+def capa(args) -> None:
+    """Deja los posibles de una o varias tandas en datos/capa-posibles.geojson, que el visor enseña como una capa más."""
+    base = Path(args.carpeta) / "cambios"
+    rasgos_geo, vistos = [], set()
+    for etiqueta in args.etiqueta.split(","):
+        for s in json.loads((base / f"posibles-{etiqueta}.json").read_text(encoding="utf-8")):
+            if s["ref"] in vistos or s["nota"] < args.nota_minima or s.get("copas") or (s.get("derribado") and not args.con_derribados):
+                continue
+            vistos.add(s["ref"])
+            sitio = (s.get("direccion") or "").split(" (")[0].strip().title()
+            rasgos_geo.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [s["lon"], s["lat"]]}, "properties": {
+                "id": f"posible/{s['ref']}", "nombre": sitio or f"Edificio {s['uso'] or 'sin uso apuntado'} de {s['area']} m²", "nota": s["nota"],
+                "motivos": ". ".join(m[0].upper() + m[1:] for m in s["motivos"]) + ".",
+                "serie": ", ".join(f"{a}: {round(100 * v)} %" for a, v in zip(s["anios"], s["nuc"])),
+                "direccion": s.get("direccion"), "refcat": s["ref"], "uso": s["uso"], "anio": s["anio"], "superficie": s["area"], "derribado": bool(s.get("derribado")),
+                "url": f"https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1={s['ref'][:7]}&rc2={s['ref'][7:14]}"}})
+    rasgos_geo.sort(key=lambda f: -f["properties"]["nota"])
+    salida = Path(args.datos) / "capa-posibles.geojson"
+    salida.write_text(json.dumps({"type": "FeatureCollection", "features": rasgos_geo}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print(f"{len(rasgos_geo)} posibles en {salida}")
+    print("FIN-CAPA", flush=True)
+
+
 # --------------------------------------------------------------------------
 # Hojas para mirar a ojo
 # --------------------------------------------------------------------------
@@ -680,7 +707,7 @@ def hojas(args) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Posibles abandonos comparando las fotos de varios años.")
-    ap.add_argument("paso_a_dar", choices=("medir", "puntuar", "hojas"))
+    ap.add_argument("paso_a_dar", choices=("medir", "puntuar", "hojas", "capa"))
     ap.add_argument("--carpeta", default="cache/_vision"); ap.add_argument("--catastro", default="cache/catastro"); ap.add_argument("--datos", default="datos")
     ap.add_argument("--municipios", default="", help="códigos de Catastro separados por comas (vacío: toda la provincia)")
     ap.add_argument("--etiqueta", default="piloto", help="nombre de esta tanda: va en los ficheros que se escriben")
@@ -692,11 +719,13 @@ def main() -> None:
     ap.add_argument("--guardar-fotos", action="store_true", help="guarda los recortes (solo para zonas de prueba: ocupan)")
     ap.add_argument("--rehacer", action="store_true", help="vuelve a medir todo (si hay fotos guardadas, sin bajarlas otra vez)")
     ap.add_argument("--direcciones", type=int, default=0, help="pide a Catastro la dirección de los primeros N")
+    ap.add_argument("--nota-minima", type=float, default=12.0, help="capa: nota a partir de la cual un posible entra en el mapa")
+    ap.add_argument("--con-derribados", action="store_true", help="capa: incluir también los que la maqueta 3D da por derribados")
     ap.add_argument("--alturas", type=int, default=0, help="comprueba los primeros N con la maqueta 3D de 2025 (copas de árboles, derribados)")
     ap.add_argument("--cuantos", type=int, default=40); ap.add_argument("--desde", type=int, default=0); ap.add_argument("--filas", type=int, default=6)
     ap.add_argument("--lista", default="posibles", choices=("posibles", "todos")); ap.add_argument("--anios-hoja", default="2017,2019,2021,2023,2025"); ap.add_argument("--refs", default=""); ap.add_argument("--nombre", default="", help="nombre de las hojas")
     args = ap.parse_args()
-    {"medir": medir, "puntuar": puntuar, "hojas": hojas}[args.paso_a_dar](args)
+    {"medir": medir, "puntuar": puntuar, "hojas": hojas, "capa": capa}[args.paso_a_dar](args)
 
 
 if __name__ == "__main__":
