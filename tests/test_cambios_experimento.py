@@ -270,3 +270,61 @@ def test_un_fallo_de_red_se_vuelve_a_pedir_y_un_ano_sin_foto_no(K, municipio, mo
     assert sorted(set(veces[n:])) == [2018]                           # solo se repite lo que falló por la red
     medidas = K.leer_medidas(municipio / "vision" / "cambios" / "medidas-prueba.jsonl")
     assert len(medidas) == 3 and all(sorted(serie) == list(range(2019, 2026)) for serie in medidas.values())      # ni el año sin foto ni el que falló
+
+
+def test_con_el_tejado_de_cada_ano_manda_haberlo_perdido(K):
+    r = lambda dentro, fuera: {"anios": np.array(K.ANIOS), "veg": np.array(dentro), "nuc": np.array(dentro), "alr": np.array(fuera),  # noqa: E731
+                               "osc": np.zeros(9), "rug": np.zeros(9)}
+    t = lambda visto: {str(a): v for a, v in zip(K.ANIOS, visto)}     # noqa: E731
+    normal = ([0.05, 0.5, 0.9], [0.0, 0.15, 0.5])
+    derribo = K.juzgar(r([0] * 9, [.02] * 9), normal, t([.9, .9, .9, 0, 0, 0, 0, 0, 0]))
+    assert derribo["nota"] == 90.0 and derribo["motivos"] == ["tenía tejado y ya no se ve: del 90 % del contorno en 2017-2019 al 0 % en 2023-2025"]
+    assert derribo["tej"] == [.9, .9, .9, 0, 0, 0, 0, 0, 0]
+    invadido = K.juzgar(r([0, 0, 0, .1, .2, .4, .6, .7, .7], [.2] * 9), normal, t([.9, .9, .85, .8, .6, .4, .2, .1, .1]))
+    assert len(invadido["motivos"]) == 2 and invadido["motivos"][1] == "y le ha entrado vegetación: del 0 % al 70 %" and invadido["nota"] > derribo["nota"]
+    # Lo que la vegetación sola señalaba y con el tejado a la vista deja de serlo: una pizarra que parece planta, una copa que avanza.
+    assert K.juzgar(r([.9] * 9, [.05] * 9), normal) is not None and K.juzgar(r([.9] * 9, [.05] * 9), normal, t([.95] * 9)) is None
+    crece = [0, 0, 0, .1, .1, .2, .2, .3, .3]
+    assert K.juzgar(r(crece, [.2] * 9), normal) is not None and K.juzgar(r(crece, [.2] * 9), normal, t([.9, .9, .9, .85, .85, .8, .8, .75, .7])) is None
+    # Nunca se le vio tejado y tiene vegetación dentro: se apunta, con menos nota y diciendo las tres cosas que puede ser.
+    nunca = K.juzgar(r([.6] * 9, [.2] * 9), normal, t([.05] * 9))
+    assert 10 < nunca["nota"] < 40 and "contorno de Catastro corrido" in nunca["motivos"][0]
+    # Con el tejado de solo un par de años no se puede comparar: se puntúa como si no lo hubiera.
+    assert K.juzgar(r([.9] * 9, [.05] * 9), normal, {"2017": .9, "2025": .9})["motivos"][0].startswith("tiene vegetación dentro")
+
+
+def test_las_etiquetas_del_detector_de_tejado():
+    import tejado as T
+    from shapely.strtree import STRtree
+    assert T.origen_de("3_-2") == (3 * 224.0 - 16, -2 * 224.0 - 16) and T.origen_de("e_0892613YJ2709S") is None and T.origen_de("notas") is None
+    assert sum(T.aparte(f"{i}_{j}") for i in range(30) for j in range(30)) == 90      # uno de cada diez recortes, por su sitio y no por su año
+    casa, dudosa, estrecha = box(100, 100, 120, 116), box(150, 100, 160, 110), box(100, 150, 103, 190)
+    geoms = [casa, dudosa, estrecha]
+    etiqueta = T.etiqueta_de(STRtree(geoms), geoms, np.array([False, True, False]), 0.0, 0.0)
+    y1 = T.LADO * T.PASO
+    en = lambda x, y: int(etiqueta[int((y1 - y) / T.PASO), int(x / T.PASO)])      # noqa: E731
+    assert en(110, 108) == 1 and en(60, 60) == 0                      # dentro de la casa y en el campo
+    assert en(100.1, 108) == T.SIN_OPINION                            # el borde de un contorno no cuenta
+    assert en(155, 105) == T.SIN_OPINION                              # ni el edificio que Catastro da por ruinoso
+    assert set(np.unique(etiqueta)) == {0, 1, T.SIN_OPINION}
+    filas, columnas, dentro = T.interior(casa, 0.0, 0.0)
+    assert etiqueta[filas, columnas][dentro].tolist() == [1] * int(dentro.sum()) and 600 < dentro.sum() < 1280       # el interior, sin el margen
+    assert T.interior(estrecha, 0.0, 0.0) is None and T.interior(box(5000, 5000, 5020, 5016), 0.0, 0.0) is None
+    x = T.normalizar(np.random.default_rng(0).integers(0, 255, (64, 64, 3)).astype(np.uint8))
+    assert x.dtype == np.float32 and np.allclose(x.mean((0, 1)), 0, atol=1e-4) and np.allclose(x.std((0, 1)), 1, atol=1e-3)
+    assert np.isfinite(T.normalizar(np.full((8, 8, 3), 200, np.uint8))).all()         # un recorte liso no divide por cero
+
+
+def test_el_detector_de_tejado_lee_los_recortes_guardados(tmp_path):
+    import tejado as T
+    carpeta = tmp_path / "cambios" / "fotos-prueba"
+    for anio in (2017, 2025):
+        (carpeta / str(anio)).mkdir(parents=True)
+        cv2.imwrite(str(carpeta / str(anio) / "10_20.jpg"), np.full((512, 512, 3), (10, 20, 30), np.uint8))       # en disco va en azul, verde, rojo
+        cv2.imwrite(str(carpeta / str(anio) / "e_0001YJ.jpg"), np.zeros((512, 512, 3), np.uint8))                # recorte suelto de un edificio grande
+    (carpeta / "2017" / "9_9.jpg").write_bytes(b"roto")
+    (carpeta / "notas").mkdir()
+    guardados = T.recortes_guardados(tmp_path, "prueba")
+    assert [(a, c) for a, c, _ in guardados] == [(2017, "10_20"), (2017, "9_9"), (2025, "10_20")]
+    assert T.leer_recorte(guardados[0][2])[0, 0].tolist() == pytest.approx([30, 20, 10], abs=3)                  # (infrarrojo, rojo, verde)
+    assert T.leer_recorte(guardados[1][2]) is None
