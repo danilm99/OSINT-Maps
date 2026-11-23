@@ -709,14 +709,22 @@ def puntuar(args) -> None:
 
 
 def capa(args) -> None:
-    """Deja los posibles de una o varias tandas en datos/capa-posibles.geojson, que el visor enseña como una capa más."""
+    """Deja los posibles de una o varias tandas en datos/capa-posibles.geojson, que el visor enseña como una capa más.
+
+    Lo que alguien ha mirado y ha resultado no ser se apunta en cambios/descartados.json (referencia catastral → por qué)
+    y deja de salir, por mucho que el programa lo vuelva a señalar."""
     base = Path(args.carpeta) / "cambios"
-    rasgos_geo, vistos = [], set()
+    ruta_descartes = base / "descartados.json"
+    descartados = json.loads(ruta_descartes.read_text(encoding="utf-8")) if ruta_descartes.exists() else {}
+    rasgos_geo, vistos, quitados = [], set(), 0
     for etiqueta in args.etiqueta.split(","):
         for s in json.loads((base / f"posibles-{etiqueta}.json").read_text(encoding="utf-8")):
             # Al mapa van los que han perdido el tejado y siguen, enteros o a medias, en pie. Los derribados (ya no hay nada que ver)
             # y los que nunca tuvieron tejado a la vista (casi siempre, un contorno de Catastro mal puesto) solo si se piden.
             if s["ref"] in vistos or s["nota"] < args.nota_minima or (s["clase"] == "derribado" and not args.con_derribados) or (s["clase"] == "ruina_vieja" and not args.con_dudosos):
+                continue
+            if s["ref"] in descartados:
+                quitados += 1
                 continue
             vistos.add(s["ref"])
             sitio = (s.get("direccion") or "").split(" (")[0].strip().title()
@@ -731,7 +739,7 @@ def capa(args) -> None:
     rasgos_geo.sort(key=lambda f: -f["properties"]["nota"])
     salida = Path(args.datos) / "capa-posibles.geojson"
     salida.write_text(json.dumps({"type": "FeatureCollection", "features": rasgos_geo}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    print(f"{len(rasgos_geo)} posibles en {salida}")
+    print(f"{len(rasgos_geo)} posibles en {salida}" + (f" ({quitados} más, descartados a mano)" if quitados else ""))
     print("FIN-CAPA", flush=True)
 
 

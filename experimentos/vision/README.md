@@ -278,6 +278,9 @@ El detector de líneas, que aprendió solo con 2025, daba para un mismo tejado e
      nota si lo de encima es mucho más alto que el edificio: copas);
    - sigue en pie y entero: **descartado**.
 
+Lo que se mira a ojo y resulta no ser se apunta en `cache/_vision/cambios/descartados.json`
+(referencia catastral y por qué) y `capa` deja de sacarlo.
+
 ### Lo que da
 
 | | Godella (todo el término) | Bétera (fuera de casco) |

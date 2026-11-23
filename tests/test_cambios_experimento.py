@@ -364,6 +364,15 @@ def test_puntuar_con_tejados_y_maqueta(K, municipio, monkeypatch, capsys):
     assert p["motivos"].startswith("Tenía tejado (90 % del contorno)") and "caído a medias o en obras." in p["motivos"]
     K.capa(_args(municipio, todos=True, con_derribados=True))         # …salvo que se pidan
     assert [f["properties"]["clase"] for f in json.loads((municipio / "datos" / "capa-posibles.geojson").read_text(encoding="utf-8"))["features"]] == ["caido", "derribado"]
+    # Lo que alguien ha mirado y no es, se apunta y deja de salir.
+    descartes = municipio / "vision" / "cambios" / "descartados.json"
+    descartes.write_text(json.dumps({"000100200YJ00A": "es un invernadero al que le quitan el plástico en verano"}), encoding="utf-8")
+    capsys.readouterr()
+    K.capa(_args(municipio, todos=True, con_derribados=True))
+    assert [f["properties"]["clase"] for f in json.loads((municipio / "datos" / "capa-posibles.geojson").read_text(encoding="utf-8"))["features"]] == ["derribado"]
+    dicho = capsys.readouterr().out
+    assert "1 posibles en" in dicho and "(1 más, descartados a mano)" in dicho
+    descartes.unlink()
     # Los que nunca tuvieron tejado a la vista tampoco van al mapa si no se piden: casi siempre son contornos mal puestos.
     ruta = municipio / "vision" / "cambios" / "posibles-prueba.json"
     lista = json.loads(ruta.read_text(encoding="utf-8"))
