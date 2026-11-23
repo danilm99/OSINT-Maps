@@ -407,9 +407,9 @@ def test_el_resumen_lleva_rejillas_regulares_y_huecos_como_huecos():
     assert "normal" not in ancladas and "parking_libres" not in ind["claves"]
 
     bicis = r["puntos"]["bicis"]
-    assert (bicis["t0"], bicis["paso"], bicis["n"]) == (T0 + 1800, 1800, 12) and bicis["ids"] == ["1", "2"]
+    assert (bicis["t0"], bicis["paso"], bicis["n"]) == (T0, 1800, 13) and bicis["ids"] == ["1", "2"]      # acaba justo en «hasta»
     assert bicis["nombre"] == ["Guillem de Castro", "Museo"] and bicis["cap"] == [25, 15] and "geo" not in bicis
-    assert bicis["v"][1] == [10, 10, 10, 10, None, None, None, None, None, 10, 10, 10]         # en el hueco no se inventa nada
+    assert bicis["v"][1] == [10, 10, 10, 10, 10, None, None, None, None, None, 10, 10, 10]     # en el hueco no se inventa nada
     assert r["puntos"]["trafico"]["geo"] == [[[39.45, -0.4], [39.451, -0.402]]]                  # la línea, simplificada
 
     aviones = r["rastros"]["aviones"]
@@ -451,6 +451,17 @@ def test_recorrer_una_grafica_lee_el_historico_una_sola_vez():
     assert len(lecturas) == 1
     normales.normal("bicis_ancladas", T0 - 30 * 86400)        # un rato muy anterior sí obliga a leer más atrás
     assert len(lecturas) == 2
+
+
+def test_con_el_programa_recien_abierto_la_web_ya_lleva_los_puntos():
+    """Dos minutos de datos y pasos de un cuarto de hora: el último instante tiene que caer en lo recogido."""
+    almacen, ahora = Almacen(":memory:"), T0 + 37 * 60 + 13          # una hora cualquiera, no redonda
+    for t in (ahora - 150, ahora - 30):
+        almacen.guardar_toma("bicis", t, _toma_bicis({"1": 4, "2": 9}, 13))
+    r = json.loads(resumen.resumen_para_la_web(almacen, ahora=ahora))
+    bicis = r["puntos"]["bicis"]
+    assert bicis["t0"] + (bicis["n"] - 1) * bicis["paso"] == ahora and [v[-1] for v in bicis["v"]] == [4, 9]
+    assert all(v is None for fila in bicis["v"] for v in fila[:-1])                                   # lo de antes no se vio
 
 
 def test_el_fichero_para_la_web_cabe_en_poco():

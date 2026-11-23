@@ -103,7 +103,11 @@ def _indicadores(almacen: Almacen, normales: Normales | None, desde: int, hasta:
 
 
 def _puntos(almacen: Almacen, serie: str, fuente: Fuente, desde: int, hasta: int, paso: int) -> dict | None:
-    t0 = (desde // paso + 1) * paso
+    # La rejilla acaba justo en `hasta`: el último valor es lo que marcaba cada punto al hacer el resumen.
+    # (Alineada a horas redondas, el último instante podía quedarse hasta un `paso` atrás: con pasos de un
+    # cuarto de hora y el programa recién abierto, ningún instante caía en lo ya recogido y no salía nada.)
+    n = (hasta - desde) // paso + 1
+    t0 = hasta - (n - 1) * paso
     instantes = list(range(t0, hasta + 1, paso))
     if not instantes:
         return None
