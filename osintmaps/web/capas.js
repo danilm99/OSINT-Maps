@@ -475,9 +475,10 @@ const CAPAS = [
       ["Situado por", { parcela: "la parcela catastral (exacto)", portal: "el portal (bastante exacto)", calle: "la calle (aproximado)" }[e.p.situado_por]], ["Subasta", e.p.subasta]] },
   /* Sale de experimentos/vision/cambios.py, no de «osintmaps capas»: si el fichero no está, la capa ni se enseña. */
   { id: "posibles", forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Posibles abandonos (fotos de 2017 a 2025)", uno: "Posible abandono", color: "#ff7a00", zoom: 0, tipo: "fija", opcional: true,
-    filas: (e) => [["Por qué sale", e.p.motivos], ["Tejado a la vista, año a año", e.p.tejado], ["Vegetación dentro, año a año", e.p.serie], ["Dirección", e.p.direccion], ["Referencia catastral", e.p.refcat], ["Uso", e.p.uso],
+    color_de: (p) => ({ derribado: "#8d99ae", vegetacion: "#2f9e44" }[p.clase] || "#ff7a00"),
+    filas: (e) => [["Qué parece", e.p.parece], ["Por qué sale", e.p.motivos], ["Tejado a la vista, año a año", e.p.tejado], ["Vegetación dentro, año a año", e.p.serie], ["Dirección", e.p.direccion], ["Referencia catastral", e.p.refcat], ["Uso", e.p.uso],
       ["Construido en", e.p.anio], ["Planta", e.p.superficie ? `${miles(e.p.superficie)} m²` : null], ["Catastro lo da por", "en uso"],
-      ["Cuánto fiarse", "Es una sospecha sacada de comparar fotos aéreas, sin comprobar. Falla a menudo: copas de árboles sobre un tejado sano, patios, obras y contornos de Catastro corridos. Mira la foto por años antes de darla por buena."]] },
+      ["Cuánto fiarse", "Es una sospecha sacada de comparar fotos aéreas y la maqueta 3D, sin comprobar sobre el terreno. Puede ser una obra, un derribo o un contorno de Catastro mal puesto. Mira la foto por años antes de darla por buena."]] },
   { id: "abandonado", pesada: true, forma: "rombo", grupo: "Abandono y patrimonio", nombre: "Abandonado o en ruinas (OSM, al momento)", color: "#c026d3", zoom: 13, tipo: "osm",
     ql: ['nwr["abandoned"="yes"]', 'nwr["disused"="yes"]', 'nwr["ruins"="yes"]', 'nwr["building"="ruins"]', 'nwr["historic"="ruins"]', 'nwr[~"^abandoned:"~"."]'],
     es: (t) => t.abandoned === "yes" || t.disused === "yes" || t.ruins === "yes" || t.building === "ruins" || t.historic === "ruins" || Object.keys(t).some((k) => k.startsWith("abandoned:")),

@@ -482,12 +482,12 @@ def lo_normal(entorno: np.ndarray, centro: np.ndarray) -> tuple[list[float], lis
     return centros, np.maximum.accumulate(topes).tolist()               # más verde fuera nunca baja el listón
 
 
-def juzgar(r: dict[str, np.ndarray], normal: tuple[list[float], list[float]], tejado: dict | None = None) -> dict | None:
-    """De la serie de un edificio a una nota y el porqué. None si no hay nada que decir.
+def juzgar(r: dict[str, np.ndarray], normal: tuple[list[float], list[float]]) -> dict | None:
+    """Sin detector de tejado: de la vegetación de un edificio a una nota y el porqué. None si no hay nada que decir.
 
-    Con la vegetación sola hay dos motivos, que pueden darse juntos: tiene dentro más de la que explica su entorno (cómo
-    está) y le ha ido creciendo en estos años (hacia dónde va). Si además se sabe qué parte del contorno se ve como tejado
-    cada año (`tejado`, de tejado.py), manda eso: lo que cuenta es haber tenido tejado y que ya no se vea."""
+    Dos motivos, que pueden darse juntos: tiene dentro más vegetación de la que explica su entorno (cómo está) y le ha ido
+    creciendo en estos años (hacia dónde va). En las zonas de prueba acierta uno de cada ocho: es el recurso cuando no se
+    ha pasado tejado.py, no el camino bueno."""
     partes = resumen(r)
     if partes is None:
         return None
@@ -495,70 +495,104 @@ def juzgar(r: dict[str, np.ndarray], normal: tuple[list[float], list[float]], te
     sube = {c: ahora[c] - antes[c] for c in antes}
     anios = r["anios"].tolist()
     pct = lambda v: f"{round(100 * v)} %"                             # noqa: E731
-    principio, final = f"{anios[0]}-{anios[k - 1]}", f"{anios[-k]}-{anios[-1]}"
     motivos, nota = [], 0.0
-    tenia = queda = None
-    if tejado:
-        visto = [tejado[str(a)] for a in anios if str(a) in tejado]
-        if len(visto) >= 2 * k:
-            tenia, queda = float(np.median(visto[:k])), float(np.median(visto[-k:]))
     tope = float(np.interp(ahora["alr"], *normal))
     exceso = ahora["nuc"] - tope
-    # Con árboles alrededor, las copas crecen y tapan tejado sin que pase nada: cuanto más verde hay fuera, más se exige dentro.
-    descuento = 0.3 * antes["alr"]
-    crece = max(sube["nuc"] - descuento, sube["veg"] - descuento - 0.05)
-    cual = "nuc" if sube["nuc"] >= sube["veg"] else "veg"
-    if tenia is not None:
-        if tenia >= 0.6 and queda <= 0.5 * tenia:
-            nota += 100 * (tenia - queda)
-            motivos.append(f"tenía tejado y ya no se ve: del {pct(tenia)} del contorno en {principio} al {pct(queda)} en {final}")
-            if crece >= 0.12:
-                nota += 50 * crece
-                motivos.append(f"y le ha entrado vegetación: del {pct(antes[cual])} al {pct(ahora[cual])}")
-        elif max(tenia, queda) < 0.3 and exceso >= 0.10 and ahora["nuc"] >= 0.15:
-            # Nunca se le ha visto tejado y dentro hay vegetación: una ruina vieja, un tejado bajo los árboles o un contorno corrido.
-            nota += 40 * exceso
-            motivos.append(f"en ninguna foto se le ve tejado y dentro hay vegetación (el {pct(ahora['nuc'])} del centro): "
-                           "ruina vieja, edificio bajo los árboles o contorno de Catastro corrido")
-    else:
-        if exceso >= 0.10 and ahora["nuc"] >= 0.15:
-            nota += 100 * exceso
-            motivos.append(f"tiene vegetación dentro que su entorno no explica: el {pct(ahora['nuc'])} del centro (con ese entorno, 19 de cada 20 edificios no pasan del {pct(tope)})")
-        if crece >= 0.12 and antes["nuc"] <= 0.25:
-            suma = 100 * crece
-            texto = f"le crece vegetación dentro: del {pct(antes[cual])} en {principio} al {pct(ahora[cual])} en {final}"
-            if sube["osc"] >= 0.1 and sube["rug"] >= 1.0:
-                suma += 10
-                texto += ", y la cubierta se ve más rota"
-            if sube["rug"] >= 2.0 and ahora["nuc"] < 0.4:             # cubierta muy distinta y poca planta: suele ser obra nueva o reforma
-                suma *= 0.4
-                texto += " (aunque la cubierta ha cambiado tanto que puede ser una obra)"
-            nota += suma
-            motivos.append(texto)
+    if exceso >= 0.10 and ahora["nuc"] >= 0.15:
+        nota += 100 * exceso
+        motivos.append(f"tiene vegetación dentro que su entorno no explica: el {pct(ahora['nuc'])} del centro (con ese entorno, 19 de cada 20 edificios no pasan del {pct(tope)})")
+    crece, cual = crecida(antes, ahora)
+    if crece >= 0.12 and antes["nuc"] <= 0.25:
+        suma = 100 * crece
+        texto = f"le crece vegetación dentro: del {pct(antes[cual])} en {anios[0]}-{anios[k - 1]} al {pct(ahora[cual])} en {anios[-k]}-{anios[-1]}"
+        if sube["osc"] >= 0.1 and sube["rug"] >= 1.0:
+            suma += 10
+            texto += ", y la cubierta se ve más rota"
+        if sube["rug"] >= 2.0 and ahora["nuc"] < 0.4:                 # cubierta muy distinta y poca planta: suele ser obra nueva o reforma
+            suma *= 0.4
+            texto += " (aunque la cubierta ha cambiado tanto que puede ser una obra)"
+        nota += suma
+        motivos.append(texto)
     if not motivos:
         return None
-    salida = {"nota": round(nota, 1), "motivos": motivos, "anios": anios, **{c: [round(float(x), 2) for x in r[c]] for c in ("veg", "nuc", "alr", "osc", "rug")}}
-    if tejado:
-        salida["tej"] = [tejado.get(str(a)) for a in anios]
-    return salida
+    return {"clase": "vegetacion_sola", "nota": round(nota, 1), "motivos": motivos, **series_de(r)}
 
 
-def con_altura(s: dict, altura: dict | None, plantas: int | None) -> None:
-    """Corrige la nota con la maqueta 3D de 2025: si lo que hay encima es más alto que el edificio son copas; si no levanta nada, ya no está."""
-    if not altura:
-        return
-    s["altura"] = altura
-    if altura["pct_en_pie"] < 15:
-        s["nota"] = round(s["nota"] * 0.5, 1)
-        s["derribado"] = True
-        s["motivos"].append("en la maqueta 3D de 2025 ya no levanta nada: derribado o caído del todo")
-    elif plantas and altura["altura_mediana_m"] > 3 * plantas + 4:
-        s["nota"] = round(s["nota"] * 0.3, 1)
-        s["copas"] = True
-        s["motivos"].append(f"pero lo que hay encima mide {altura['altura_mediana_m']:.0f} m y el edificio tiene {plantas} planta{'s' if plantas > 1 else ''}: seguramente son copas de árboles")
-    elif altura["pct_en_pie"] < 60:
-        s["nota"] = round(s["nota"] * 1.3, 1)
-        s["motivos"].append(f"en la maqueta 3D de 2025 solo levanta del suelo el {altura['pct_en_pie']} % de la planta")
+def crecida(antes: dict, ahora: dict) -> tuple[float, str]:
+    """Cuánto ha subido la vegetación de dentro, ya descontado lo que cabe achacar a las copas de alrededor, y en qué medida se ve mejor."""
+    # Con árboles cerca, las copas crecen y tapan tejado sin que pase nada: cuanto más verde hay fuera, más se exige dentro.
+    descuento = 0.3 * antes["alr"]
+    sube_centro, sube_todo = ahora["nuc"] - antes["nuc"], ahora["veg"] - antes["veg"]
+    return max(sube_centro - descuento, sube_todo - descuento - 0.05), "nuc" if sube_centro >= sube_todo else "veg"
+
+
+def series_de(r: dict[str, np.ndarray]) -> dict:
+    return {"anios": r["anios"].tolist(), **{c: [round(float(x), 2) for x in r[c]] for c in ("veg", "nuc", "alr", "osc", "rug")}}
+
+
+def sospecha(r: dict[str, np.ndarray], tejado: dict) -> dict | None:
+    """Con el tejado que se ve cada año (de tejado.py): ¿lo tenía y ya no, o no se le ha visto nunca? None si no hay caso.
+
+    Es solo la primera mitad: un tejado «perdido» puede ser una placa solar o una reforma, y uno «nunca visto», un contorno
+    corrido. Lo decide la maqueta 3D en `sentenciar`."""
+    partes = resumen(r)
+    if partes is None:
+        return None
+    antes, ahora, k = partes
+    anios = [a for a in r["anios"].tolist() if str(a) in tejado]
+    if len(anios) < 2 * k:
+        return None
+    visto = [tejado[str(a)] for a in anios]
+    tenia, queda = float(np.median(visto[:k])), float(np.median(visto[-k:]))
+    crece, cual = crecida(antes, ahora)
+    hechos = {"tenia": round(tenia, 2), "queda": round(queda, 2), "crece": round(crece, 2), "veg_antes": round(antes[cual], 2), "veg_ahora": round(ahora[cual], 2),
+              "tej": [tejado.get(str(a)) for a in r["anios"].tolist()], **series_de(r)}
+    if tenia >= 0.6 and queda <= 0.5 * tenia:
+        con_tejado = [a for a, v in zip(anios, visto) if v > 0.5 * tenia]      # el último año en que aún se le veía y el primero en que ya no
+        ultimo = max(con_tejado)
+        despues = [a for a in anios if a > ultimo]
+        return {"tipo": "perdio", "ultimo": ultimo, "sin": min(despues) if despues else None, **hechos}
+    if max(visto) < 0.4 and max(tenia, queda) < 0.3:
+        return {"tipo": "nunca", **hechos}
+    return None
+
+
+CLASES_POSIBLE = {"caido": "Ha perdido el tejado y queda en pie a medias", "ruina_vieja": "Sin tejado en ninguna foto y en pie solo a medias",
+                  "vegetacion": "El tejado ha dejado de verse y dentro crece vegetación", "derribado": "Derribado", "sin_comprobar": "Ha dejado de verse el tejado (sin comprobar en 3D)",
+                  "vegetacion_sola": "Vegetación dentro (sin detector de tejado)"}
+
+
+def sentenciar(s: dict, altura: dict | None, plantas: int | None) -> dict | None:
+    """La segunda mitad: lo que dice la maqueta 3D de 2025 de un edificio bajo sospecha. Devuelve la clase, la nota y los motivos,
+    o None si la maqueta lo desmiente (sigue en pie y entero: placas solares, una reforma, un fallo del detector)."""
+    pct = lambda v: f"{round(100 * v)} %"                             # noqa: E731
+    copas = bool(altura and plantas and altura["altura_mediana_m"] > 3 * plantas + 4)
+    if s["tipo"] == "perdio":
+        cuando = f"entre {s['ultimo']} y {s['sin']}" if s["sin"] else f"después de {s['ultimo']}"
+        base = f"tenía tejado ({pct(s['tenia'])} del contorno) y dejó de verse {cuando} (queda el {pct(s['queda'])})"
+        if altura is None:
+            return {"clase": "sin_comprobar", "nota": round(20 + 10 * (s["tenia"] - s["queda"]), 1), "motivos": [base, "no se ha podido comprobar con la maqueta 3D"]}
+        if altura["pct_en_pie"] < 15:
+            return {"clase": "derribado", "nota": round(40 + 10 * (s["tenia"] - s["queda"]), 1), "motivos": [base, "en la maqueta 3D de 2025 ya no levanta nada: derribado"]}
+        if altura["pct_en_pie"] < 60 and not copas:
+            return {"clase": "caido", "nota": round(80 + 20 * (s["tenia"] - s["queda"]), 1),
+                    "motivos": [base, f"en la maqueta 3D de 2025 solo levanta del suelo el {altura['pct_en_pie']} % de la planta: caído a medias o en obras"]}
+        if s["crece"] >= 0.2:
+            nota = 30 + 40 * s["crece"]
+            motivos = [base, f"le ha entrado vegetación: del {pct(s['veg_antes'])} al {pct(s['veg_ahora'])}"]
+            if copas:
+                nota *= 0.5
+                motivos.append(f"en 3D lo que hay encima mide {altura['altura_mediana_m']:.0f} m y el edificio tiene {plantas} planta{'s' if plantas > 1 else ''}: pueden ser copas de árboles que lo tapan")
+            else:
+                motivos.append("en 3D sigue en pie")
+            return {"clase": "vegetacion", "nota": round(nota, 1), "motivos": motivos}
+        return None
+    if altura is None or copas or not 15 <= altura["pct_en_pie"] < 60:
+        return None
+    return {"clase": "ruina_vieja", "nota": round(35 + 0.3 * (60 - altura["pct_en_pie"]) + 20 * max(s["veg_ahora"] - 0.2, 0), 1),
+            "motivos": [f"en ninguna foto de 2017 a 2025 se le ve tejado (como mucho, el {pct(max(v for v in s['tej'] if v is not None))} del contorno)",
+                        f"en la maqueta 3D de 2025 solo levanta del suelo el {altura['pct_en_pie']} % de la planta",
+                        "puede ser una ruina vieja que Catastro da por buena, o un contorno mal puesto"]}
 
 
 def direccion(sesion: requests.Session, ref: str) -> str | None:
@@ -593,57 +627,85 @@ def puntuar(args) -> None:
     ruta_tejados = base / f"tejados-{args.etiqueta}.json"
     tejados = json.loads(ruta_tejados.read_text(encoding="utf-8")) if ruta_tejados.exists() and not args.sin_tejados else {}
     print(f"  tejado visto año a año: {'de ' + str(len(tejados)) + ' edificios' if tejados else 'no hay (se puntúa solo con la vegetación)'}")
-    salida, por_estado = [], defaultdict(list)
-    for ref, r in series.items():
-        e = universo[ref]
-        j = juzgar(r, normal, tejados.get(ref))
-        por_estado[e["estado"]].append(j["nota"] if j else 0.0)
-        if j is None:
-            continue
-        lon, lat = a_geo(e["x"], e["y"])
-        salida.append({"ref": ref, "muni": e["muni"], "catastro": e["estado"], "en_lista": ref in ya, "uso": e["uso"], "anio": e["anio"], "plantas": e.get("plantas"), "area": e["area"],
-                       "vecinos": e["vecinos"], "lon": round(lon, 6), "lat": round(lat, 6), **j})
-    salida.sort(key=lambda s: -s["nota"])
-    nuevos = [s for s in salida if s["catastro"] == "functional" and not s["en_lista"]]
     sesion = requests.Session()
     sesion.headers["User-Agent"] = AGENTE
-    if args.alturas:
-        from malla import ZONAS, Malla, medir as medir_altura
-        mallas = {zona: Malla(sesion, zona) for zona in ZONAS}
+
+    def ficha(ref: str) -> dict:
+        e = universo[ref]
+        lon, lat = a_geo(e["x"], e["y"])
+        return {"ref": ref, "muni": e["muni"], "catastro": e["estado"], "en_lista": ref in ya, "uso": e["uso"], "anio": e["anio"], "plantas": e.get("plantas"), "area": e["area"],
+                "vecinos": e["vecinos"], "lon": round(lon, 6), "lat": round(lat, 6)}
+
+    salida, por_estado = [], defaultdict(list)
+    if tejados:
+        # Primero, quién está bajo sospecha por el tejado; luego, la maqueta 3D de cada uno, que es la que decide.
+        bajo_sospecha = {ref: s for ref, r in series.items() if ref in tejados and (s := sospecha(r, tejados[ref])) is not None}
+        for ref in series:
+            por_estado[universo[ref]["estado"]].append(bajo_sospecha[ref]["tipo"] if ref in bajo_sospecha else "")
+        for estado, tipos in sorted(por_estado.items(), key=lambda kv: str(kv[0])):
+            print(f"  Catastro «{estado}»: {len(tipos)} edificios; perdieron el tejado, {tipos.count('perdio')} ({100 * tipos.count('perdio') / len(tipos):.1f} %); "
+                  f"nunca se les ve, {tipos.count('nunca')} ({100 * tipos.count('nunca') / len(tipos):.1f} %)")
+        nuevos_refs = [ref for ref in bajo_sospecha if universo[ref]["estado"] == "functional" and ref not in ya]
+        nuevos_refs.sort(key=lambda ref: (bajo_sospecha[ref]["tipo"] != "perdio", -(bajo_sospecha[ref]["tenia"] - bajo_sospecha[ref]["queda"]), -bajo_sospecha[ref]["veg_ahora"]))
         ruta_alt = base / f"alturas-{args.etiqueta}.json"
         sabidas = json.loads(ruta_alt.read_text(encoding="utf-8")) if ruta_alt.exists() else {}
-        a_grados = lambda c: np.column_stack(a_geo(c[:, 0], c[:, 1]))   # noqa: E731
-        for n, s in enumerate(nuevos[: args.alturas]):
-            if s["ref"] not in sabidas:
+        faltan = [ref for ref in nuevos_refs if ref not in sabidas][: args.alturas]
+        if faltan:
+            from malla import ZONAS, Malla, medir as medir_altura
+            mallas = {zona: Malla(sesion, zona) for zona in ZONAS}
+            a_grados = lambda c: np.column_stack(a_geo(c[:, 0], c[:, 1]))   # noqa: E731
+            t0 = time.time()
+            for n, ref in enumerate(faltan, 1):
                 try:
-                    huella = shapely.transform(universo[s["ref"]]["geom"], a_grados)
-                    sabidas[s["ref"]] = medir_altura(mallas, huella, s["lat"])
-                except Exception as e:                                # la maqueta falla a ratos: ese se queda sin altura
-                    print("  sin altura", s["ref"], repr(e)[:120], flush=True)
-                    continue
-                if n % 25 == 24:
+                    lat = a_geo(universo[ref]["x"], universo[ref]["y"])[1]
+                    sabidas[ref] = medir_altura(mallas, shapely.transform(universo[ref]["geom"], a_grados), lat)
+                except Exception as e:                                # la maqueta falla a ratos: ese se queda sin comprobar
+                    print("  sin altura", ref, repr(e)[:120], flush=True)
+                if n % 25 == 0 or n == len(faltan):
                     ruta_alt.write_text(json.dumps(sabidas), encoding="utf-8")
-            con_altura(s, sabidas.get(s["ref"]), s["plantas"])
-        ruta_alt.write_text(json.dumps(sabidas), encoding="utf-8")
-        nuevos.sort(key=lambda s: -s["nota"])
+                    print(f"  maqueta 3D: {n}/{len(faltan)}, {time.time() - t0:.0f} s", flush=True)
+        sin_maqueta = sum(1 for ref in nuevos_refs if ref not in sabidas)
+        print(f"  bajo sospecha y que Catastro da por buenos: {len(nuevos_refs)} ({sum(1 for r in nuevos_refs if bajo_sospecha[r]['tipo'] == 'perdio')} perdieron el tejado); "
+              f"sin mirar en la maqueta 3D: {sin_maqueta}")
+        for ref in nuevos_refs:
+            s = bajo_sospecha[ref]
+            if s["tipo"] == "nunca" and ref not in sabidas:           # sin maqueta no se puede decir nada de estos
+                continue
+            fallo = sentenciar(s, sabidas.get(ref), universo[ref].get("plantas"))
+            if fallo:
+                salida.append({**ficha(ref), **fallo, **{c: s[c] for c in ("tenia", "queda", "tej", "anios", "veg", "nuc", "alr")}, "altura": sabidas.get(ref)})
+        salida.sort(key=lambda s: -s["nota"])
+        nuevos = salida
+        por_clase = defaultdict(int)
+        for s in nuevos:
+            por_clase[s["clase"]] += 1
+        print("  en limpio: " + ("; ".join(f"{CLASES_POSIBLE[c].lower()}, {n}" for c, n in sorted(por_clase.items(), key=lambda kv: -kv[1])) or "nada"))
+    else:
+        for ref, r in series.items():
+            j = juzgar(r, normal)
+            por_estado[universo[ref]["estado"]].append(j["nota"] if j else 0.0)
+            if j is not None:
+                salida.append({**ficha(ref), **j})
+        salida.sort(key=lambda s: -s["nota"])
+        nuevos = [s for s in salida if s["catastro"] == "functional" and not s["en_lista"]]
+        # Sirve de comprobación: los que Catastro ya da por ruinosos deberían salir marcados mucho más a menudo que los que da por buenos.
+        for estado, notas in sorted(por_estado.items(), key=lambda kv: str(kv[0])):
+            v = np.array(notas)
+            print(f"  Catastro «{estado}»: {len(v)} edificios; con algún motivo, el {100 * float((v > 0).mean()):.1f} %; con nota de 10 o más, el {100 * float((v >= 10).mean()):.1f} %")
     if args.direcciones:
         ruta_dir = base / "direcciones.json"
-        sabidas = json.loads(ruta_dir.read_text(encoding="utf-8")) if ruta_dir.exists() else {}
+        conocidas = json.loads(ruta_dir.read_text(encoding="utf-8")) if ruta_dir.exists() else {}
         for s in nuevos[: args.direcciones]:
-            if s["ref"] not in sabidas:
-                sabidas[s["ref"]] = direccion(sesion, s["ref"])
+            if s["ref"] not in conocidas:
+                conocidas[s["ref"]] = direccion(sesion, s["ref"])
                 time.sleep(0.3)
-            s["direccion"] = sabidas[s["ref"]]
-        ruta_dir.write_text(json.dumps(sabidas, ensure_ascii=False, indent=0), encoding="utf-8")
+            s["direccion"] = conocidas[s["ref"]]
+        ruta_dir.write_text(json.dumps(conocidas, ensure_ascii=False, indent=0), encoding="utf-8")
     (base / f"posibles-{args.etiqueta}.json").write_text(json.dumps(nuevos, ensure_ascii=False, indent=0), encoding="utf-8")
     (base / f"todos-{args.etiqueta}.json").write_text(json.dumps(salida, ensure_ascii=False, indent=0), encoding="utf-8")
-    print(f"{len(medidas)} edificios medidos; {len(salida)} con algún motivo; {len(nuevos)} de ellos, edificios que Catastro da por buenos y no están en la lista")
-    # Sirve de comprobación: los que Catastro ya da por ruinosos deberían salir marcados mucho más a menudo que los que da por buenos.
-    for estado, notas in sorted(por_estado.items(), key=lambda kv: str(kv[0])):
-        v = np.array(notas)
-        print(f"  Catastro «{estado}»: {len(v)} edificios; con algún motivo, el {100 * float((v > 0).mean()):.1f} %; con nota de 10 o más, el {100 * float((v >= 10).mean()):.1f} %")
+    print(f"{len(medidas)} edificios medidos; {len(nuevos)} posibles entre los que Catastro da por buenos y no están en la lista")
     for n, s in enumerate(nuevos[: args.cuantos]):
-        print(f"  {n + 1:3d} {s['nota']:6.1f} {s['ref']} {s['uso'] or '-':12s} {s['area']:5d} m2  {s['lat']},{s['lon']}  {s.get('direccion') or ''}  {'; '.join(s['motivos'])}")
+        print(f"  {n + 1:3d} {s['nota']:6.1f} {s['clase']:13s} {s['ref']} {s['uso'] or '-':12s} {s['area']:5d} m2  {s['lat']},{s['lon']}  {s.get('direccion') or ''}  {'; '.join(s['motivos'])}")
     print("FIN-PUNTUAR", flush=True)
 
 
@@ -653,16 +715,17 @@ def capa(args) -> None:
     rasgos_geo, vistos = [], set()
     for etiqueta in args.etiqueta.split(","):
         for s in json.loads((base / f"posibles-{etiqueta}.json").read_text(encoding="utf-8")):
-            if s["ref"] in vistos or s["nota"] < args.nota_minima or s.get("copas") or (s.get("derribado") and not args.con_derribados):
+            if s["ref"] in vistos or s["nota"] < args.nota_minima or (s["clase"] == "derribado" and not args.con_derribados):
                 continue
             vistos.add(s["ref"])
             sitio = (s.get("direccion") or "").split(" (")[0].strip().title()
+            por_anio = lambda valores: ", ".join(f"{a}: {round(100 * v)} %" for a, v in zip(s["anios"], valores or []) if v is not None) or None   # noqa: E731
             rasgos_geo.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [s["lon"], s["lat"]]}, "properties": {
                 "id": f"posible/{s['ref']}", "nombre": sitio or f"Edificio {s['uso'] or 'sin uso apuntado'} de {s['area']} m²", "nota": s["nota"],
+                "clase": s["clase"], "parece": CLASES_POSIBLE[s["clase"]],
                 "motivos": ". ".join(m[0].upper() + m[1:] for m in s["motivos"]) + ".",
-                "serie": ", ".join(f"{a}: {round(100 * v)} %" for a, v in zip(s["anios"], s["nuc"])),
-                "tejado": ", ".join(f"{a}: {round(100 * v)} %" for a, v in zip(s["anios"], s.get("tej") or []) if v is not None) or None,
-                "direccion": s.get("direccion"), "refcat": s["ref"], "uso": s["uso"], "anio": s["anio"], "superficie": s["area"], "derribado": bool(s.get("derribado")),
+                "tejado": por_anio(s.get("tej")), "serie": por_anio(s["nuc"]),
+                "direccion": s.get("direccion"), "refcat": s["ref"], "uso": s["uso"], "anio": s["anio"], "superficie": s["area"],
                 "url": f"https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1={s['ref'][:7]}&rc2={s['ref'][7:14]}"}})
     rasgos_geo.sort(key=lambda f: -f["properties"]["nota"])
     salida = Path(args.datos) / "capa-posibles.geojson"
@@ -890,7 +953,7 @@ def main() -> None:
     ap.add_argument("--muestra", type=int, default=150, help="tejados: cuántos edificios corrientes mirar además, como referencia")
     ap.add_argument("--cpu", action="store_true", help="tejados: sin tarjeta gráfica")
     ap.add_argument("--sin-tejados", action="store_true", help="puntuar: no usar lo que haya dejado tejado.py")
-    ap.add_argument("--alturas", type=int, default=0, help="comprueba los primeros N con la maqueta 3D de 2025 (copas de árboles, derribados)")
+    ap.add_argument("--alturas", type=int, default=300, help="puntuar: cuántos edificios bajo sospecha, como mucho, se miran de nuevas en la maqueta 3D de 2025")
     ap.add_argument("--cuantos", type=int, default=40); ap.add_argument("--desde", type=int, default=0); ap.add_argument("--filas", type=int, default=6)
     ap.add_argument("--lista", default="posibles", choices=("posibles", "todos")); ap.add_argument("--anios-hoja", default="2017,2019,2021,2023,2025"); ap.add_argument("--refs", default=""); ap.add_argument("--nombre", default="", help="nombre de las hojas")
     args = ap.parse_args()

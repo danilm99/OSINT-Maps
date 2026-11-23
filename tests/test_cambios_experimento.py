@@ -112,19 +112,59 @@ def test_con_arbolado_alrededor_se_exige_mas(K):
     assert K.juzgar(r([0, .5, .6], [.1] * 3), normal) is not None and K.juzgar(r([0, .5], [.1] * 2), normal) is None       # con dos años no se dice nada
 
 
-def test_la_maqueta_3d_corrige_la_nota(K):
-    copas = {"nota": 40.0, "motivos": []}
-    K.con_altura(copas, {"altura_mediana_m": 12.0, "altura_p90_m": 14.0, "pct_en_pie": 95}, 1)
-    assert copas["nota"] == 12.0 and copas["copas"] and "copas de árboles" in copas["motivos"][0]
-    caido = {"nota": 40.0, "motivos": []}
-    K.con_altura(caido, {"altura_mediana_m": 0.2, "altura_p90_m": 1.0, "pct_en_pie": 5}, 2)
-    assert caido["nota"] == 20.0 and caido["derribado"]
-    a_medias = {"nota": 40.0, "motivos": []}
-    K.con_altura(a_medias, {"altura_mediana_m": 2.6, "altura_p90_m": 4.0, "pct_en_pie": 40}, 1)
-    assert a_medias["nota"] == 52.0 and "40 %" in a_medias["motivos"][0]
-    sin_dato = {"nota": 40.0, "motivos": []}
-    K.con_altura(sin_dato, None, 1)
-    assert sin_dato == {"nota": 40.0, "motivos": []}
+def _serie(K, dentro, fuera):
+    return {"anios": np.array(K.ANIOS[:len(dentro)]), "veg": np.array(dentro), "nuc": np.array(dentro), "alr": np.array(fuera), "osc": np.zeros(len(dentro)), "rug": np.zeros(len(dentro))}
+
+
+def _tejado(K, visto):
+    return {str(a): v for a, v in zip(K.ANIOS, visto)}
+
+
+def test_el_tejado_de_cada_ano_levanta_la_sospecha(K):
+    limpio, pelado = [0] * 9, [.02] * 9
+    perdio = K.sospecha(_serie(K, limpio, pelado), _tejado(K, [.9, .9, .9, .9, .85, .1, 0, 0, 0]))
+    assert perdio["tipo"] == "perdio" and (perdio["ultimo"], perdio["sin"]) == (2021, 2022) and (perdio["tenia"], perdio["queda"]) == (0.9, 0.0)
+    assert perdio["tej"] == [.9, .9, .9, .9, .85, .1, 0, 0, 0] and perdio["anios"] == list(K.ANIOS)
+    # Un año raro en medio no adelanta la fecha: cuenta el último en que aún se le veía.
+    assert K.sospecha(_serie(K, limpio, pelado), _tejado(K, [.9, .9, .9, 0, .9, .9, 0, 0, 0]))["ultimo"] == 2022
+    nunca = K.sospecha(_serie(K, [.6] * 9, [.2] * 9), _tejado(K, [.05, .1, 0, .2, .1, 0, 0, .1, .05]))
+    assert nunca["tipo"] == "nunca" and nunca["veg_ahora"] == 0.6
+    # Ni un tejado que sigue viéndose, ni uno que baja poco, ni uno que nunca se vio pero un año sí, levantan sospecha.
+    assert K.sospecha(_serie(K, limpio, pelado), _tejado(K, [.95] * 9)) is None
+    assert K.sospecha(_serie(K, limpio, pelado), _tejado(K, [.9, .9, .9, .85, .85, .8, .8, .75, .7])) is None
+    assert K.sospecha(_serie(K, limpio, pelado), _tejado(K, [.1, .1, .1, .7, .1, .1, .1, .1, .1])) is None
+    # Con el tejado de solo un par de años no hay con qué comparar.
+    assert K.sospecha(_serie(K, limpio, pelado), {"2017": .9, "2025": 0.0}) is None
+    # La vegetación que ha entrado se apunta ya descontando lo que cabe achacar a las copas de alrededor.
+    invadido = K.sospecha(_serie(K, [0, 0, 0, .1, .2, .4, .6, .7, .7], [.2] * 9), _tejado(K, [.9, .9, .85, .8, .6, .4, .2, .1, .1]))
+    assert invadido["crece"] == pytest.approx(0.7 - 0.3 * 0.2, abs=0.01) and (invadido["veg_antes"], invadido["veg_ahora"]) == (0.0, 0.7)
+
+
+def test_la_maqueta_3d_decide(K):
+    limpio, pelado = [0] * 9, [.02] * 9
+    perdio = K.sospecha(_serie(K, limpio, pelado), _tejado(K, [.9, .9, .9, .9, .85, .1, 0, 0, 0]))
+    maqueta = lambda en_pie, mediana=3.0: {"altura_mediana_m": mediana, "altura_p90_m": mediana + 1, "pct_en_pie": en_pie, "suelo_m": 50.0}      # noqa: E731
+    caido = K.sentenciar(perdio, maqueta(40), 1)
+    assert caido["clase"] == "caido" and caido["nota"] == 98.0
+    assert caido["motivos"][0] == "tenía tejado (90 % del contorno) y dejó de verse entre 2021 y 2022 (queda el 0 %)" and "40 %" in caido["motivos"][1]
+    derribado = K.sentenciar(perdio, maqueta(5, 0.2), 1)
+    assert derribado["clase"] == "derribado" and derribado["nota"] < caido["nota"] and "derribado" in derribado["motivos"][1]
+    # Sigue en pie y entero y no le ha entrado vegetación: placas solares, una reforma o un fallo del detector. Fuera.
+    assert K.sentenciar(perdio, maqueta(95, 6.5), 2) is None
+    # Sin maqueta se dice, con poca nota, que está sin comprobar.
+    assert K.sentenciar(perdio, None, 1)["clase"] == "sin_comprobar" and K.sentenciar(perdio, None, 1)["nota"] < derribado["nota"]
+    # En pie y con vegetación dentro: se apunta, y si lo de encima es mucho más alto que el edificio, con la mitad de nota.
+    invadido = K.sospecha(_serie(K, [0, 0, 0, .1, .2, .4, .6, .7, .7], [.2] * 9), _tejado(K, [.9, .9, .85, .8, .6, .4, .2, .1, .1]))
+    tapado, bajo_copas = K.sentenciar(invadido, maqueta(90, 4.0), 1), K.sentenciar(invadido, maqueta(90, 12.0), 1)
+    assert tapado["clase"] == bajo_copas["clase"] == "vegetacion" and bajo_copas["nota"] == pytest.approx(tapado["nota"] / 2, abs=0.1)
+    assert tapado["motivos"][1] == "le ha entrado vegetación: del 0 % al 70 %" and "copas de árboles" in bajo_copas["motivos"][2]
+    # Nunca se le vio tejado: solo cuenta si la maqueta dice que queda en pie a medias y lo de encima no son copas.
+    nunca = K.sospecha(_serie(K, [.6] * 9, [.2] * 9), _tejado(K, [.05, .1, 0, .2, .1, 0, 0, .1, .05]))
+    vieja = K.sentenciar(nunca, maqueta(35), 1)
+    assert vieja["clase"] == "ruina_vieja" and "como mucho, el 20 % del contorno" in vieja["motivos"][0] and "contorno mal puesto" in vieja["motivos"][2]
+    assert K.sentenciar(nunca, maqueta(90, 4.0), 1) is None and K.sentenciar(nunca, maqueta(5, 0.1), 1) is None
+    assert K.sentenciar(nunca, maqueta(35, 12.0), 1) is None and K.sentenciar(nunca, None, 1) is None
+    assert set(K.CLASES_POSIBLE) >= {caido["clase"], derribado["clase"], tapado["clase"], vieja["clase"], "sin_comprobar", "vegetacion_sola"}
 
 
 PIEZA = """  <gml:featureMember>
@@ -171,7 +211,7 @@ def municipio(tmp_path):
 def _args(carpeta, **mas):
     base = dict(carpeta=str(carpeta / "vision"), catastro=str(carpeta / "catastro"), datos=str(carpeta / "datos"), municipios="46999", etiqueta="prueba",
                 anios=",".join(str(a) for a in range(2017, 2026)), hilos=2, paso=0.5, min_superficie=60.0, max_vecinos=12, todos=False, guardar_fotos=False, rehacer=False,
-                direcciones=0, alturas=0, cuantos=10, nota_minima=12.0, con_derribados=False)
+                direcciones=0, alturas=0, cuantos=10, nota_minima=12.0, con_derribados=False, sin_tejados=False)
     base.update(mas)
     return types.SimpleNamespace(**base)
 
@@ -272,25 +312,59 @@ def test_un_fallo_de_red_se_vuelve_a_pedir_y_un_ano_sin_foto_no(K, municipio, mo
     assert len(medidas) == 3 and all(sorted(serie) == list(range(2019, 2026)) for serie in medidas.values())      # ni el año sin foto ni el que falló
 
 
-def test_con_el_tejado_de_cada_ano_manda_haberlo_perdido(K):
-    r = lambda dentro, fuera: {"anios": np.array(K.ANIOS), "veg": np.array(dentro), "nuc": np.array(dentro), "alr": np.array(fuera),  # noqa: E731
-                               "osc": np.zeros(9), "rug": np.zeros(9)}
-    t = lambda visto: {str(a): v for a, v in zip(K.ANIOS, visto)}     # noqa: E731
-    normal = ([0.05, 0.5, 0.9], [0.0, 0.15, 0.5])
-    derribo = K.juzgar(r([0] * 9, [.02] * 9), normal, t([.9, .9, .9, 0, 0, 0, 0, 0, 0]))
-    assert derribo["nota"] == 90.0 and derribo["motivos"] == ["tenía tejado y ya no se ve: del 90 % del contorno en 2017-2019 al 0 % en 2023-2025"]
-    assert derribo["tej"] == [.9, .9, .9, 0, 0, 0, 0, 0, 0]
-    invadido = K.juzgar(r([0, 0, 0, .1, .2, .4, .6, .7, .7], [.2] * 9), normal, t([.9, .9, .85, .8, .6, .4, .2, .1, .1]))
-    assert len(invadido["motivos"]) == 2 and invadido["motivos"][1] == "y le ha entrado vegetación: del 0 % al 70 %" and invadido["nota"] > derribo["nota"]
-    # Lo que la vegetación sola señalaba y con el tejado a la vista deja de serlo: una pizarra que parece planta, una copa que avanza.
-    assert K.juzgar(r([.9] * 9, [.05] * 9), normal) is not None and K.juzgar(r([.9] * 9, [.05] * 9), normal, t([.95] * 9)) is None
-    crece = [0, 0, 0, .1, .1, .2, .2, .3, .3]
-    assert K.juzgar(r(crece, [.2] * 9), normal) is not None and K.juzgar(r(crece, [.2] * 9), normal, t([.9, .9, .9, .85, .85, .8, .8, .75, .7])) is None
-    # Nunca se le vio tejado y tiene vegetación dentro: se apunta, con menos nota y diciendo las tres cosas que puede ser.
-    nunca = K.juzgar(r([.6] * 9, [.2] * 9), normal, t([.05] * 9))
-    assert 10 < nunca["nota"] < 40 and "contorno de Catastro corrido" in nunca["motivos"][0]
-    # Con el tejado de solo un par de años no se puede comparar: se puntúa como si no lo hubiera.
-    assert K.juzgar(r([.9] * 9, [.05] * 9), normal, {"2017": .9, "2025": .9})["motivos"][0].startswith("tiene vegetación dentro")
+def test_puntuar_con_tejados_y_maqueta(K, municipio, monkeypatch, capsys):
+    """De punta a punta con el detector de tejado: la nave pierde el tejado y queda a medias, la casa se llena de placas
+    (el detector deja de verle el tejado, la maqueta dice que sigue entera) y a una casa del pueblo la derriban."""
+    args = _args(municipio, todos=True, alturas=50)
+    por_ref = {e["ref"]: e for e in K.cargar_universo(args)}
+    derribada = "0001000YJ0000X"
+
+    def foto_falsa(sesion, anio, x0, y0, lado_px, copia=None):
+        dentro = [(e["geom"], TEJADO, 0.0) for e in por_ref.values()
+                  if x0 < e["geom"].bounds[0] and e["geom"].bounds[2] < x0 + K.VENTANA_M and y0 < e["geom"].bounds[1] and e["geom"].bounds[3] < y0 + K.VENTANA_M]
+        return _foto(K, x0, y0, dentro, verde_a_la_izquierda=0)
+
+    monkeypatch.setattr(K, "pedir", foto_falsa)
+    K.medir(args)
+    entero, se_va = {str(a): 0.95 for a in K.ANIOS}, {str(a): (0.9 if a <= 2021 else 0.05) for a in K.ANIOS}
+    tejados = {ref: entero for ref in por_ref}
+    tejados.update({"000100200YJ00A": se_va, "46999A00100001": se_va, derribada: se_va, "46999A00100002": se_va})
+    (municipio / "vision" / "cambios" / "tejados-prueba.json").write_text(json.dumps(tejados), encoding="utf-8")
+    (municipio / "datos").mkdir()
+    (municipio / "datos" / "candidatos.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8")
+    miradas = []
+
+    def maqueta_falsa(mallas, huella, lat):
+        miradas.append(round(huella.centroid.x, 4))
+        en_pie = {4380008: 40, 4380010: 95, 4380005: 3}[round(shapely_a_utm(huella).centroid.y)]
+        return {"suelo_m": 50.0, "altura_mediana_m": 3.0, "altura_p90_m": 4.0, "pct_en_pie": en_pie}
+
+    from pyproj import Transformer
+    import shapely
+    a_utm = Transformer.from_crs(4326, 25830, always_xy=True).transform
+    shapely_a_utm = lambda g: shapely.transform(g, lambda c: np.column_stack(a_utm(c[:, 0], c[:, 1])))      # noqa: E731
+    monkeypatch.setitem(sys.modules, "malla", types.SimpleNamespace(ZONAS={"Centro": (0, 1)}, Malla=lambda sesion, zona: None, medir=maqueta_falsa))
+    K.puntuar(args)
+    dicho = capsys.readouterr().out
+    assert "Catastro «ruin»: 1 edificios; perdieron el tejado, 1 (100.0 %)" in dicho and "perdieron el tejado, 3 (" in dicho
+    assert "bajo sospecha y que Catastro da por buenos: 3 (3 perdieron el tejado); sin mirar en la maqueta 3D: 0" in dicho
+    posibles = json.loads((municipio / "vision" / "cambios" / "posibles-prueba.json").read_text(encoding="utf-8"))
+    assert [(p["ref"], p["clase"]) for p in posibles] == [("000100200YJ00A", "caido"), (derribada, "derribado")]      # la de las placas no sale
+    assert posibles[0]["motivos"][0] == "tenía tejado (90 % del contorno) y dejó de verse entre 2021 y 2022 (queda el 5 %)"
+    assert posibles[0]["altura"]["pct_en_pie"] == 40 and posibles[0]["tej"][0] == 0.9 and len(miradas) == 3
+    K.puntuar(args)                                                   # la maqueta ya está apuntada: no se vuelve a pedir
+    assert len(miradas) == 3
+
+    K.capa(args)
+    (rasgo,) = json.loads((municipio / "datos" / "capa-posibles.geojson").read_text(encoding="utf-8"))["features"]      # los derribados no van al mapa…
+    p = rasgo["properties"]
+    assert p["clase"] == "caido" and p["parece"] == "Ha perdido el tejado y queda en pie a medias" and p["tejado"].startswith("2017: 90 %") and p["tejado"].endswith("2025: 5 %")
+    assert p["motivos"].startswith("Tenía tejado (90 % del contorno)") and "caído a medias o en obras." in p["motivos"]
+    K.capa(_args(municipio, todos=True, con_derribados=True))         # …salvo que se pidan
+    assert [f["properties"]["clase"] for f in json.loads((municipio / "datos" / "capa-posibles.geojson").read_text(encoding="utf-8"))["features"]] == ["caido", "derribado"]
+    # Y sin fiarse del detector de tejado, la misma tanda se puntúa solo con la vegetación (aquí no hay ninguna: nada).
+    K.puntuar(_args(municipio, todos=True, sin_tejados=True))
+    assert json.loads((municipio / "vision" / "cambios" / "posibles-prueba.json").read_text(encoding="utf-8")) == []
 
 
 def test_las_etiquetas_del_detector_de_tejado():
