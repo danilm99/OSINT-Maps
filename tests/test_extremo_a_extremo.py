@@ -174,6 +174,11 @@ def test_el_servidor_no_deja_salir_de_la_carpeta_de_datos(tmp_path):
     cli._Servidor.carpeta_datos = tmp_path
     ruta = cli._Servidor.translate_path(cli._Servidor.__new__(cli._Servidor), "/datos/../../etc/passwd")
     assert ruta == str(tmp_path / "passwd")
+    # La única subcarpeta que se sirve es la de las líneas detectadas en la foto aérea; tampoco deja salirse.
+    traducir = lambda camino: cli._Servidor.translate_path(cli._Servidor.__new__(cli._Servidor), camino)
+    assert traducir("/datos/vision/cat-1.json?x=1") == str(tmp_path / "vision" / "cat-1.json")
+    assert traducir("/datos/vision/../../etc/passwd") == str(tmp_path / "vision" / "passwd")
+    assert traducir("/datos/otra/cat-1.json") == str(tmp_path / "cat-1.json")
 
 
 def test_sin_resultados_no_pisa_los_datos_anteriores(red_simulada, monkeypatch, tmp_path, capsys):
@@ -486,6 +491,18 @@ def test_una_ficha_lenta_no_deja_esperando_a_los_trenes(servidor, monkeypatch):
     assert len([p for p in pedidas if "lenta" in p]) == 1
 
 
+def test_el_servidor_da_vacio_lo_visto_desde_el_aire_si_no_esta(servidor):
+    import requests
+    base, carpeta = servidor
+    assert requests.get(f"{base}/datos/revision.json", timeout=5).json() == {}
+    (carpeta / "revision.json").write_text('{"sitios": {"cat-1": {"estado": "solar"}}}', encoding="utf-8")
+    (carpeta / "vision").mkdir()
+    (carpeta / "vision" / "cat-1.json").write_text('{"o": [0, 0], "l": []}', encoding="utf-8")
+    assert requests.get(f"{base}/datos/revision.json", timeout=5).json()["sitios"]["cat-1"]["estado"] == "solar"
+    assert requests.get(f"{base}/datos/vision/cat-1.json", timeout=5).json() == {"o": [0, 0], "l": []}
+    assert requests.get(f"{base}/datos/vision/no-existe.json", timeout=5).status_code == 404
+
+
 def test_el_servidor_se_identifica(servidor):
     import requests
     url, _ = servidor
@@ -502,21 +519,37 @@ def test_sitio_estatico(tmp_path, capsys):
     # Por defecto, los resultados sí y las notas personales no.
     sitio = tmp_path / "sitio"
     assert cli.main(["sitio", "--salida", str(sitio), "--datos", str(datos)]) == 0
-    assert {f.name for f in sitio.iterdir()} >= {"index.html", "capas.js", "iconos.js", "herramientas.js", "rutas.js", "tresd.js", "sw.js", "manifest.webmanifest", "icono-192.png", ".nojekyll", "datos"}
+    assert {f.name for f in sitio.iterdir()} >= {"index.html", "capas.js", "iconos.js", "herramientas.js", "rutas.js", "vision.js", "tresd.js", "sw.js", "manifest.webmanifest", "icono-192.png", ".nojekyll", "datos"}
     # Cada programa se pide con la marca de su contenido: una versión nueva no se mezcla con ficheros viejos del navegador.
     import hashlib, re
     pagina_sitio = (sitio / "index.html").read_text(encoding="utf-8")
     marcas = dict(re.findall(r'<script src="(\w+\.js)\?v=([0-9a-f]{10})"></script>', pagina_sitio))
-    assert set(marcas) == {"iconos.js", "capas.js", "herramientas.js", "rutas.js", "tresd.js"}
+    assert set(marcas) == {"iconos.js", "capas.js", "herramientas.js", "rutas.js", "vision.js", "tresd.js"}
     assert all(hashlib.sha256((sitio / nombre).read_bytes()).hexdigest()[:10] == marca for nombre, marca in marcas.items())
     assert '<script src="capas.js"></script>' in (cli.CARPETA_WEB / "index.html").read_text(encoding="utf-8")      # el original no se toca
-    assert sorted(f.name for f in (sitio / "datos").iterdir()) == ["camaras.geojson", "candidatos.geojson", "capa-dgt.geojson", "huellas.geojson"]
+    assert sorted(f.name for f in (sitio / "datos").iterdir()) == ["camaras.geojson", "candidatos.geojson", "capa-dgt.geojson", "huellas.geojson", "revision.json"]
+    assert (sitio / "datos" / "revision.json").read_text(encoding="utf-8") == "{}"      # lo visto desde el aire: vacío si no se ha calculado
     assert json.loads((sitio / "manifest.webmanifest").read_text(encoding="utf-8"))["start_url"] == "."      # relativo: vale en una subcarpeta
     assert "ninguno" not in capsys.readouterr().out
 
     con_notas = tmp_path / "con-notas"
     cli.main(["sitio", "--salida", str(con_notas), "--datos", str(datos), "--con-notas"])
     assert {"marcas.json", "marcadores.json"} <= {f.name for f in (con_notas / "datos").iterdir()}
+
+    # Lo visto desde el aire: el resumen y, con él, la carpeta de líneas (un fichero por sitio). Sin resumen, la carpeta no va.
+    (datos / "vision").mkdir()
+    (datos / "vision" / "cat-1.json").write_text('{"o":[0,0],"l":[]}', encoding="utf-8")
+    (datos / "vision" / "notas.txt").write_text("no es de la web", encoding="utf-8")
+    sin_resumen = tmp_path / "sin-resumen"
+    cli.main(["sitio", "--salida", str(sin_resumen), "--datos", str(datos)])
+    assert not (sin_resumen / "datos" / "vision").exists()
+    (datos / "revision.json").write_text('{"sitios":{"cat-1":{"estado":"solar"}}}', encoding="utf-8")
+    capsys.readouterr()
+    con_vision = tmp_path / "con-vision"
+    cli.main(["sitio", "--salida", str(con_vision), "--datos", str(datos)])
+    assert (con_vision / "datos" / "revision.json").exists()
+    assert [f.name for f in (con_vision / "datos" / "vision").iterdir()] == ["cat-1.json"]
+    assert "vision/ (1 sitios)" in capsys.readouterr().out
 
     solo_visor = tmp_path / "solo-visor"
     cli.main(["sitio", "--salida", str(solo_visor), "--sin-datos"])
@@ -552,9 +585,16 @@ def test_paquete_autonomo(red_simulada, tmp_path, capsys):
     datos["features"][0]["properties"]["nombre"] = "</script><script>alert(1)</script>"
     ruta.write_text(json.dumps(datos), encoding="utf-8")
 
+    dentro = next(f["properties"]["id"] for f in datos["features"] if f["properties"]["puntuacion"] >= 40)
+    (salida / "revision.json").write_text(json.dumps({"vuelo": "2025", "sitios": {dentro: {"estado": "solar"}, "no-va": {"estado": "ruina"}}}), encoding="utf-8")
+
     assert cli.main(["paquete", "--datos", str(salida), "--min-puntuacion", "40"]) == 0
     html = (salida / "mapa.html").read_text(encoding="utf-8")
     assert "<!--DATOS_INCRUSTADOS-->" not in html
+    revision = json.loads(html.split("window.OSINT_REVISION=")[1].split(";window.OSINT_DATOS=")[0].replace("<\\/", "</"))
+    assert list(revision["sitios"]) == [dentro]                                 # lo visto desde el aire, solo de los sitios que van
+    assert '<script src="vision.js">' not in html and "function bloqueVision" in html
+    assert html.index("function calcularRuta") < html.index("function bloqueVision") < html.index("function entrar3D")
     assert "OSINT_PRONTO = {}" not in html and "<!--PRONTO-->" not in html      # con los datos dentro no hay nada que pedir por adelantado
     assert "window.OSINT_DATOS=" in html and "window.OSINT_HUELLAS=" in html
     incrustadas = html.split("window.OSINT_CAMARAS=")[1].split(";</script>")[0].split(";window.")[0]

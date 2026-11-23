@@ -568,6 +568,11 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         if nombre and not (self.carpeta_datos / nombre).exists():
             self._responder_json(200, b"{}")
             return
+        # Lo visto desde el aire es opcional y el visor lo pide siempre: si no está, un objeto
+        # vacío en vez de un 404 (que saldría como error en la consola del navegador).
+        if ruta == "/datos/revision.json" and not (self.carpeta_datos / "revision.json").exists():
+            self._responder_json(200, b"{}")
+            return
         super().do_GET()
 
     def do_POST(self) -> None:
@@ -712,18 +717,18 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
     if ruta_revision.exists():
         revision = json.loads(ruta_revision.read_text(encoding="utf-8"))
         revision["sitios"] = {k: v for k, v in revision.get("sitios", {}).items() if k in ids}
-    incrustado = (f"<script>window.OSINT_DATOS={_json_para_script(datos)};"
+    incrustado = ("<script>" + (f"window.OSINT_REVISION={_json_para_script(revision)};" if revision else "")
+                  + f"window.OSINT_DATOS={_json_para_script(datos)};"
                   f"window.OSINT_HUELLAS={_json_para_script(huellas)};"
                   f"window.OSINT_CAMARAS={_json_para_script(camaras)};"
-                  f"window.OSINT_CAPAS={_json_para_script(capas)};"
-                  + (f"window.OSINT_REVISION={_json_para_script(revision)};" if revision else "") + "</script>")
+                  f"window.OSINT_CAPAS={_json_para_script(capas)};</script>")
     pagina = pagina.replace(marca, incrustado, 1)
     # Los datos van dentro: sobra el trozo que los pide por adelantado al servidor.
     antes, hay, resto = pagina.partition("<!--PRONTO-->")
     if hay and "<!--/PRONTO-->" in resto:
         pagina = antes + resto.split("<!--/PRONTO-->", 1)[1]
     # El resto del programa del visor va en un fichero aparte: dentro también.
-    for fichero in ("iconos.js", "capas.js", "herramientas.js", "rutas.js", "aire.js", "tresd.js"):
+    for fichero in ("iconos.js", "capas.js", "herramientas.js", "rutas.js", "vision.js", "tresd.js"):
         etiqueta = f'<script src="{fichero}"></script>'
         if etiqueta in pagina:
             codigo = (CARPETA_WEB / fichero).read_text(encoding="utf-8").replace("</script", "<\\/script")
@@ -776,6 +781,9 @@ def crear_sitio(destino: Path, carpeta_datos: Path | None, con_notas: bool = Fal
                 shutil.copy2(origen, destino / "datos" / nombre)
                 copiados.append(nombre)
         lineas = sorted((carpeta_datos / CARPETA_VISION).glob("*.json")) if "revision.json" in copiados else []
+        if "revision.json" not in copiados:
+            # El visor lo pide siempre: vacío si no se ha pasado el detector, para que no dé un 404.
+            (destino / "datos" / "revision.json").write_text("{}", encoding="utf-8")
         if lineas:
             (destino / "datos" / CARPETA_VISION).mkdir(exist_ok=True)
             for origen in lineas:

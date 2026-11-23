@@ -199,20 +199,20 @@ if (/^https?:$/.test(location.protocol)) {
   .marcas button { flex: 1; border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 8px 4px; }
   .marcas button[aria-pressed=true] { background: var(--tinta); border-color: var(--tinta); color: var(--blanco); }
 
-  /* Lo que un programa ha visto en la foto aérea (aire.js). La leyenda va siempre sobre fondo
+  /* Lo que un programa ha visto en la foto aérea (vision.js). La leyenda va siempre sobre fondo
      oscuro, como la foto: así los colores de las líneas se ven igual que en el mapa. */
-  .aire .veredicto { font: 600 20px/1.15 "Barlow Condensed", sans-serif; margin: 0 0 8px; }
-  .aire .sub-aire { margin: 10px 0 5px; font-size: 14px; color: var(--tinta-suave); }
-  .leyenda-aire { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 5px; }
-  .leyenda-aire li { display: flex; align-items: center; gap: 7px; padding: 3px 9px 3px 7px; border-radius: 4px;
+  .vision .veredicto { font: 600 20px/1.15 "Barlow Condensed", sans-serif; margin: 0 0 8px; }
+  .vision .sub-vision { margin: 10px 0 5px; font-size: 14px; color: var(--tinta-suave); }
+  .leyenda-vision { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 5px; }
+  .leyenda-vision li { display: flex; align-items: center; gap: 7px; padding: 3px 9px 3px 7px; border-radius: 4px;
                      background: #17242e; border: 1px solid rgba(255,255,255,.16); color: #fff; font-size: 13px; }
-  .leyenda-aire svg { width: 30px; height: 8px; flex: none; }
-  #ver-aire { margin-top: 8px; border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 6px 12px; width: 100%; }
-  #ver-aire[aria-pressed=true] { background: var(--tinta); border-color: var(--tinta); color: var(--blanco); }
-  .fiar-aire { margin-top: 8px; font-size: 13px; color: var(--tinta-suave); }
-  .fiar-aire summary { cursor: pointer; }
-  .fiar-aire p { margin: 6px 0 0; }
-  .fiar-aire ul { margin: 4px 0 0; padding-left: 18px; }
+  .leyenda-vision svg { width: 30px; height: 8px; flex: none; }
+  #ver-vision { margin-top: 8px; border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 6px 12px; width: 100%; }
+  #ver-vision[aria-pressed=true] { background: var(--tinta); border-color: var(--tinta); color: var(--blanco); }
+  .fiar-vision { margin-top: 8px; font-size: 13px; color: var(--tinta-suave); }
+  .fiar-vision summary { cursor: pointer; }
+  .fiar-vision p { margin: 6px 0 0; }
+  .fiar-vision ul { margin: 4px 0 0; padding-left: 18px; }
   #nota-personal { width: 100%; min-height: 58px; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--linea); border-radius: 6px; background: var(--blanco); resize: vertical; }
 
   #pie { padding: 12px 16px 16px; border-top: 1px solid var(--linea); font-size: 12.5px; color: var(--tinta-suave); display: flex; gap: 6px 12px; flex-wrap: wrap; }
@@ -1357,9 +1357,11 @@ function cargar(geojson) {
   const limites = L.latLngBounds(candidatos.map((c) => [c.lat, c.lon]));
   // Si la dirección de la página traía una posición, se respeta. Si no, se recupera el
   // encuadre de la última vez si sigue cayendo sobre los datos.
+  // Sin animación: Leaflet la deja para el siguiente fotograma, y si entre tanto se abre una ficha
+  // (que encuadra el sitio), la animación llega después y devuelve el mapa a la vista general.
   if (vistaDeLaURL) vistaDeLaURL = null;
-  else if (Array.isArray(vista.centro) && limites.pad(0.5).contains(vista.centro)) mapa.setView(vista.centro, vista.zoom || 10);
-  else mapa.fitBounds(limites.pad(0.05));
+  else if (Array.isArray(vista.centro) && limites.pad(0.5).contains(vista.centro)) mapa.setView(vista.centro, vista.zoom || 10, { animate: false });
+  else mapa.fitBounds(limites.pad(0.05), { animate: false });
   filtrar();
 }
 
@@ -1382,7 +1384,7 @@ function pintarHuellas() {
     for (const c of visibles) { if (c !== seleccion && caja.contains([c.lat, c.lon])) { dibujar(c, false); if (++n >= 300) break; } }
   }
   if (seleccion) dibujar(seleccion, true);
-  if (typeof pintarAire === "function") pintarAire();      // y lo detectado alrededor del sitio abierto (aire.js)
+  if (typeof pintarVision === "function") pintarVision();      // y lo detectado alrededor del sitio abierto (vision.js)
 }
 $("capa-huellas").addEventListener("change", pintarHuellas);
 
@@ -1671,7 +1673,7 @@ function abrirFicha(c, mover) {
     el("h2", { textContent: tituloDe(c) }),
     el("div", { className: "lugar", textContent: [p.municipio, `nota ${Math.round(p.puntuacion || 0)} de 100`].filter(Boolean).join(", ") }),
     aereo, tira, comparar, botones, nota,
-    typeof bloqueAire === "function" ? bloqueAire(c) : null,       // lo que un programa ha visto en la foto (aire.js)
+    typeof bloqueVision === "function" ? bloqueVision(c) : null,       // lo que un programa ha visto en la foto (vision.js)
     bloque("Comprobar en otras fuentes", enlaces),
     fachada,
     bloque("Por qué tiene esta nota", desglose),
@@ -2607,7 +2609,7 @@ if (window.OSINT_DATOS) {
 <script src="capas.js"></script>
 <script src="herramientas.js"></script>
 <script src="rutas.js"></script>
-<script src="aire.js"></script>
+<script src="vision.js"></script>
 <script src="tresd.js"></script>
 </body>
 </html>
