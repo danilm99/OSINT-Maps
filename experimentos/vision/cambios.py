@@ -116,6 +116,40 @@ def leer_edificios(ruta: Path) -> list[dict]:
     return salida
 
 
+def leer_piezas(ruta: Path) -> dict[str, tuple]:
+    """De cada edificio, lo que de verdad levanta del suelo: la unión de sus piezas con alguna planta sobre rasante, y cuántas plantas.
+
+    El contorno «de edificio» de Catastro incluye sótanos que asoman bajo un jardín y cosas así; visto desde arriba eso no es tejado."""
+    piezas: dict[str, list] = defaultdict(list)
+    plantas: dict[str, int] = defaultdict(int)
+    with zipfile.ZipFile(ruta) as zf:
+        gml = [n for n in zf.namelist() if n.lower().endswith(".buildingpart.gml")]
+        if not gml:
+            return {}
+        with zf.open(gml[0]) as fh:
+            for _, elem in ET.iterparse(C._FlujoSaneado(fh), events=("end",)):
+                nombre = C._local(elem.tag)
+                if nombre in ("featureMember", "member"):
+                    elem.clear()
+                    continue
+                if nombre != "BuildingPart":
+                    continue
+                ref = sobre = None
+                for e in elem.iter():
+                    n, texto = C._local(e.tag), (e.text or "").strip()
+                    if n == "localId" and ref is None:
+                        ref = texto.split("_")[0]
+                    elif n == "numberOfFloorsAboveGround":
+                        sobre = int(texto) if texto.isdigit() else None
+                if ref and sobre:
+                    geom = C._geometria(elem)
+                    if geom is not None and not geom.is_empty:
+                        piezas[ref].append(geom)
+                        plantas[ref] = max(plantas[ref], sobre)
+                elem.clear()
+    return {ref: (shapely.union_all(g) if len(g) > 1 else g[0], plantas[ref]) for ref, g in piezas.items()}
+
+
 def fuera_de_casco(ref: str) -> bool:
     """Por la referencia: parcela rústica (46137A00500001) o «diseminado» (empieza por 00)."""
     return bool(re.match(r"^\d{5}[A-Z]\d{8}", ref)) or ref.startswith("00")
@@ -141,7 +175,7 @@ def cargar_universo(args) -> list[dict]:
     base = Path(args.carpeta) / "cambios"
     base.mkdir(parents=True, exist_ok=True)
     municipios = [m for m in (args.municipios or "").split(",") if m]
-    nombre = base / f"universo-{'-'.join(municipios) or 'todo'}-{int(args.min_superficie)}{'-todos' if args.todos else f'-v{args.max_vecinos}'}.json"
+    nombre = base / f"universo2-{'-'.join(municipios) or 'todo'}-{int(args.min_superficie)}{'-todos' if args.todos else f'-v{args.max_vecinos}'}.json"
     if nombre.exists():
         universo = json.loads(nombre.read_text(encoding="utf-8"))
         for e in universo:
@@ -155,6 +189,13 @@ def cargar_universo(args) -> list[dict]:
         edificios = leer_edificios(ruta)
         if not edificios:
             continue
+        piezas = leer_piezas(ruta)
+        for e in edificios:
+            e["plantas"] = None
+            if e["ref"] in piezas:
+                geom, e["plantas"] = piezas[e["ref"]]
+                if geom.geom_type in ("Polygon", "MultiPolygon") and geom.area >= 0.3 * e["geom"].area:
+                    e["geom"] = geom
         centros = np.array([[e["geom"].centroid.x, e["geom"].centroid.y] for e in edificios])
         cerca = vecinos(centros)
         for e, (cx, cy), n in zip(edificios, centros, cerca):
@@ -162,7 +203,7 @@ def cargar_universo(args) -> list[dict]:
                 continue
             # Fuera de casco: en suelo rústico o diseminado, o con pocos vecinos (bordes de pueblo, naves sueltas).
             if args.todos or fuera_de_casco(e["ref"]) or n <= args.max_vecinos:
-                universo.append({"ref": e["ref"], "muni": ruta.stem, "estado": e["estado"], "uso": e["uso"], "anio": e["anio"], "sup": e["sup"], "area": round(e["geom"].area),
+                universo.append({"ref": e["ref"], "muni": ruta.stem, "estado": e["estado"], "uso": e["uso"], "anio": e["anio"], "sup": e["sup"], "plantas": e["plantas"], "area": round(e["geom"].area),
                                  "vecinos": int(n), "x": round(float(cx), 1), "y": round(float(cy), 1), "geom": e["geom"]})
         print(f"  {ruta.stem}: {len(edificios)} edificios; van {len(universo)} elegidos ({k + 1}/{len(zips)})", flush=True)
     nombre.write_text(json.dumps([{**e, "geom": mapping(shapely.set_precision(e["geom"], 0.1))} for e in universo], separators=(",", ":")), encoding="utf-8")
@@ -219,15 +260,13 @@ def medir_edificio(irg: np.ndarray, geom, x0: float, y1: float, paso: float) -> 
         for hueco in parte.interiors:                                 # los patios no son edificio
             cv2.fillPoly(mascara, [a_px(hueco.coords)], 0)
     # Se mira solo el interior: las fotos no son verticales del todo y el tejado sale corrido uno o dos metros
-    # respecto al contorno, distinto cada año. Cuanto mayor el edificio, más margen se le quita (de 0,5 a 2 m).
-    quitar = min(2.0, max(0.5, 0.15 * math.sqrt(geom.area)))
-    dentro = mascara
-    for metros in (quitar, 0.5):
-        lado = 2 * int(round(metros / paso)) + 1
-        dentro = cv2.erode(mascara, np.ones((lado, lado), np.uint8)) if lado > 1 else mascara
-        if dentro.sum() * paso * paso >= 10:
-            break
-    d = dentro > 0
+    # respecto al contorno, distinto cada año. Cuanto más ancho el edificio, más margen se le quita (de 0,5 a 2 m);
+    # con menos de 4 m de ancho no queda interior del que fiarse y no se mide.
+    lejos = cv2.distanceTransform(mascara, cv2.DIST_L2, 3)
+    medio_ancho = float(lejos.max()) * paso
+    if medio_ancho < 2.0:
+        return None
+    d = lejos * paso > min(2.0, max(0.5, 0.3 * medio_ancho))
     n = int(d.sum())
     if n * paso * paso < 10:
         return None
@@ -236,6 +275,7 @@ def medir_edificio(irg: np.ndarray, geom, x0: float, y1: float, paso: float) -> 
         return None
     nir, rojo, verde = trozo[..., 0], trozo[..., 1], trozo[..., 2]
     ndvi = (nir - rojo) / (nir + rojo + 1e-6)
+    ndvi[verde + 0.02 < 0.9 * rojo] = 0.0                             # lo rojizo no es planta: la teja también refleja mucho infrarrojo
     brillo = (rojo + verde) / 2
     grad = np.hypot(cv2.Sobel(brillo, cv2.CV_32F, 1, 0, ksize=3), cv2.Sobel(brillo, cv2.CV_32F, 0, 1, ksize=3))
 
@@ -243,7 +283,6 @@ def medir_edificio(irg: np.ndarray, geom, x0: float, y1: float, paso: float) -> 
         return np.bincount(np.clip(((valores - NDVI_MIN) / NDVI_ANCHO).astype(np.int32), 0, N_NDVI - 1), minlength=N_NDVI).tolist()
 
     # El centro del edificio aparte: las copas de los árboles de al lado tapan los bordes, no el centro.
-    lejos = cv2.distanceTransform(mascara, cv2.DIST_L2, 3)
     nucleo = lejos >= 0.5 * float(lejos.max())
     seco = d & (ndvi < 0.15)                                          # el brillo se apunta solo de lo que no es planta (las plantas ya salen oscuras)
     lado_anillo, lado_pegado = 2 * int(round(ANILLO_M / paso)) + 1, 2 * int(round(2.0 / paso)) + 1
@@ -293,6 +332,8 @@ def medir(args) -> None:
     recortes = recortes_de(universo)
     registro = base / f"medidas-{args.etiqueta}.jsonl"
     hechas = set()
+    if args.rehacer and registro.exists():
+        registro.unlink()
     if registro.exists():
         with registro.open(encoding="utf-8") as fh:
             for linea in fh:
@@ -417,18 +458,22 @@ def juzgar(r: dict[str, np.ndarray]) -> dict | None:
     sube = {c: ahora[c] - antes[c] for c in antes}
     pct = lambda v: f"{round(100 * v)} %"                             # noqa: E731
     motivos, nota = [], 0.0
-    if antes["nuc"] <= 0.15 and sube["nuc"] >= 0.12 and sube["veg"] >= 0.08:
-        nota += 120 * sube["nuc"] + 40 * sube["veg"]
-        motivos.append(f"le crece vegetación dentro: del {pct(antes['nuc'])} al {pct(ahora['nuc'])} en el centro")
-    elif antes["veg"] <= 0.2 and sube["veg"] >= 0.15:
-        nota += 50 * sube["veg"]
-        motivos.append(f"la vegetación le gana terreno por los bordes: del {pct(antes['veg'])} al {pct(ahora['veg'])}")
-    if sube["osc"] >= 0.15 and sube["rug"] >= 1.0:
-        nota += 60 * sube["osc"] + 4 * min(sube["rug"], 5)
-        motivos.append(f"la cubierta se ve más rota y con más sombra: del {pct(antes['osc'])} al {pct(ahora['osc'])} en sombra")
-    if float(r["nuc"].min()) >= 0.3:
+    # Con árboles alrededor, las copas crecen y tapan tejado sin que pase nada: cuanto más verde hay fuera, más se exige dentro.
+    descuento = 0.3 * antes["alr"]
+    crece = max(sube["nuc"] - descuento, sube["veg"] - descuento - 0.05)
+    if crece >= 0.12 and antes["nuc"] <= 0.25:
+        nota += 150 * crece
+        cual = "nuc" if sube["nuc"] >= sube["veg"] else "veg"
+        motivos.append(f"le crece vegetación dentro: del {pct(antes[cual])} al {pct(ahora[cual])}")
+        if sube["osc"] >= 0.1 and sube["rug"] >= 1.0:
+            nota += 10
+            motivos.append("y la cubierta se ve más rota")
+        if sube["rug"] >= 2.0 and ahora["nuc"] < 0.4:                 # cubierta muy distinta y poca planta: suele ser obra nueva o reforma
+            nota *= 0.4
+            motivos.append("aunque la cubierta ha cambiado tanto que puede ser una obra")
+    if float(r["nuc"].min()) >= 0.3 and float(r["veg"].min()) >= 0.25:
         nota += 30 * float(r["nuc"].mean())
-        motivos.append(f"vegetación dentro todos los años (entre el {pct(r['nuc'].min())} y el {pct(r['nuc'].max())} del centro)")
+        motivos.append(f"vegetación dentro todos los años (entre el {pct(r['nuc'].min())} y el {pct(r['nuc'].max())})")
     if not motivos:
         return None
     return {"nota": round(nota, 1), "motivos": motivos, "anios": r["anios"].tolist(), **{c: [round(float(x), 2) for x in r[c]] for c in ("veg", "nuc", "alr", "osc", "rug")}}
@@ -564,6 +609,7 @@ def main() -> None:
     ap.add_argument("--max-vecinos", type=int, default=12, help="con más edificios que estos a 150 m se considera casco urbano")
     ap.add_argument("--todos", action="store_true", help="también los de casco urbano")
     ap.add_argument("--guardar-fotos", action="store_true", help="guarda los recortes (solo para zonas de prueba: ocupan)")
+    ap.add_argument("--rehacer", action="store_true", help="vuelve a medir todo (si hay fotos guardadas, sin bajarlas otra vez)")
     ap.add_argument("--direcciones", type=int, default=0, help="pide a Catastro la dirección de los primeros N")
     ap.add_argument("--cuantos", type=int, default=40); ap.add_argument("--desde", type=int, default=0); ap.add_argument("--filas", type=int, default=6)
     ap.add_argument("--lista", default="posibles", choices=("posibles", "todos")); ap.add_argument("--anios-hoja", default="2017,2019,2021,2023,2025"); ap.add_argument("--refs", default="")
