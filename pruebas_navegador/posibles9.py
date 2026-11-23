@@ -6,7 +6,7 @@ ID0 = sitios[0]["properties"]["id"]
 LON0, LAT0 = sitios[0]["geometry"]["coordinates"][:2]
 CAPA_POSIBLES = {"type": "FeatureCollection", "features": [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [LON0 + 0.002, LAT0 + 0.001]}, "properties": {
     "id": "posible/0892613YJ2709S", "nombre": "Av Almendros Los 18 Godella", "nota": 22.1, "motivos": "Le crece vegetación dentro: del 9 % en 2017-2019 al 50 % en 2023-2025.",
-    "serie": "2017: 4 %, 2018: 9 %, 2025: 50 %", "direccion": "AV ALMENDROS LOS 18 GODELLA (VALENCIA)", "refcat": "0892613YJ2709S", "uso": "residencial", "anio": 1960,
+    "serie": "2017: 4 %, 2018: 9 %, 2025: 50 %", "tejado": "2017: 92 %, 2018: 90 %, 2025: 12 %", "direccion": "AV ALMENDROS LOS 18 GODELLA (VALENCIA)", "refcat": "0892613YJ2709S", "uso": "residencial", "anio": 1960,
     "superficie": 15700, "derribado": False, "url": "https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1=0892613&rc2=YJ2709S"}}]}
 fichero = datos / "capa-posibles.geojson"
 fichero.unlink(missing_ok=True)
@@ -37,7 +37,8 @@ with sync_playwright() as p:
         pg.evaluate("abrirElemento([...estado.posibles.elementos.values()][0], true); 0"); pg.wait_for_timeout(500)
         texto = pg.inner_text("#ficha-elemento")
         comprobar(nombre, "la ficha lleva el sitio por título", pg.inner_text("#ficha-elemento h2") == "Av Almendros Los 18 Godella" and "Posible abandono" in texto)
-        comprobar(nombre, "el porqué y la serie por años", "Le crece vegetación dentro: del 9 % en 2017-2019 al 50 % en 2023-2025." in texto and "2017: 4 %, 2018: 9 %, 2025: 50 %" in texto)
+        comprobar(nombre, "el porqué y la serie por años", "Le crece vegetación dentro: del 9 % en 2017-2019 al 50 % en 2023-2025." in texto and "2017: 4 %, 2018: 9 %, 2025: 50 %" in texto
+                   and "Tejado a la vista, año a año" in texto and "2017: 92 %, 2018: 90 %, 2025: 12 %" in texto)
         comprobar(nombre, "dirección, referencia, uso, año y planta con miles", all(x in texto for x in ("AV ALMENDROS LOS 18 GODELLA (VALENCIA)", "0892613YJ2709S", "residencial", "1960", "15.700 m²")))
         comprobar(nombre, "avisa de que es una sospecha sin comprobar", "sospecha sacada de comparar fotos aéreas, sin comprobar" in texto and "copas de árboles" in texto)
         comprobar(nombre, "enlace a la ficha de Catastro", pg.evaluate("[...document.querySelectorAll('#ficha-elemento a')].some((a) => a.href.includes('sedecatastro.gob.es') && a.href.includes('rc1=0892613'))"))

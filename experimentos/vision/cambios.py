@@ -482,11 +482,12 @@ def lo_normal(entorno: np.ndarray, centro: np.ndarray) -> tuple[list[float], lis
     return centros, np.maximum.accumulate(topes).tolist()               # más verde fuera nunca baja el listón
 
 
-def juzgar(r: dict[str, np.ndarray], normal: tuple[list[float], list[float]]) -> dict | None:
+def juzgar(r: dict[str, np.ndarray], normal: tuple[list[float], list[float]], tejado: dict | None = None) -> dict | None:
     """De la serie de un edificio a una nota y el porqué. None si no hay nada que decir.
 
-    Dos motivos, que pueden darse juntos: tiene dentro más vegetación de la que explica su entorno (cómo está),
-    y le ha ido creciendo en estos años (hacia dónde va)."""
+    Con la vegetación sola hay dos motivos, que pueden darse juntos: tiene dentro más de la que explica su entorno (cómo
+    está) y le ha ido creciendo en estos años (hacia dónde va). Si además se sabe qué parte del contorno se ve como tejado
+    cada año (`tejado`, de tejado.py), manda eso: lo que cuenta es haber tenido tejado y que ya no se vea."""
     partes = resumen(r)
     if partes is None:
         return None
@@ -494,30 +495,52 @@ def juzgar(r: dict[str, np.ndarray], normal: tuple[list[float], list[float]]) ->
     sube = {c: ahora[c] - antes[c] for c in antes}
     anios = r["anios"].tolist()
     pct = lambda v: f"{round(100 * v)} %"                             # noqa: E731
+    principio, final = f"{anios[0]}-{anios[k - 1]}", f"{anios[-k]}-{anios[-1]}"
     motivos, nota = [], 0.0
+    tenia = queda = None
+    if tejado:
+        visto = [tejado[str(a)] for a in anios if str(a) in tejado]
+        if len(visto) >= 2 * k:
+            tenia, queda = float(np.median(visto[:k])), float(np.median(visto[-k:]))
     tope = float(np.interp(ahora["alr"], *normal))
     exceso = ahora["nuc"] - tope
-    if exceso >= 0.10 and ahora["nuc"] >= 0.15:
-        nota += 100 * exceso
-        motivos.append(f"tiene vegetación dentro que su entorno no explica: el {pct(ahora['nuc'])} del centro (con ese entorno, 19 de cada 20 edificios no pasan del {pct(tope)})")
     # Con árboles alrededor, las copas crecen y tapan tejado sin que pase nada: cuanto más verde hay fuera, más se exige dentro.
     descuento = 0.3 * antes["alr"]
     crece = max(sube["nuc"] - descuento, sube["veg"] - descuento - 0.05)
-    if crece >= 0.12 and antes["nuc"] <= 0.25:
-        suma = 100 * crece
-        cual = "nuc" if sube["nuc"] >= sube["veg"] else "veg"
-        texto = f"le crece vegetación dentro: del {pct(antes[cual])} en {anios[0]}-{anios[k - 1]} al {pct(ahora[cual])} en {anios[-k]}-{anios[-1]}"
-        if sube["osc"] >= 0.1 and sube["rug"] >= 1.0:
-            suma += 10
-            texto += ", y la cubierta se ve más rota"
-        if sube["rug"] >= 2.0 and ahora["nuc"] < 0.4:                 # cubierta muy distinta y poca planta: suele ser obra nueva o reforma
-            suma *= 0.4
-            texto += " (aunque la cubierta ha cambiado tanto que puede ser una obra)"
-        nota += suma
-        motivos.append(texto)
+    cual = "nuc" if sube["nuc"] >= sube["veg"] else "veg"
+    if tenia is not None:
+        if tenia >= 0.6 and queda <= 0.5 * tenia:
+            nota += 100 * (tenia - queda)
+            motivos.append(f"tenía tejado y ya no se ve: del {pct(tenia)} del contorno en {principio} al {pct(queda)} en {final}")
+            if crece >= 0.12:
+                nota += 50 * crece
+                motivos.append(f"y le ha entrado vegetación: del {pct(antes[cual])} al {pct(ahora[cual])}")
+        elif max(tenia, queda) < 0.3 and exceso >= 0.10 and ahora["nuc"] >= 0.15:
+            # Nunca se le ha visto tejado y dentro hay vegetación: una ruina vieja, un tejado bajo los árboles o un contorno corrido.
+            nota += 40 * exceso
+            motivos.append(f"en ninguna foto se le ve tejado y dentro hay vegetación (el {pct(ahora['nuc'])} del centro): "
+                           "ruina vieja, edificio bajo los árboles o contorno de Catastro corrido")
+    else:
+        if exceso >= 0.10 and ahora["nuc"] >= 0.15:
+            nota += 100 * exceso
+            motivos.append(f"tiene vegetación dentro que su entorno no explica: el {pct(ahora['nuc'])} del centro (con ese entorno, 19 de cada 20 edificios no pasan del {pct(tope)})")
+        if crece >= 0.12 and antes["nuc"] <= 0.25:
+            suma = 100 * crece
+            texto = f"le crece vegetación dentro: del {pct(antes[cual])} en {principio} al {pct(ahora[cual])} en {final}"
+            if sube["osc"] >= 0.1 and sube["rug"] >= 1.0:
+                suma += 10
+                texto += ", y la cubierta se ve más rota"
+            if sube["rug"] >= 2.0 and ahora["nuc"] < 0.4:             # cubierta muy distinta y poca planta: suele ser obra nueva o reforma
+                suma *= 0.4
+                texto += " (aunque la cubierta ha cambiado tanto que puede ser una obra)"
+            nota += suma
+            motivos.append(texto)
     if not motivos:
         return None
-    return {"nota": round(nota, 1), "motivos": motivos, "anios": anios, **{c: [round(float(x), 2) for x in r[c]] for c in ("veg", "nuc", "alr", "osc", "rug")}}
+    salida = {"nota": round(nota, 1), "motivos": motivos, "anios": anios, **{c: [round(float(x), 2) for x in r[c]] for c in ("veg", "nuc", "alr", "osc", "rug")}}
+    if tejado:
+        salida["tej"] = [tejado.get(str(a)) for a in anios]
+    return salida
 
 
 def con_altura(s: dict, altura: dict | None, plantas: int | None) -> None:
@@ -567,10 +590,13 @@ def puntuar(args) -> None:
     if ruta_candidatos.exists():                                      # lo que ya está en la lista no es un hallazgo
         for f in json.loads(ruta_candidatos.read_text(encoding="utf-8"))["features"]:
             ya.update(f["properties"].get("refcats") or [])
+    ruta_tejados = base / f"tejados-{args.etiqueta}.json"
+    tejados = json.loads(ruta_tejados.read_text(encoding="utf-8")) if ruta_tejados.exists() and not args.sin_tejados else {}
+    print(f"  tejado visto año a año: {'de ' + str(len(tejados)) + ' edificios' if tejados else 'no hay (se puntúa solo con la vegetación)'}")
     salida, por_estado = [], defaultdict(list)
     for ref, r in series.items():
         e = universo[ref]
-        j = juzgar(r, normal)
+        j = juzgar(r, normal, tejados.get(ref))
         por_estado[e["estado"]].append(j["nota"] if j else 0.0)
         if j is None:
             continue
@@ -635,6 +661,7 @@ def capa(args) -> None:
                 "id": f"posible/{s['ref']}", "nombre": sitio or f"Edificio {s['uso'] or 'sin uso apuntado'} de {s['area']} m²", "nota": s["nota"],
                 "motivos": ". ".join(m[0].upper() + m[1:] for m in s["motivos"]) + ".",
                 "serie": ", ".join(f"{a}: {round(100 * v)} %" for a, v in zip(s["anios"], s["nuc"])),
+                "tejado": ", ".join(f"{a}: {round(100 * v)} %" for a, v in zip(s["anios"], s.get("tej") or []) if v is not None) or None,
                 "direccion": s.get("direccion"), "refcat": s["ref"], "uso": s["uso"], "anio": s["anio"], "superficie": s["area"], "derribado": bool(s.get("derribado")),
                 "url": f"https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1={s['ref'][:7]}&rc2={s['ref'][7:14]}"}})
     rasgos_geo.sort(key=lambda f: -f["properties"]["nota"])
@@ -862,6 +889,7 @@ def main() -> None:
     ap.add_argument("--modelo", default="lineas-v1", help="tejados: el detector entrenado que se usa")
     ap.add_argument("--muestra", type=int, default=150, help="tejados: cuántos edificios corrientes mirar además, como referencia")
     ap.add_argument("--cpu", action="store_true", help="tejados: sin tarjeta gráfica")
+    ap.add_argument("--sin-tejados", action="store_true", help="puntuar: no usar lo que haya dejado tejado.py")
     ap.add_argument("--alturas", type=int, default=0, help="comprueba los primeros N con la maqueta 3D de 2025 (copas de árboles, derribados)")
     ap.add_argument("--cuantos", type=int, default=40); ap.add_argument("--desde", type=int, default=0); ap.add_argument("--filas", type=int, default=6)
     ap.add_argument("--lista", default="posibles", choices=("posibles", "todos")); ap.add_argument("--anios-hoja", default="2017,2019,2021,2023,2025"); ap.add_argument("--refs", default=""); ap.add_argument("--nombre", default="", help="nombre de las hojas")
