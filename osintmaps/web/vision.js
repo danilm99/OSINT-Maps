@@ -25,6 +25,7 @@ const CLASES_VISION = {
 };
 const ESTADO_VISION = {
   solar: "Sin nada en pie",
+  vegetacion: "Tapado por árboles o maleza",
   ruina_vegetacion: "En pie, con vegetación dentro",
   tejado: "En pie y con cubierta",
   ruina: "En pie a medias o sin cubierta clara",
@@ -73,7 +74,7 @@ function pasaVision(c, modo) {
   if (modo === "ruina") return e === "ruina" || e === "ruina_vegetacion";
   return true;
 }
-const ETIQUETA_VISION = { solar: "sin nada en pie", ruina_vegetacion: "en pie, con vegetación", tejado: "en pie, con cubierta", ruina: "en pie a medias" };
+const ETIQUETA_VISION = { solar: "sin nada en pie", vegetacion: "tapado por vegetación", ruina_vegetacion: "en pie, con vegetación", tejado: "en pie, con cubierta", ruina: "en pie a medias" };
 const etiquetaVision = (c) => ETIQUETA_VISION[estadoVision(c)] || "";
 
 /* Las líneas de un sitio vienen en poco sitio: cada coordenada en millonésimas de grado contadas
@@ -158,7 +159,8 @@ function rellenarVision(c, caja) {
 
   const datos = el("dl", { className: "datos" });
   const dato = (k, v) => datos.append(el("dt", { textContent: k }), el("dd", { textContent: v }));
-  if (s.en_pie_pct != null) dato("En pie", `${enPorCiento(s.en_pie_pct)} de la planta levanta más de 2,5 m` + (s.altura_m != null && s.en_pie_pct >= 15 ? `; altura, ${enMetros(s.altura_m)}` : ""));
+  // La altura sale de la maqueta 3D, que no distingue una pared de la copa de un árbol: se dice.
+  if (s.en_pie_pct != null) dato("Levanta más de 2,5 m", `${enPorCiento(s.en_pie_pct)} de la planta, árboles incluidos` + (s.altura_m != null && s.en_pie_pct >= 15 ? `; altura, ${enMetros(s.altura_m)}` : ""));
   if (s.vegetacion_pct != null) dato("Vegetación dentro", enPorCiento(s.vegetacion_pct));
   if (s.cerrado_pct != null) dato("Cierre", s.cerrado_pct ? `muro, valla o seto en ${s.cerrado_pct} de cada 100 direcciones` : "no se ve ninguno alrededor");
   if (s.accesos != null) dato("Accesos", s.accesos ? `${s.accesos === 1 ? "llega 1 camino o senda" : `llegan ${s.accesos} caminos o sendas`} a menos de 20 m` : "no se ve ningún camino a menos de 20 m");
@@ -193,7 +195,7 @@ function rellenarVision(c, caja) {
     aviso.append(el("ul", {}, ...fiab.map(([clase, f]) => el("li", { textContent: `${CLASES_VISION[clase].nombre}: coinciden ${f.precision}, encuentra ${f.alcance}.` }))));
     aviso.append(el("p", { textContent: "En OpenStreetMap faltan muchos muros y vallas, así que parte de lo que cuenta como fallo es real y no está dibujado." }));
   }
-  if (s.estado) aviso.append(el("p", { textContent: "Lo de si queda algo en pie sale de una regla ajustada con ocho sitios: tómalo como una primera criba." }));
+  if (s.estado) aviso.append(el("p", { textContent: "Lo de si queda algo en pie sale de la altura de la maqueta 3D y de una regla ajustada con pocos sitios: un patio con plantas cuenta como vegetación dentro y un árbol cuenta como algo en pie. Tómalo como una primera criba." }));
   partes.push(aviso);
 
   caja.replaceChildren(...partes);

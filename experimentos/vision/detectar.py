@@ -215,11 +215,15 @@ def medir_huella(rgb: np.ndarray, irg: np.ndarray, dentro: np.ndarray) -> dict:
 
 
 def veredicto(m: dict) -> str | None:
-    """La regla de la prueba de noviembre (ocho sitios): no está validada con más."""
+    """La regla de la prueba de noviembre (ocho sitios), con un caso más visto en la primera pasada real:
+    si casi toda la planta es vegetación, lo que «levanta» son árboles y no se sabe qué hay debajo.
+    No está validada con una muestra grande."""
     if m.get("en_pie_pct") is None or m.get("vegetacion_pct") is None:
         return None
     if m["en_pie_pct"] < 15:
         return "solar"
+    if m["vegetacion_pct"] >= 70:
+        return "vegetacion"
     if m["vegetacion_pct"] >= 30:
         return "ruina_vegetacion"
     if m["en_pie_pct"] >= 75 and m.get("liso_pct", 0) >= 50:
@@ -351,6 +355,7 @@ def empaquetar(base: Path, datos: Path, modelo: str) -> None:
     resumen, peso, nuevos = {}, 0, set()
     for f in sorted(origen.glob("*.json")):
         r = json.loads(f.read_text(encoding="utf-8"))
+        r["estado"] = veredicto(r)                    # con la regla de ahora: afinarla no obliga a volver a pasar el detector
         resumen[r["id"]] = {k: r[k] for k in ("estado", "altura_m", "en_pie_pct", "vegetacion_pct", "cerrado_pct", "accesos", "largo_m") if r.get(k) not in (None, {})}
         texto = json.dumps(compacto(r), separators=(",", ":"))
         peso += len(texto)

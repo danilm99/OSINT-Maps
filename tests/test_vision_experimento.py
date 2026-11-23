@@ -76,6 +76,15 @@ def test_las_clases_parecidas_se_trazan_juntas(D):
     assert [c for c, _ in vias] == ["camino", "senda"] and all(238 <= largo <= 241 for _, largo in vias)
 
 
+def test_el_veredicto(D):
+    assert D.veredicto({"en_pie_pct": 3, "vegetacion_pct": 90}) == "solar"                      # nada levanta: da igual la maleza
+    assert D.veredicto({"en_pie_pct": 92, "vegetacion_pct": 91}) == "vegetacion"                # lo que levanta son árboles
+    assert D.veredicto({"en_pie_pct": 92, "vegetacion_pct": 34, "liso_pct": 40}) == "ruina_vegetacion"
+    assert D.veredicto({"en_pie_pct": 100, "vegetacion_pct": 6, "liso_pct": 55}) == "tejado"
+    assert D.veredicto({"en_pie_pct": 60, "vegetacion_pct": 6, "liso_pct": 55}) == "ruina"
+    assert D.veredicto({"vegetacion_pct": 6}) is None and D.veredicto({"en_pie_pct": 60}) is None  # sin altura o sin foto, no se dice nada
+
+
 def test_de_un_sitio_a_los_ficheros_de_la_web(D, tmp_path, monkeypatch):
     from preparar import CLASES, IMAGEN, PIXEL
     from shapely.geometry import Polygon
