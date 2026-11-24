@@ -56,9 +56,12 @@ PEDIDO_PARTE = (
     "con tus palabras. Primero, lo que pasa: los sucesos en marcha y lo que está fuera de lo normal; si viene «situacion», "
     "di en su lugar que la ciudad está dentro de lo normal para la hora. Después, lo que hay hoy en la agenda: qué, dónde "
     "y si aún no ha empezado, sigue o ya acabó. Luego, si los hay, la lluvia y los avisos. Al final, en pocas palabras, de "
-    "qué se habla. No copies los nombres de los datos ni empieces frases con «La situación:», «La agenda:» o parecidas. "
-    "No digas que algo es alto, bajo, mucho o poco si no viene así en los datos, no le atribuyas a una fuente lo que es de "
-    "otra y no añadas causas ni previsiones que no estén en los datos.\nDatos:\n")
+    "qué se habla.\n"
+    "Lo que está fuera de lo normal, dilo como «por encima» o «por debajo de lo normal para la hora», con su cifra y la "
+    "normal, sin calificarlo de otra manera (ni moderado, ni alto, ni bajo). De cada suceso, cuenta lo que dice su resumen "
+    "sin dar por hecho lo que solo se publica: si habla de lo que dicen las publicaciones o de una causa sin confirmar, "
+    "dilo así. No le atribuyas a una fuente lo que es de otra, no añadas causas ni previsiones y no copies los nombres de "
+    "los datos ni empieces frases con «La situación:», «La agenda:» o parecidas.\nDatos:\n")
 
 
 class IA:
@@ -238,10 +241,12 @@ def _num(v) -> str:
 
 
 def _frente_a_lo_normal(c: dict) -> str:
+    """La comparación delante y la cifra detrás: el modelo se queda con el principio de cada frase."""
     unidad = f" {c['unidad']}" if c.get("unidad") else ""
-    nota = f" ({c['nota']})" if c.get("nota") else ""
+    nota = f"; {c['nota']}" if c.get("nota") else ""
     sentido = "por encima" if (c.get("z") or 0) > 0 else "por debajo"
-    return f"{c['nombre']}{nota}: {_num(c.get('valor'))}{unidad}, {sentido} de lo normal a esta hora ({_num(c.get('normal'))}{unidad})"
+    return (f"{c['nombre']} {sentido} de lo normal para la hora: {_num(c.get('valor'))}{unidad}, "
+            f"cuando lo normal es {_num(c.get('normal'))}{unidad}{nota}")
 
 
 def hechos_del_parte(d: dict) -> dict:
@@ -266,7 +271,7 @@ def hechos_del_parte(d: dict) -> dict:
     if d.get("lluvia"):
         h["lluvia"] = d["lluvia"]
     if d.get("avisos"):
-        h["avisos_meteorologicos"] = d["avisos"]
+        h["avisos_meteorologicos_en_vigor"] = d["avisos"]
     temas = (d.get("conversacion_2h") or {}).get("temas")
     if temas:
         h["temas_de_los_que_mas_se_habla"] = temas

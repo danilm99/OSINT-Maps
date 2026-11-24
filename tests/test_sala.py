@@ -332,8 +332,8 @@ def test_el_parte_de_la_ia_solo_lleva_cifras_con_sentido():
          "conversacion_2h": {"noticias": 6, "publicaciones": 54, "temas": ["deporte"]}}
     h = IA_.hechos_del_parte(d)
     assert "situacion" not in h and "sucesos_en_marcha" not in h
-    assert h["fuera_de_lo_normal"] == ["Tráfico (0 es todo fluido y 100 todo congestionado): 38 sobre 100, "
-                                       "por encima de lo normal a esta hora (12 sobre 100)"]
+    assert h["fuera_de_lo_normal"] == ["Tráfico por encima de lo normal para la hora: 38 sobre 100, cuando lo normal es "
+                                       "12 sobre 100; 0 es todo fluido y 100 todo congestionado"]
     assert h["agenda_de_hoy"] == ["Valencia Basket vs Panathinaikos BC (Roig Arena): a las 20:30, aún no ha empezado"]
     assert h["temas_de_los_que_mas_se_habla"] == ["deporte"] and "lluvia" not in h
     # Ni cifras sin referencia (cuántas noticias, cuántas incidencias de carretera) ni lo que cambia cada diez minutos.
@@ -347,7 +347,7 @@ def test_la_agenda_del_parte_dice_si_ya_ha_empezado():
     partido = {"desde": T0 + 3600, "hasta": T0 + 3600 + 8100}
     hora = time.strftime("%H:%M", time.localtime(T0 + 3600))
     assert sala._cuando(partido, T0) == f"a las {hora}, aún no ha empezado"
-    assert sala._cuando(partido, T0 + 4000) == f"en marcha desde las {hora}"
+    assert sala._cuando(partido, T0 + 4000) == f"en marcha ahora (empezó a las {hora})"
     assert sala._cuando(partido, T0 + 20000) == f"ya acabado (empezó a las {hora})"
     assert sala._cuando({"desde": T0 - 19 * 3600, "hasta": T0 + 5 * 3600}, T0) == "todo el día"
     assert sala._lluvia([{"clave": "meteo_temperatura", "valor": 15.6}, {"clave": "meteo_lluvia", "valor": 0.0}]) is None
