@@ -52,11 +52,10 @@ ESQUEMA_SUCESO = {"type": "object", "properties": {
     "resumen": {"type": "string"}, "confianza": {"type": "string", "enum": ["alta", "media", "baja"]}}, "required": ["resumen", "confianza"]}
 ESQUEMA_PARTE = {"type": "object", "properties": {"parte": {"type": "string"}}, "required": ["parte"]}
 PEDIDO_PARTE = (
-    "Escribe el parte de la ciudad para ahora mismo, como un parte de radio: como mucho cuatro frases cortas, en prosa y "
-    "con tus palabras. Primero, lo que pasa: los sucesos en marcha y lo que está fuera de lo normal; si viene «situacion», "
-    "di en su lugar que la ciudad está dentro de lo normal para la hora. Después, lo que hay hoy en la agenda: qué, dónde "
-    "y si aún no ha empezado, sigue o ya acabó. Luego, si los hay, la lluvia y los avisos. Al final, en pocas palabras, de "
-    "qué se habla.\n"
+    "Escribe el parte de la ciudad para ahora mismo, como un parte de radio: como mucho cinco frases cortas, en prosa y "
+    "con tus palabras. Empieza por el «titular», dicho a tu manera, con los detalles de los sucesos en marcha y de lo que "
+    "está fuera de lo normal si los hay. Después, lo que hay hoy en la agenda: qué, dónde y si aún no ha empezado, sigue "
+    "o ya acabó. Luego, si los hay, la lluvia y los avisos. Al final, en pocas palabras, de qué se habla.\n"
     "Lo que está fuera de lo normal, dilo como «por encima» o «por debajo de lo normal para la hora», con su cifra y la "
     "normal, sin calificarlo de otra manera (ni moderado, ni alto, ni bajo). De cada suceso, cuenta lo que dice su resumen "
     "sin dar por hecho lo que solo se publica: si habla de lo que dicen las publicaciones o de una causa sin confirmar, "
@@ -258,9 +257,15 @@ def hechos_del_parte(d: dict) -> dict:
     más movidos, que cambian cada diez minutos: el parte de reglas, al lado, lo dice todo."""
     activos = d.get("sucesos_activos") or []
     fuera = d.get("ciudad_fuera_de_lo_normal") or []
-    h: dict = {"momento": d.get("momento")}
     if not activos and not fuera:
-        h["situacion"] = "todo dentro de lo normal para esta hora"
+        titular = "La ciudad está dentro de lo normal para la hora."
+    else:
+        partes = [f"suceso en marcha, {s.get('titulo')} (desde las {s.get('desde')})" for s in activos[:3]]
+        partes += [f"{c['nombre']} {'por encima' if (c.get('z') or 0) > 0 else 'por debajo'} de lo normal para la hora" for c in fuera[:3]]
+        titular = "Fuera de lo normal: " + "; ".join(partes) + "."
+    # El titular lo ponen las reglas: un modelo pequeño confunde «si no hay sucesos, di que todo es normal» y lo
+    # dice también con un suceso en marcha.
+    h: dict = {"momento": d.get("momento"), "titular": titular}
     if activos:
         h["sucesos_en_marcha"] = [{"que": s.get("titulo"), "desde_las": s.get("desde"), **({"resumen": s["resumen"]} if s.get("resumen") else {})}
                                   for s in activos]

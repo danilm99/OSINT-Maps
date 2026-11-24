@@ -331,7 +331,7 @@ def test_el_parte_de_la_ia_solo_lleva_cifras_con_sentido():
          "barrios_destacados": [{"barrio": "Russafa", "nivel": 3.1, "senal": "Tráfico 50 (normal 20)"}],
          "conversacion_2h": {"noticias": 6, "publicaciones": 54, "temas": ["deporte"]}}
     h = IA_.hechos_del_parte(d)
-    assert "situacion" not in h and "sucesos_en_marcha" not in h
+    assert h["titular"] == "Fuera de lo normal: Tráfico por encima de lo normal para la hora." and "sucesos_en_marcha" not in h
     assert h["fuera_de_lo_normal"] == ["Tráfico por encima de lo normal para la hora: 38 sobre 100, cuando lo normal es "
                                        "12 sobre 100; 0 es todo fluido y 100 todo congestionado"]
     assert h["agenda_de_hoy"] == ["Valencia Basket vs Panathinaikos BC (Roig Arena): a las 20:30, aún no ha empezado"]
@@ -339,7 +339,9 @@ def test_el_parte_de_la_ia_solo_lleva_cifras_con_sentido():
     # Ni cifras sin referencia (cuántas noticias, cuántas incidencias de carretera) ni lo que cambia cada diez minutos.
     assert not any(k.startswith(("incidencias", "barrios")) for k in h) and "54" not in json.dumps(h)
     tranquilo = IA_.hechos_del_parte(d | {"ciudad_fuera_de_lo_normal": [], "lluvia": "lloviendo (0,4 mm en la última lectura)"})
-    assert tranquilo["situacion"] == "todo dentro de lo normal para esta hora" and "fuera_de_lo_normal" not in tranquilo
+    assert tranquilo["titular"] == "La ciudad está dentro de lo normal para la hora." and "fuera_de_lo_normal" not in tranquilo
+    suceso = IA_.hechos_del_parte(d | {"ciudad_fuera_de_lo_normal": [], "sucesos_activos": [{"titulo": "Incendio en Russafa", "desde": "20:12"}]})
+    assert suceso["titular"] == "Fuera de lo normal: suceso en marcha, Incendio en Russafa (desde las 20:12)."
     assert tranquilo["lluvia"].startswith("lloviendo")
 
 
@@ -366,7 +368,7 @@ def test_el_parte_de_la_ia_se_retira_cuando_cambia_la_situacion(pulso, ollama, m
     assert ia._toca_parte(d, float("inf"))
     ia._escribir_parte(d)
     pedido = ollama.pedidos[-1]["messages"][-1]["content"]
-    assert "como mucho cuatro frases" in pedido and "aún no ha empezado" in pedido and "Salidas de metro" not in pedido
+    assert "«titular»" in pedido and "aún no ha empezado" in pedido and "Salidas de metro" not in pedido
     pulso.sala._cache.clear()
     assert pulso.sala.parte()["ia"]["texto"] == ia.parte["texto"] and "firma" not in pulso.sala.parte()["ia"]
     assert not ia._toca_parte(d, IA_.MIN_ENTRE_PARTES + 1)          # nada ha cambiado: hasta la media hora, no
