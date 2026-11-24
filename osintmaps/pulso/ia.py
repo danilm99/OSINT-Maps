@@ -52,10 +52,11 @@ ESQUEMA_SUCESO = {"type": "object", "properties": {
     "resumen": {"type": "string"}, "confianza": {"type": "string", "enum": ["alta", "media", "baja"]}}, "required": ["resumen", "confianza"]}
 ESQUEMA_PARTE = {"type": "object", "properties": {"parte": {"type": "string"}}, "required": ["parte"]}
 PEDIDO_PARTE = (
-    "Convierte estos puntos en el parte de la ciudad, como un parte de radio: un solo párrafo de frases cortas, en el "
-    "mismo orden y con tus palabras, juntando lo que vaya bien junto. Di todos los puntos y nada más: no añadas cifras, "
-    "causas, previsiones ni valoraciones (nada de «moderado», «alto» o «bajo» si el punto no lo dice), y lo que un punto "
-    "da como publicado o sin confirmar, sigue siéndolo.\n\nPuntos:\n")
+    "Reescribe estos puntos como el parte de la ciudad en la radio: un párrafo breve y natural, en el mismo orden. No "
+    "copies las frases tal cual ni sus etiquetas («Hoy:», «En vigor:»): cuéntalo con tus palabras y junta lo que vaya "
+    "junto (los avisos, en una sola frase y sin repetir «aviso amarillo»). Mantén cada dato y cada cifra como están, no "
+    "añadas nada (ni cifras, ni causas, ni previsiones, ni valoraciones como «moderado», «alto» o «bajo») y lo que un "
+    "punto da como publicado o sin confirmar, sigue siéndolo.\n\nPuntos:\n")
 
 
 class IA:
