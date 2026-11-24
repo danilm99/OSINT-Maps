@@ -91,10 +91,27 @@ def ciudad_en_disco(datos):
         encoding="utf-8")
 
 
+def movilidad_inventada(datos):
+    """Viajes entre los cuatro distritos de juguete (y «fuera») en un lunes, un sábado y un domingo."""
+    zonas = [f"462500{d}" for d in range(1, 5)] + ["fuera"]
+    dias = {}
+    for dia, tipo in (("2025-10-13", "L"), ("2025-10-18", "S"), ("2025-10-19", "D")):
+        horas = []
+        for h in range(24):
+            t = time.mktime((2025, 10, 13 if tipo == "L" else 18 if tipo == "S" else 19, h, 30, 0, 0, 0, -1))
+            act = actividad(t)
+            horas.append(sorted(([o, d, round(1000 * act * (2 if d == "4625001" else 1) * (0.4 if "fuera" in (o, d) else 1), 1)]
+                                 for o in zonas for d in zonas if not (o == d == "fuera")), key=lambda x: -x[2]))
+        dias[dia] = {"tipo": tipo, "total": round(sum(v for h in horas for *_, v in h), 1), "horas": horas}
+    (datos / "ciudad" / "movilidad.json").write_text(json.dumps({"zonas": {**{z: {"distrito": z[-1]} for z in zonas[:4]}, "fuera": {}}, "dias": dias}),
+                                                     encoding="utf-8")
+
+
 def simular(datos, dias=3, ahora=None):
     random.seed(11)
     datos.mkdir(parents=True, exist_ok=True)
     ciudad_en_disco(datos)
+    movilidad_inventada(datos)
     (datos / "pulso.sqlite").unlink(missing_ok=True)
     a = Almacen(datos / "pulso.sqlite")
     ahora = int(ahora or time.time()) // C.BIN * C.BIN
@@ -305,7 +322,10 @@ with sync_playwright() as p:
     # Movilidad.
     pg.evaluate("window.OSINT_SALA.abrirMovilidad()")
     pg.wait_for_function("window.OSINT_SALA.modo().tipo === 'movilidad'", timeout=10000)
+    pg.wait_for_function("[...document.querySelectorAll('#ficha h4')].some((h) => h.textContent.includes('distritos'))", timeout=10000)
     pg.wait_for_timeout(700)
+    print("movilidad:", pg.evaluate("[...document.querySelectorAll('#ficha .pie')].map((p) => p.textContent).find((t) => t.includes('viajes con origen'))"))
+    if not pg.evaluate("document.querySelectorAll('.leaflet-overlay-pane path, .leaflet-barrios-pane path').length"): errores.append("sin líneas de viajes")
     pg.screenshot(path=str(CAPTURAS / f"{modo}-6.png"))
     pg.evaluate("window.OSINT_SALA.cerrarFicha()")
     # La máquina del tiempo.

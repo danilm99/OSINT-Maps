@@ -64,9 +64,11 @@ ALTURA_HELIS = 1500         # metros: por encima, un helicóptero va de paso
 #   conteo:   «prior» (lo que se espera por barrio sin saber nada), «ciudad» (lo mismo para toda la
 #             ciudad) y «r» (lo a rachas que llega: cuanto más pequeño, más a rachas). «con_historia»: lo que
 #             cambia tanto de un barrio a otro (bicis, publicaciones, obras) que sin histórico no se juzga.
+#   «suavizar»: se compara la media de los últimos veinte minutos y no la foto de ahora (un barrio con cuatro
+#             tramos de calle salta de 12 en 12 puntos cada vez que uno cambia de color).
 RASGOS: dict[str, dict] = {
-    "trafico": {"nombre": "Tráfico", "unidad": "sobre 100", "tipo": "continuo", "fuente": "trafico", "suelo": 5.0,
-                "familias": {+1: "congestion"}},
+    "trafico": {"nombre": "Tráfico", "unidad": "sobre 100", "tipo": "continuo", "fuente": "trafico", "suelo": 8.0,
+                "familias": {+1: "congestion"}, "suavizar": True},
     "cortes": {"nombre": "Tramos cortados", "unidad": "tramos", "tipo": "conteo", "fuente": "trafico", "prior": 0.1, "ciudad": 4.0, "r": 3,
                "familias": {+1: "corte"}, "con_historia": True},
     "aforo": {"nombre": "Vehículos por hora", "unidad": "veh/h", "tipo": "continuo", "fuente": "aforo", "suelo": 40.0, "rel": 0.08,
@@ -78,7 +80,7 @@ RASGOS: dict[str, dict] = {
     "parking": {"nombre": "Aparcamientos ocupados", "unidad": "%", "tipo": "continuo", "fuente": "parking", "suelo": 4.0,
                 "familias": {+1: "afluencia", -1: "salida"}},
     "bici_ocupacion": {"nombre": "Valenbisi: anclajes con bici", "unidad": "%", "tipo": "continuo", "fuente": "bicis", "suelo": 5.0,
-                       "familias": {+1: "afluencia", -1: "salida"}},
+                       "familias": {+1: "afluencia", -1: "salida"}, "suavizar": True},
     "bici_llegadas": {"nombre": "Bicis que llegan", "unidad": "en 10 min", "tipo": "conteo", "fuente": "bicis", "prior": 2.0, "ciudad": 150.0,
                       "r": 4, "familias": {+1: "afluencia"}, "con_historia": True},
     "bici_salidas": {"nombre": "Bicis que salen", "unidad": "en 10 min", "tipo": "conteo", "fuente": "bicis", "prior": 2.0, "ciudad": 150.0,
@@ -547,6 +549,11 @@ class Cruce:
             if rasgo in RASGOS:
                 for b, v in valores.items():
                     por_barrio[b][rasgo] = v
+        suaves = [r for r, info in RASGOS.items() if info.get("suavizar")]
+        for rasgo, b, previo in self.almacen._filas(f"SELECT rasgo, barrio, v FROM rasgos WHERE t=? AND rasgo IN ({','.join('?' * len(suaves))})",
+                                                     (t - BIN, *suaves)):
+            if rasgo in por_barrio.get(b, {}):
+                por_barrio[b][rasgo] = round((por_barrio[b][rasgo] + previo) / 2, 2)
         comparaciones = {}
         for b, valores in por_barrio.items():
             comparaciones[b] = {r: c for r, v in valores.items() if (c := self.comparar(r, b, t, v))}

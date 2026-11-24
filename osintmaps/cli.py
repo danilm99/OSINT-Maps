@@ -867,7 +867,7 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
 
 # Lo que se copia de la carpeta de datos a la web. Las notas (marcas y marcadores propios) solo si se pide.
 DATOS_DEL_SITIO = ("candidatos.geojson", "huellas.geojson", "camaras.geojson", *(f"capa-{n}.geojson" for n in CAPAS_EXTRA), "revision.json", historia.FICHERO, "pulso.json",
-                   "sala.json", "sala-barrios.json", "sala-perfiles.json")
+                   "sala.json", "sala-barrios.json", "sala-perfiles.json", "sala-movilidad.json")
 # Lo que un programa aparte ha visto en la foto aérea alrededor de cada sitio (experimentos/vision):
 # revision.json es el resumen y en esta subcarpeta va un fichero de líneas por sitio.
 CARPETA_VISION = "vision"

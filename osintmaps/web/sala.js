@@ -637,6 +637,12 @@ async function abrirSuceso(id) {
     pintarSucesoEntero(cont, d, color);
   } catch (err) { fallo(cont, err); }
 }
+function relacionados(id, causaId) {
+  const otros = (E?.sucesos || []).filter((x) => x.id !== id && causaId && x.causa?.id === causaId);
+  if (!otros.length) return null;
+  return seccion("Con la misma causa", ...otros.map((x) => el("div", { className: "fila", onclick: () => abrirSuceso(x.id) },
+    el("span", { className: "t", textContent: x.titulo }), el("span", { className: "mono", textContent: hora(x.inicio) }))));
+}
 function pintarSucesoCorto(cont, s) {
   if (!s) { cont.append(el("p", { className: "vacio", textContent: "Ese suceso ya no está en los datos publicados." })); return; }
   if (s.resumen) cont.append(seccion("Resumen", el("div", { className: "resumen" }, s.resumen, el("small", { textContent: "IA local" }))));
@@ -644,12 +650,14 @@ function pintarSucesoCorto(cont, s) {
   const senales = (s.ahora?.length ? s.ahora : s.barrios).flatMap((b) => (E.barrios?.[b]?.senales || []).map((x) => ({ ...x, barrio: b })));
   cont.append(seccion("Señales ahora", tablaSenales(senales)));
   cont.append(seccion("Barrios", el("div", {}, ...(s.barrios || []).map((b) => el("button", { className: "boton-fino", style: "margin:0 4px 4px 0", type: "button", textContent: nombreBarrio(b), onclick: () => abrirBarrio(b) })))));
+  const rel = relacionados(s.id, s.causa?.id); if (rel) cont.append(rel);
   cont.append(avisoWeb("La evolución de cada señal, los textos y los helicópteros de la zona se ven en el programa del ordenador."));
 }
 function pintarSucesoEntero(cont, d, color) {
   const s = d.suceso;
   if (s.resumen) cont.append(seccion("Resumen", el("div", { className: "resumen" }, s.resumen, el("small", { textContent: "IA local · a partir de las señales y lo publicado" }))));
   cont.append(seccion("Por qué", listaCausas(s.causa)));
+  const rel = relacionados(s.id, s.causa?.probable?.id); if (rel) cont.append(rel);
   cont.append(seccion("Señales en el momento más fuerte", tablaSenales(s.evidencias?.pico || []),
     el("p", { className: "pie", textContent: `Pico a las ${hora(s.pico)}. z: cuánto se separa de lo normal para ese barrio a esa hora (±2 ya es raro).` })));
   for (const [rasgo, serie] of Object.entries(d.series || {})) {
@@ -960,6 +968,82 @@ async function abrirMovilidad() {
   }
   sHoras.addEventListener("change", cargarMov);
   cargarMov();
+  const flujos = el("div");
+  cont.append(flujos);
+  pintarFlujos(flujos);
+}
+
+/* ---------- Viajes entre distritos (MITMA): un día tipo, hora a hora ---------- */
+let mitmaWeb = null;
+async function datosFlujos(dia) {
+  if (servidor) return pedirJSON(`vivo/sala/flujos${dia ? `?dia=${encodeURIComponent(dia)}` : ""}`);
+  mitmaWeb ||= await pedirJSON(`${BASE}sala-movilidad.json`);
+  const elegido = dia || mitmaWeb.dias[0].dia;
+  return { ...mitmaWeb, dia: elegido, horas: mitmaWeb.horas[elegido] };
+}
+async function pintarFlujos(caja) {
+  let d;
+  try { d = await datosFlujos(); } catch (err) {
+    caja.replaceChildren(seccion("Viajes entre distritos (MITMA)", el("p", { className: "vacio", textContent: servidor ? err.message : "Aún no se han publicado." })));
+    return;
+  }
+  if (fichaAbierta !== "movilidad") return;
+  const TIPOS = { L: "laborable", S: "sábado", D: "domingo" };
+  const sDia = el("select", {}, ...d.dias.map((x) => el("option", { value: x.dia, textContent: `${x.nombre} (${TIPOS[x.tipo] || x.tipo})` })));
+  const rHora = el("input", { type: "range", min: 0, max: 23, step: 1, value: new Date().getHours() });
+  const etHora = el("span", { className: "mono" });
+  const bPlay = el("button", { type: "button", className: "boton-fino", textContent: "▶ Día entero" });
+  const c = lienzo(), resumen = el("p", { className: "pie" }), tabla = el("div");
+  caja.replaceChildren(seccion("Viajes entre distritos · un día tipo",
+    el("div", { className: "controles" }, el("label", {}, "Día", sDia), el("label", { style: "flex:1" }, el("span", {}, "Hora ", etHora), rHora), bPlay),
+    c, resumen, tabla,
+    el("p", { className: "pie", textContent: "Ministerio de Transportes (MITMA): viajes estimados con datos de teléfonos móviles, agregados y anónimos por el Ministerio. Cuántos viajes hay de un distrito a otro; nunca de quién." })));
+  const COLORES = [C.cian, C.naranja, C.violeta];
+  const dibujar = () => {
+    if (fichaAbierta !== "movilidad") return;
+    const h = Number(rHora.value);
+    etHora.textContent = `${dos(h)}:00`;
+    grafica(c, d.dias.map((x, k) => ({ nombre: TIPOS[x.tipo] || x.nombre, color: COLORES[k % 3], grosor: x.dia === d.dia ? 2.4 : 1.2, puntos: x.por_hora.map((v, i) => [i, v]) })),
+      { x0: 0, x1: 23, cursor: h, marcas: () => [0, 4, 8, 12, 16, 20].map((x) => [x, `${dos(x)}h`]), leyenda: true });
+    capas.foco.clearLayers();
+    const horas = d.horas[h] || [];
+    const lineas = horas.filter(([o, de]) => o !== de && d.zonas[o]?.lat != null && d.zonas[de]?.lat != null).slice(0, 45);
+    const max = Math.max(1, ...lineas.map((x) => x[2]));
+    for (const [o, de, v] of lineas) {
+      const a = d.zonas[o], b = d.zonas[de], f = v / max;
+      // Un poco curvadas, siempre hacia el mismo lado: la ida y la vuelta no se pisan.
+      const medio = [(a.lat + b.lat) / 2 + (b.lon - a.lon) * 0.16, (a.lon + b.lon) / 2 - (b.lat - a.lat) * 0.16];
+      L.polyline([[a.lat, a.lon], medio, [b.lat, b.lon]], { color: C.cian, weight: 1 + 7 * f, opacity: 0.2 + 0.65 * f, interactive: false }).addTo(capas.foco);
+    }
+    const llegan = {}, salen = {};
+    let total = 0, dentro = 0;
+    for (const [o, de, v] of horas) {
+      total += v;
+      if (o !== "fuera" && de !== "fuera") dentro += v;
+      if (o !== de) { llegan[de] = (llegan[de] || 0) + v; salen[o] = (salen[o] || 0) + v; }
+    }
+    for (const [z, v] of Object.entries(llegan)) {
+      const zona = d.zonas[z];
+      if (zona?.lat == null) continue;
+      L.circleMarker([zona.lat, zona.lon], { radius: 4 + 14 * Math.sqrt(v / Math.max(...Object.values(llegan))), color: C.cian, weight: 1.5, fillColor: C.cian, fillOpacity: 0.15, interactive: false }).addTo(capas.foco);
+    }
+    resumen.textContent = `${dos(h)}:00 del ${d.dias.find((x) => x.dia === d.dia)?.nombre || d.dia}: ${cifra(total)} viajes con origen o destino en València, ${cifra(dentro)} dentro de la ciudad. Las líneas, los 45 trayectos más usados entre distritos; los círculos, lo que llega a cada uno.`;
+    const balance = Object.keys(d.zonas).filter((z) => z !== "fuera").map((z) => [z, (llegan[z] || 0) - (salen[z] || 0), llegan[z] || 0, salen[z] || 0]).sort((x, y) => y[1] - x[1]);
+    const fila = ([z, neto, ll, sa]) => el("div", { className: "fila", style: "cursor:default" }, el("span", { className: "t", textContent: d.zonas[z]?.nombre || z }),
+      el("span", { className: "mono", style: `color:${neto >= 0 ? C.cian : C.violeta}`, textContent: `${neto >= 0 ? "+" : ""}${cifra(neto)}` }),
+      el("span", { className: "s", textContent: `llegan ${cifra(ll)} · salen ${cifra(sa)}` }));
+    tabla.replaceChildren(el("h4", { textContent: "Atraen gente a esa hora", style: "margin-top:6px" }), ...balance.slice(0, 4).map(fila),
+      el("h4", { textContent: "Se vacían a esa hora", style: "margin-top:10px" }), ...balance.slice(-4).reverse().map(fila));
+  };
+  sDia.addEventListener("change", async () => { try { d = await datosFlujos(sDia.value); dibujar(); } catch (err) { resumen.textContent = err.message; } });
+  rHora.addEventListener("input", dibujar);
+  let reloj = 0;
+  bPlay.addEventListener("click", () => {
+    if (reloj) { clearInterval(reloj); reloj = 0; bPlay.textContent = "▶ Día entero"; return; }
+    bPlay.textContent = "■ Parar";
+    reloj = setInterval(() => { if (fichaAbierta !== "movilidad") { clearInterval(reloj); reloj = 0; return; } rHora.value = (Number(rHora.value) + 1) % 24; dibujar(); }, 700);
+  });
+  dibujar();
 }
 
 /* ---------- Fuentes ---------- */

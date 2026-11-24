@@ -19,6 +19,7 @@ Lo que contesta, en /vivo/sala/...:
     items       buscar en lo publicado: ?q=&barrio=&fuente=&desde=&hasta=
     comparar    un rasgo en dos tipos de día o dos fechas: ?rasgo=&a=L&b=S
     movilidad   bicis que llegan y salen de cada barrio: ?horas=
+    flujos      viajes entre distritos hora a hora en un día tipo (MITMA): ?dia=AAAA-MM-DD
     cielo       helicópteros en el aire y su recorrido del último cuarto de hora
 
 En la web publicada no hay programa detrás: el ordenador sube cada cuarto de hora sala.json (lo
@@ -38,7 +39,7 @@ from pathlib import Path
 from urllib.parse import parse_qs
 
 from ..red import nueva_sesion
-from . import contexto
+from . import contexto, movilidad as mitma
 from .catalogo import INDICADORES
 from .cruce import BIN, CIUDAD, FAMILIAS, RASGOS, TIPOS_SUCESO, Cruce, franja
 from .fichas import Fichas
@@ -53,7 +54,7 @@ REDES = ("bluesky", "mastodon")
 RASGOS_PERFIL = ("trafico", "aforo", "bici_ocupacion", "parking", "metro", "social", "bici_llegadas", "bici_salidas")
 DIAS_SEMANA = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
 MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre")
-FICHEROS_WEB = ("sala.json", "sala-barrios.json", "sala-perfiles.json")
+FICHEROS_WEB = ("sala.json", "sala-barrios.json", "sala-perfiles.json", "sala-movilidad.json")
 
 
 def nivel_de_ciudad(n: float) -> tuple[str, str]:
@@ -184,6 +185,11 @@ class Sala:
                 if n > 0:
                     log.info("Sala: %d accidentes situados", n)
                 self.fichas.todos_los_barrios()
+                # Los viajes entre distritos del MITMA: se bajan una vez (unos días sueltos) y no cambian.
+                hecho = mitma.importar(self.datos, nueva_sesion())
+                if any(not v.startswith("ya") for v in hecho.values()):
+                    log.info("Sala: movilidad del MITMA %s", hecho)
+                    self._cache.pop("mitma", None)
             except Exception:  # noqa: BLE001
                 log.warning("Sala: fallo al preparar las fichas", exc_info=True)
             if self._parar.wait(86400):
@@ -557,6 +563,39 @@ class Sala:
         helis = self.almacen.rastros("helicopteros", ahora - 900, ahora)
         return {"t": ahora, "helicopteros": {k: v for k, v in helis.items() if v["p"] and v["p"][-1][0] > ahora - 120}}
 
+    def _centros_distritos(self) -> dict[str, tuple[float, float]]:
+        grupos: dict[str, list] = defaultdict(list)
+        for b in (self.zonas.barrios.values() if self.zonas else []):
+            grupos[b.get("distrito", "")].append((b["lat"], b["lon"]))
+        return {d: (round(sum(p[0] for p in ps) / len(ps), 5), round(sum(p[1] for p in ps) / len(ps), 5)) for d, ps in grupos.items() if ps}
+
+    def flujos(self, q: dict[str, list[str]] | None = None, todo: bool = False) -> dict:
+        """Los viajes entre distritos del MITMA: los días que hay, sus zonas con nombre y centro, y las horas de un día
+        (o de todos, con `todo`, para la web)."""
+        datos = self._guardado("mitma", 3600, lambda: mitma.leer(self.datos))
+        if not datos or not datos.get("dias"):
+            raise ValueError("aún no están los viajes del MITMA (se bajan solos la primera vez que arranca la sala)")
+        centros = self._centros_distritos()
+        zonas = {}
+        for z, info in datos["zonas"].items():
+            d = (info or {}).get("distrito")
+            lat, lon = centros.get(d, (None, None))
+            zonas[z] = {"nombre": (self.zonas.distritos.get(d) if self.zonas and d else None) or ("Fuera de València" if z == mitma.FUERA else z),
+                        "distrito": d, "lat": lat, "lon": lon}
+        dias = [{"dia": d, "tipo": x["tipo"], "nombre": mitma.nombre_del_dia(d), "total": x["total"],
+                 "por_hora": [round(sum(v for _, _, v in h)) for h in x["horas"]],
+                 "dentro": [round(sum(v for o, de, v in h if o != mitma.FUERA and de != mitma.FUERA)) for h in x["horas"]]}
+                for d, x in sorted(datos["dias"].items())]
+        salida = {"dias": dias, "zonas": zonas, "fuente": "Ministerio de Transportes (MITMA), estudio de movilidad con big data"}
+        if todo:
+            salida["horas"] = {d: x["horas"] for d, x in datos["dias"].items()}
+        else:
+            dia = ((q or {}).get("dia") or [dias[0]["dia"]])[0]
+            if dia not in datos["dias"]:
+                raise ValueError("ese día no está")
+            salida["dia"], salida["horas"] = dia, datos["dias"][dia]["horas"]
+        return salida
+
     # ------------------------------------------------------------ web
 
     def ficheros_web(self) -> dict[str, bytes]:
@@ -574,6 +613,15 @@ class Sala:
                                       **{t: self.cruce.perfil(r, t) for t in ("L", "S", "D")}}
             return a_bytes(datos)
         salida["sala-perfiles.json"] = self._guardado("web-perfiles", 3 * 3600, perfiles)
+
+        def flujos():
+            try:
+                return a_bytes(self.flujos(todo=True))
+            except ValueError:
+                return None
+        datos_mitma = self._guardado("web-mitma", 24 * 3600, flujos)
+        if datos_mitma:
+            salida["sala-movilidad.json"] = datos_mitma
         return salida
 
 
@@ -653,6 +701,8 @@ def atender(sala: "Sala | None", ruta: str, consulta: str) -> tuple[int, bytes]:
             datos = sala.movilidad(q)
         elif ruta == "/vivo/sala/cielo":
             datos = sala.cielo()
+        elif ruta == "/vivo/sala/flujos":
+            datos = sala.flujos(q)
         else:
             return 404, b'{"error":"no existe"}'
     except ValueError as exc:

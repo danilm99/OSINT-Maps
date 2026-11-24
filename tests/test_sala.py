@@ -101,7 +101,7 @@ def test_en_la_web_no_van_los_textos_de_redes(pulso, monkeypatch):
     preparar(pulso)
     monkeypatch.setattr(sala.time, "time", lambda: T0 + 30)
     ficheros = pulso.sala.ficheros_web()
-    assert set(ficheros) == set(sala.FICHEROS_WEB)
+    assert set(ficheros) == set(sala.FICHEROS_WEB) - {"sala-movilidad.json"}       # sin datos del MITMA no se sube ese
     web = json.loads(ficheros["sala.json"])
     assert web["publico"] and {i["fuente"] for i in web["feed"]} == {"prensa"}
     assert "Qué ambientazo" not in ficheros["sala.json"].decode("utf-8")
@@ -199,3 +199,26 @@ def test_catastro_con_respuestas_de_verdad():
         {"rc": {"pc1": "5628402", "pc2": "YJ2752H", "car": "0001", "cc1": "X", "cc2": "Y"}, "dt": {}},
         {"rc": {"pc1": "5628402", "pc2": "YJ2752H", "car": "0002", "cc1": "Z", "cc2": "W"}, "dt": {}}]}}})
     assert pisos["inmuebles"] == 2 and pisos["primero"] == "5628402YJ2752H0001XY"
+
+
+def test_movilidad_del_mitma(pulso):
+    """Las líneas del MITMA se quedan en lo que toca a València y se juntan por hora, origen y destino."""
+    from osintmaps.pulso import movilidad
+    lineas = ["fecha|periodo|origen|destino|distancia|actividad_origen|actividad_destino|residencia|renta|edad|sexo|viajes|viajes_km\n",
+              "20251013|08|4625001|4625002|2-10|casa|trabajo_estudio|46|10-15|25-45|mujer|120.5|600.1\n",
+              "20251013|08|4625001|4625002|2-10|casa|trabajo_estudio|46|10-15|45-65|hombre|80.0|400.0\n",
+              "20251013|08|4610201|4625001|10-50|casa|trabajo_estudio|46|10-15|25-45|mujer|300.0|9000.0\n",
+              "20251013|08|28079|08019|>50|casa|otros|28|>15|25-45|mujer|999.0|462500.0\n",
+              "20251013|21|4625002|4625001|2-10|otros|casa|46|10-15|25-45|mujer|50.0|200.0\n"]
+    horas, total = movilidad.leer_dia(lineas)
+    assert total == 550.5
+    assert horas[8] == [["fuera", "4625001", 300.0], ["4625001", "4625002", 200.5]] and horas[21] == [["4625002", "4625001", 50.0]]
+    ruta = pulso.carpeta_datos / "ciudad" / movilidad.FICHERO
+    ruta.write_text(json.dumps({"zonas": {"4625001": {"distrito": "1"}, "4625002": {"distrito": "2"}, "fuera": {}},
+                                "dias": {"2025-10-13": {"tipo": "L", "total": total, "horas": horas}}}), encoding="utf-8")
+    codigo, cuerpo = sala.atender(pulso.sala, "/vivo/sala/flujos", "dia=2025-10-13")
+    d = json.loads(cuerpo)
+    assert codigo == 200 and d["dias"][0]["nombre"] == "lunes 13/10/2025" and d["dias"][0]["por_hora"][8] == 500
+    assert d["dias"][0]["dentro"][8] == 200 and d["zonas"]["4625001"]["nombre"] == "Districte 1" and d["zonas"]["fuera"]["nombre"] == "Fuera de València"
+    assert d["zonas"]["4625002"]["lat"] is not None
+    assert "sala-movilidad.json" in pulso.sala.ficheros_web()
