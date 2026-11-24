@@ -253,3 +253,20 @@ def test_lo_normal_nunca_es_de_hoy(ciudad):
         ("urgentes", "G", fr + 48, hoy, 5.0, 0),                 # mañana (al reconstruir): tampoco
     ])
     assert sorted(motor.muestras("urgentes", "G", T0)) == [0.0, 0.0, 0.0, 0.0]
+
+
+def test_la_tabla_de_rasgos_vieja_se_rehace(tmp_path):
+    """Los rasgos se ordenaban por rasgo y barrio; al abrir un histórico así, la tabla se rehace (se recalcula)."""
+    import sqlite3
+    ruta = tmp_path / "pulso.sqlite"
+    b = sqlite3.connect(ruta)
+    b.executescript("CREATE TABLE rasgos (rasgo TEXT NOT NULL, barrio TEXT NOT NULL, t INTEGER NOT NULL, v REAL NOT NULL, "
+                    "PRIMARY KEY (rasgo, barrio, t)) WITHOUT ROWID; CREATE INDEX rasgos_por_hora ON rasgos (t); "
+                    "INSERT INTO rasgos VALUES ('trafico', 'A', 1, 2.0);")
+    b.commit(); b.close()
+    a = Almacen(ruta)
+    sql = a._filas("SELECT sql FROM sqlite_master WHERE name='rasgos'")[0][0]
+    assert "PRIMARY KEY (t, rasgo, barrio)" in sql and a._filas("SELECT COUNT(*) FROM rasgos")[0][0] == 0
+    assert not a._filas("SELECT 1 FROM sqlite_master WHERE name='rasgos_por_hora'")
+    a.cerrar()
+    assert "PRIMARY KEY (t, rasgo, barrio)" in Almacen(ruta)._filas("SELECT sql FROM sqlite_master WHERE name='rasgos'")[0][0]

@@ -713,6 +713,11 @@ o una fecha) para cualquier rasgo, con el mapa de la diferencia a cada hora.
 del MITMA, los viajes entre distritos de un lunes, un sábado y un domingo.
 **Histórico** abre la máquina del tiempo del pulso.
 
+**Lo que ocupa.** Los rasgos de cada barrio se guardan tres semanas (para comparar
+fechas) y las muestras de lo normal, nueve (se usan las ocho últimas): con todas
+las fuentes en marcha, unos 300 MB más en `datos/pulso.sqlite` cuando llevan ese
+tiempo, que luego ya no crecen.
+
 **IA local, opcional.** Si hay [Ollama](https://ollama.com) con un modelo
 (por ejemplo `ollama pull qwen3:8b`), la sala lo usa para afinar la
 categoría y el sitio de las noticias, resumir cada suceso y escribir el parte.

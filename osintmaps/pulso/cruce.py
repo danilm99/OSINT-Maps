@@ -123,6 +123,10 @@ CATEGORIAS_DE = {
 PESO_FUENTE_TEXTO = {"prensa": 0.45, "dgt": 0.55, "renfe": 0.55, "meteoalarm": 0.5, "bluesky": 0.3, "mastodon": 0.3}
 
 
+# La tabla de rasgos está ordenada por hora, rasgo y barrio: todas las consultas son de un rato.
+_LISTA_RASGOS = ",".join(f"'{r}'" for r in RASGOS)
+
+
 class Senal(NamedTuple):
     familia: str
     fuerza: float
@@ -403,8 +407,8 @@ class Cruce:
         festivo = int(_agenda.es_festivo(_dia(inicio)))
         with self.almacen._candado:
             self.almacen._bd.execute(
-                "INSERT OR REPLACE INTO muestras SELECT rasgo, barrio, ?, ?, AVG(v), ? FROM rasgos "
-                "WHERE t>? AND t<=? AND rasgo!='nivel' GROUP BY rasgo, barrio",
+                f"INSERT OR REPLACE INTO muestras SELECT rasgo, barrio, ?, ?, AVG(v), ? FROM rasgos "
+                f"WHERE rasgo IN ({_LISTA_RASGOS}) AND t>? AND t<=? GROUP BY rasgo, barrio",
                 (franja(inicio), semana_local(inicio), festivo, inicio, fin_franja))
 
     def _muestras_hasta(self, t: int) -> None:
@@ -844,18 +848,20 @@ class Cruce:
         """Calcula lo que falte de un rato pasado (al arrancar con histórico de antes): los rasgos, las muestras
         de lo normal y, desde `sucesos_desde`, los sucesos. Devuelve cuántos intervalos ha calculado."""
         with self._candado:
-            hechos = {f[0] for f in self.almacen._filas("SELECT DISTINCT t FROM rasgos WHERE t>=? AND t<=? AND rasgo='nivel'", (desde, hasta))}
+            hechos = {f[0] for f in self.almacen._filas("SELECT DISTINCT t FROM rasgos WHERE rasgo='nivel' AND t>=? AND t<=?", (desde, hasta))}
             faltan = [t for t in range(desde // BIN * BIN + BIN, hasta + 1, BIN) if t not in hechos]
             for i in range(0, len(faltan), por_tanda):
                 self.guardar_rasgos(self.calcular_rasgos(faltan[i:i + por_tanda]))
             for f in range(desde // FRANJA * FRANJA + FRANJA, hasta + 1, FRANJA):
                 self.guardar_muestras(f)
             self._ultima_franja = max(self._ultima_franja, hasta // FRANJA * FRANJA)
+            guardados: dict[int, dict[str, dict[str, float]]] = defaultdict(lambda: defaultdict(dict))
+            if sucesos_desde is not None and faltan:
+                for t, rasgo, barrio, v in self.almacen._filas(
+                        f"SELECT t, rasgo, barrio, v FROM rasgos WHERE t>=? AND t<=? AND rasgo IN ({_LISTA_RASGOS})", (max(sucesos_desde, faltan[0]), faltan[-1])):
+                    guardados[t][rasgo][barrio] = v
             for t in faltan:
-                rasgos: dict[str, dict[str, float]] = defaultdict(dict)
-                if sucesos_desde is not None and t >= sucesos_desde:
-                    for rasgo, barrio, v in self.almacen._filas("SELECT rasgo, barrio, v FROM rasgos WHERE t=? AND rasgo!='nivel'", (t,)):
-                        rasgos[rasgo][barrio] = v
+                rasgos = guardados.get(t) if sucesos_desde is not None and t >= sucesos_desde else None
                 if rasgos:
                     self._evaluar(t, rasgos, vivo=(t == faltan[-1]))
                 else:

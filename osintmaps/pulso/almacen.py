@@ -50,8 +50,7 @@ CREATE TABLE IF NOT EXISTS agenda (id TEXT PRIMARY KEY, tipo TEXT NOT NULL, titu
     lat REAL, lon REAL, barrio TEXT, fuente TEXT, url TEXT, extra TEXT, visto INTEGER);
 CREATE INDEX IF NOT EXISTS agenda_por_fecha ON agenda (hasta, desde);
 CREATE TABLE IF NOT EXISTS rasgos (rasgo TEXT NOT NULL, barrio TEXT NOT NULL, t INTEGER NOT NULL, v REAL NOT NULL,
-    PRIMARY KEY (rasgo, barrio, t)) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS rasgos_por_hora ON rasgos (t);
+    PRIMARY KEY (t, rasgo, barrio)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS muestras (rasgo TEXT NOT NULL, barrio TEXT NOT NULL, franja INTEGER NOT NULL, semana INTEGER NOT NULL, v REAL NOT NULL,
     festivo INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (rasgo, barrio, franja, semana)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS eventos (id TEXT PRIMARY KEY, tipo TEXT, estado TEXT, inicio INTEGER, fin INTEGER, pico INTEGER, puntuacion REAL,
@@ -82,6 +81,11 @@ class Almacen:
                 # WAL: se puede leer el fichero (hacer una copia, mirarlo con otro programa) mientras se escribe.
                 self._bd.execute("PRAGMA journal_mode=WAL")
                 self._bd.execute("PRAGMA synchronous=NORMAL")
+            # Los rasgos se ordenaban por rasgo y barrio; ahora, por hora (todas las consultas son de un rato). Se
+            # pueden volver a calcular del histórico, así que la tabla vieja se tira y el cruce la rehace.
+            vieja = self._bd.execute("SELECT sql FROM sqlite_master WHERE name='rasgos'").fetchone()
+            if vieja and "PRIMARY KEY (rasgo, barrio, t)" in vieja[0]:
+                self._bd.executescript("DROP TABLE rasgos; DROP INDEX IF EXISTS rasgos_por_hora;")
             self._bd.executescript(ESQUEMA)
         # Lo último guardado de cada punto, para no repetirlo. Arranca vacío: tras abrir el programa la
         # primera toma se guarda entera, y así lo de después de un hueco no depende de lo de antes.
@@ -202,8 +206,10 @@ class Almacen:
             self._bd.execute("DELETE FROM tomas WHERE t<? AND ok=0", (ahora - 30 * 86400,))
             # El texto de las redes se guarda 30 días; los titulares de prensa y los avisos, siempre.
             self._bd.execute("UPDATE items SET texto=NULL WHERE t<? AND fuente IN ('bluesky','mastodon') AND texto IS NOT NULL", (ahora - 30 * 86400,))
-            self._bd.execute("DELETE FROM rasgos WHERE t<?", (ahora - 45 * 86400,))
-            self._bd.execute("DELETE FROM muestras WHERE semana<?", (semana_local(ahora) - 26,))
+            # Los rasgos de cada barrio, tres semanas (para comparar fechas); lo normal sale de las muestras, que
+            # se guardan nueve semanas (se usan las ocho últimas).
+            self._bd.execute("DELETE FROM rasgos WHERE t<?", (ahora - 21 * 86400,))
+            self._bd.execute("DELETE FROM muestras WHERE semana<?", (semana_local(ahora) - 9,))
 
     def _transaccion(self):
         return _Transaccion(self._bd)
