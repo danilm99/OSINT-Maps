@@ -267,7 +267,9 @@ class Sala:
         for b, x in (e.get("barrios") or {}).items():
             barrios[b] = {"nivel": x["nivel"], "tipos": x["tipos"], "familias": x["familias"], "senales": x["senales"][:3],
                           "valores": x["valores"], "normal": x["normal"]}
-        nivel = max([barrios.get(CIUDAD, {}).get("nivel", 0)] + [s["puntuacion"] or 0 for s in activos])
+        # Alto o muy alto solo si hay sucesos de verdad (varias fuentes a la vez); sin ellos, una señal suelta de
+        # la ciudad entera se queda, como mucho, en «atención».
+        nivel = max([min(barrios.get(CIUDAD, {}).get("nivel", 0), 4.9)] + [s["puntuacion"] or 0 for s in activos])
         clase, frase = nivel_de_ciudad(nivel)
         return {
             "generado": ahora, "publico": publico, "hay": self.zonas is not None, "fase": self.fase, "t": e.get("t"),

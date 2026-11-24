@@ -33,6 +33,9 @@ PRENSA: dict[str, str] = {
     "20minutos Valencia": "https://www.20minutos.es/rss/valencia/",
     "El Mundo CV": "https://e00-elmundo.uecdn.es/elmundo/rss/valencia.xml",
 }
+# Idiomas de lo que se lee en redes (lo que viene marcado en otro idioma no es de aquí: anuncios de la marca
+# «Valencia» en portugués, la Valencia de Venezuela en inglés...). Lo que no dice idioma se queda.
+IDIOMAS_DE_AQUI = {"es", "ca", "va", "en"}
 # Secciones que son solo de la ciudad: lo que publican es de aquí aunque no nombre València.
 PRENSA_DE_LA_CIUDAD = {"Las Provincias"}
 BLUESKY = "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts"
@@ -123,6 +126,8 @@ def leer_bluesky(datos: dict) -> list[Item]:
             continue
         t = _segundos(registro.get("createdAt")) or int(time.time())
         idiomas = registro.get("langs") or []
+        if idiomas and not any(str(i).split("-")[0].lower() in IDIOMAS_DE_AQUI for i in idiomas):
+            continue
         items.append(Item(f"bsky:{m.group(2)}:{_id(m.group(1))}", "bluesky", t, texto[:200], texto[:MAX_TEXTO],
                           f"https://bsky.app/profile/{m.group(1)}/post/{m.group(2)}", idioma=idiomas[0] if idiomas else "",
                           extra={"me_gusta": post.get("likeCount") or 0, "compartido": post.get("repostCount") or 0}))
@@ -183,6 +188,22 @@ def tomar_mastodon(sesion: requests.Session, geometria: bool = True) -> Toma:
 # Avisos
 # --------------------------------------------------------------------------
 
+FENOMENOS = {"coastalevent": "fenómenos costeros", "coastal": "fenómenos costeros", "wind": "viento", "rain": "lluvia",
+             "thunderstorm": "tormentas", "snow": "nieve", "ice": "hielo", "fog": "niebla", "high-temperature": "calor",
+             "low-temperature": "frío", "forest-fire": "incendios forestales", "avalanche": "aludes", "flood": "inundaciones",
+             "rain-flood": "lluvias e inundaciones"}
+
+
+def aviso_en_castellano(evento: str, severidad: str) -> str:
+    """«Moderate coastalevent warning» -> «Aviso amarillo por fenómenos costeros»."""
+    color = {"Moderate": "amarillo", "Severe": "naranja", "Extreme": "rojo"}.get(severidad, "")
+    t = evento.lower()
+    fenomeno = next((v for k, v in sorted(FENOMENOS.items(), key=lambda x: -len(x[0])) if k in t), "")
+    if not fenomeno:
+        return evento or "Aviso meteorológico"
+    return f"Aviso {color + ' ' if color else ''}por {fenomeno}"
+
+
 def leer_meteoalarm(contenido: bytes, ahora: float | None = None) -> list[Item]:
     """Avisos meteorológicos de AEMET (vía Meteoalarm) de las zonas del litoral de Valencia, vigentes."""
     ahora = ahora or time.time()
@@ -201,7 +222,7 @@ def leer_meteoalarm(contenido: bytes, ahora: float | None = None) -> list[Item]:
         inicio = _segundos(c.get("onset") or c.get("effective") or c.get("sent")) or int(ahora)
         severidad = c.get("severity", "")
         urgencia = {"Moderate": 1, "Severe": 2, "Extreme": 3}.get(severidad, 1)
-        titulo = f"{c.get('event') or c.get('title') or 'Aviso'} ({zona})"
+        titulo = f"{aviso_en_castellano(c.get('event') or c.get('title') or '', severidad)} ({zona})"
         enlace = next((h.get("href") for h in entrada if _local(h.tag) == "link" and h.get("href")), "https://www.aemet.es/es/eltiempo/prediccion/avisos")
         items.append(Item(f"meteo:{_id(c.get('id', ''), titulo, str(inicio))}", "meteoalarm", inicio, titulo[:200],
                           f"{c.get('event', '')}. Nivel: {severidad}. Hasta: {time.strftime('%d/%m %H:%M', time.localtime(fin)) if fin else '¿?'}.",

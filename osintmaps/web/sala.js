@@ -450,7 +450,9 @@ function pintarFeed() {
   const caja = $("feed");
   let lista;
   if (ajustes.feed === "avisos") lista = E.avisos || [];
-  else lista = (E.feed || []).filter((it) => ajustes.feed === "todo" ? it.fuente === "prensa" || (["bluesky", "mastodon"].includes(it.fuente) && it.barrio)
+  const TEMAS_SALA = ["emergencia", "accidente", "seguridad", "protesta", "trafico", "transporte", "meteo", "evento", "deporte"];
+  if (ajustes.feed !== "avisos") lista = (E.feed || []).filter((it) => ajustes.feed === "todo"
+    ? it.fuente === "prensa" || (["bluesky", "mastodon"].includes(it.fuente) && it.barrio && TEMAS_SALA.includes(it.categoria))
     : ajustes.feed === "prensa" ? it.fuente === "prensa" : ["bluesky", "mastodon"].includes(it.fuente));
   const filas = lista.slice(0, 80).map(filaTexto);
   if (ajustes.feed === "redes" && E.publico) {

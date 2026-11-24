@@ -329,3 +329,15 @@ def test_ollama_antiguo_sin_think_y_sin_ollama(pulso):
         viejo.cerrar()
     nadie = IA_.IA(pulso.almacen, pulso.sala.cruce, url="http://127.0.0.1:9")
     assert nadie.disponible() is False and nadie.estado()["disponible"] is False
+
+
+def test_avisos_en_castellano_y_redes_de_aqui():
+    from osintmaps.pulso import textos
+    assert textos.aviso_en_castellano("Moderate coastalevent warning", "Moderate") == "Aviso amarillo por fenómenos costeros"
+    assert textos.aviso_en_castellano("Severe wind warning", "Severe") == "Aviso naranja por viento"
+    assert textos.aviso_en_castellano("Aviso raro", "") == "Aviso raro"
+    posts = {"posts": [
+        {"uri": "at://did:plc:a/app.bsky.feed.post/1", "record": {"text": "Óculos de Sol Valencia Premium", "langs": ["pt"], "createdAt": "2026-11-24T18:00:00Z"}},
+        {"uri": "at://did:plc:b/app.bsky.feed.post/2", "record": {"text": "Cola enorme en el Mercado Central", "langs": ["es"], "createdAt": "2026-11-24T18:00:00Z"}},
+        {"uri": "at://did:plc:c/app.bsky.feed.post/3", "record": {"text": "Bon dia, València", "createdAt": "2026-11-24T18:00:00Z"}}]}
+    assert [i.texto for i in textos.leer_bluesky(posts)] == ["Cola enorme en el Mercado Central", "Bon dia, València"]
