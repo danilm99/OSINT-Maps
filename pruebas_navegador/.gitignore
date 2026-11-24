@@ -6,3 +6,5 @@ datos9/
 package-lock.json
 datos-estatico/
 sitio-estatico/
+datos-real/
+.chrome-sala/
