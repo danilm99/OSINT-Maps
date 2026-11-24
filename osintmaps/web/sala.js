@@ -443,7 +443,7 @@ function pintarCapas() {
   for (const s of [...ordenados].reverse()) {
     if (s.estado !== "activo" || conRotulo.size >= 3) continue;
     const p = mapa.latLngToContainerPoint([s.lat, s.lon]);
-    if (ocupado.some((q) => Math.abs(q.y - p.y) < 34 && p.x > q.x - 60 && p.x < q.x + 250)) continue;
+    if (ocupado.some((q) => Math.abs(q.y - p.y) < 34 && Math.abs(q.x - p.x) < 250)) continue;     // los rótulos van a la derecha, unos 230 px
     conRotulo.add(s.id); ocupado.push(p);
   }
   for (const s of ordenados) {
