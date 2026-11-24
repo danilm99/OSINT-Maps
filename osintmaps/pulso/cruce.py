@@ -62,12 +62,13 @@ ALTURA_HELIS = 1500         # metros: por encima, un helicóptero va de paso
 # independientes), a qué familia apunta si sube (+1) o baja (-1), y cómo medirlo:
 #   continuo: «suelo» y «rel» ponen un mínimo a lo que se considera variación normal
 #   conteo:   «prior» (lo que se espera por barrio sin saber nada), «ciudad» (lo mismo para toda la
-#             ciudad) y «r» (lo a rachas que llega: cuanto más pequeño, más a rachas)
+#             ciudad) y «r» (lo a rachas que llega: cuanto más pequeño, más a rachas). «con_historia»: lo que
+#             cambia tanto de un barrio a otro (bicis, publicaciones, obras) que sin histórico no se juzga.
 RASGOS: dict[str, dict] = {
     "trafico": {"nombre": "Tráfico", "unidad": "sobre 100", "tipo": "continuo", "fuente": "trafico", "suelo": 5.0,
                 "familias": {+1: "congestion"}},
     "cortes": {"nombre": "Tramos cortados", "unidad": "tramos", "tipo": "conteo", "fuente": "trafico", "prior": 0.1, "ciudad": 4.0, "r": 3,
-               "familias": {+1: "corte"}},
+               "familias": {+1: "corte"}, "con_historia": True},
     "aforo": {"nombre": "Vehículos por hora", "unidad": "veh/h", "tipo": "continuo", "fuente": "aforo", "suelo": 40.0, "rel": 0.08,
               "familias": {+1: "congestion", -1: "corte"}},
     "aforo_bici": {"nombre": "Bicis y patinetes por hora", "unidad": "por hora", "tipo": "continuo", "fuente": "aforo_bici", "suelo": 15.0,
@@ -79,13 +80,13 @@ RASGOS: dict[str, dict] = {
     "bici_ocupacion": {"nombre": "Valenbisi: anclajes con bici", "unidad": "%", "tipo": "continuo", "fuente": "bicis", "suelo": 5.0,
                        "familias": {+1: "afluencia", -1: "salida"}},
     "bici_llegadas": {"nombre": "Bicis que llegan", "unidad": "en 10 min", "tipo": "conteo", "fuente": "bicis", "prior": 2.0, "ciudad": 150.0,
-                      "r": 4, "familias": {+1: "afluencia"}},
+                      "r": 4, "familias": {+1: "afluencia"}, "con_historia": True},
     "bici_salidas": {"nombre": "Bicis que salen", "unidad": "en 10 min", "tipo": "conteo", "fuente": "bicis", "prior": 2.0, "ciudad": 150.0,
-                     "r": 4, "familias": {+1: "salida"}},
+                     "r": 4, "familias": {+1: "salida"}, "con_historia": True},
     "metro": {"nombre": "Salidas de metro", "unidad": "en 30 min", "tipo": "continuo", "fuente": "metro", "suelo": 1.5,
               "familias": {-1: "servicio"}},
     "social": {"nombre": "Publicaciones", "unidad": "en 30 min", "tipo": "conteo", "fuente": "redes", "prior": 0.15, "ciudad": 4.0, "r": 2,
-               "familias": {+1: "atencion"}},
+               "familias": {+1: "atencion"}, "con_historia": True},
     "prensa": {"nombre": "Noticias", "unidad": "en 2 h", "tipo": "conteo", "fuente": "prensa", "prior": 0.1, "ciudad": 8.0, "r": 3,
                "familias": {+1: "atencion"}},
     "alertas": {"nombre": "Incidencias de tráfico y transporte", "unidad": "activas", "tipo": "conteo", "fuente": "dgt", "prior": 0.05,
@@ -448,6 +449,8 @@ class Cruce:
         if info["tipo"] == "conteo":
             prior = info.get("ciudad", info["prior"]) if barrio == CIUDAD else info["prior"]
             r = info.get("r")
+            if len(muestras) < MIN_MUESTRAS and info.get("con_historia"):
+                return None
             if len(muestras) < MIN_MUESTRAS:
                 # Mientras no hay histórico, lo esperado es casi una suposición: se le da mucho margen.
                 r = min(r or 1.5, 1.5)

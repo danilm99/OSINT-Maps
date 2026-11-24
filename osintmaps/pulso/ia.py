@@ -27,8 +27,11 @@ log = logging.getLogger("osintmaps.pulso")
 
 OLLAMA = "http://127.0.0.1:11434"
 MODELOS_PREFERIDOS = ("qwen3:8b", "qwen3:4b", "qwen2.5:7b", "llama3.1:8b", "gemma3:4b")
-CADA_PARTE = 15 * 60
-MAX_TEXTOS_POR_VUELTA = 25
+CADA_PARTE = 30 * 60
+MAX_TEXTOS_POR_VUELTA = 15
+# Tras cinco minutos sin trabajo, Ollama saca el modelo de la memoria de la gráfica: el ordenador queda libre
+# para lo demás (vídeo, 3D...) y solo se ocupa unos segundos cada vez que hay algo que leer o resumir.
+MANTENER = "5m"
 CATEGORIAS_IA = ("emergencia", "accidente", "seguridad", "protesta", "trafico", "transporte", "meteo", "evento", "vivienda",
                  "urbanismo", "sanidad", "medioambiente", "politica", "deporte", "cultura", "economia", "otros")
 
@@ -84,7 +87,7 @@ class IA:
 
     def chat(self, usuario: str, esquema: dict, max_tokens: int = 400) -> dict:
         """Una pregunta al modelo con la respuesta obligada a un esquema JSON."""
-        cuerpo = {"model": self.modelo, "stream": False, "format": esquema, "think": False, "keep_alive": "30m",
+        cuerpo = {"model": self.modelo, "stream": False, "format": esquema, "think": False, "keep_alive": MANTENER,
                   "messages": [{"role": "system", "content": SISTEMA}, {"role": "user", "content": usuario}],
                   "options": {"temperature": 0.2, "num_ctx": 4096, "num_predict": max_tokens}}
         r = self.sesion.post(f"{self.url}/api/chat", json=cuerpo, timeout=180)
@@ -175,10 +178,11 @@ class IA:
             self.hechos["partes"] += 1
 
     def _textos(self) -> int:
-        """Lee los textos recientes que aún no ha leído y corrige lo que las reglas pusieron."""
+        """Lee los textos recientes que aún no ha leído y corrige lo que las reglas pusieron. Solo los que cuentan en
+        el cruce: las noticias y lo de redes que se ha situado en un barrio (lo demás solo suma en la ciudad entera)."""
         filas = self.almacen._filas(
-            "SELECT id, fuente, titulo, texto, lat, barrio FROM items WHERE ia=0 AND fuente IN ('prensa','bluesky','mastodon') AND t>? "
-            "ORDER BY t DESC LIMIT ?", (int(time.time()) - 6 * 3600, MAX_TEXTOS_POR_VUELTA))
+            "SELECT id, fuente, titulo, texto, lat, barrio FROM items WHERE ia=0 AND t>? AND (fuente='prensa' OR "
+            "(fuente IN ('bluesky','mastodon') AND barrio IS NOT NULL)) ORDER BY t DESC LIMIT ?", (int(time.time()) - 3 * 3600, MAX_TEXTOS_POR_VUELTA))
         for ident, fuente, titulo, texto, lat, barrio in filas:
             if self._parar.is_set():
                 break

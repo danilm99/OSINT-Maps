@@ -757,7 +757,7 @@ def _arrancar_pulso(args: argparse.Namespace):
             _decir("--publicar-datos solo hace algo junto con --pulso: sin él no hay datos nuevos que subir.")
         return Pulso.si_hay(carpeta)
     carpeta.mkdir(parents=True, exist_ok=True)
-    pulso = Pulso(carpeta, dias_valores=args.guardar_dias)
+    pulso = Pulso(carpeta, dias_valores=args.guardar_dias, ia=not getattr(args, "sin_ia", False))
     pulso.arrancar()
     _decir("Pulso: guardando el histórico de la ciudad mientras esto esté abierto (datos/pulso.sqlite).")
     if args.publicar_datos is not None:
@@ -1059,6 +1059,8 @@ def crear_parser() -> argparse.ArgumentParser:
                    help="con --pulso: sube a la web el resumen de las últimas horas al arrancar y cada MINUTOS (15 si no se dice; mínimo 10)")
     p.add_argument("--guardar-dias", type=int, default=90, help="con --pulso: días que se conserva el detalle punto a punto (90; 0 = siempre)")
     p.add_argument("--repo", default=None, help="con --publicar-datos: dirección del repositorio (por defecto, el «origin» de esta carpeta)")
+    p.add_argument("--sin-ia", action="store_true",
+                   help="con --pulso: no usar la IA local (Ollama) aunque esté instalada; la sala funciona igual, con reglas")
     p.set_defaults(func=cmd_servir)
 
     p = sub.add_parser("sitio", help="deja el mapa como web estática en una carpeta, para alojarla donde quieras")

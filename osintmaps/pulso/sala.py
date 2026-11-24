@@ -67,8 +67,9 @@ def nivel_de_ciudad(n: float) -> tuple[str, str]:
 
 
 class Sala:
-    def __init__(self, pulso, recoger: bool = True):
+    def __init__(self, pulso, recoger: bool = True, ia: bool = True):
         self.pulso = pulso
+        self.ia_permitida = ia
         self.almacen = pulso.almacen
         self.datos = Path(pulso.carpeta_datos)
         self.recoger = recoger
@@ -147,10 +148,11 @@ class Sala:
             log.info("Sala: %d intervalos del histórico calculados", n)
         except Exception:  # noqa: BLE001
             log.warning("Sala: fallo al reconstruir el histórico", exc_info=True)
-        self.ia = IA(self.almacen, self.cruce, self.zonas)
-        self.ia.preparar_parte = self.datos_del_parte
-        self.cruce.ia = self.ia
-        self.ia.arrancar()
+        if self.ia_permitida:
+            self.ia = IA(self.almacen, self.cruce, self.zonas)
+            self.ia.preparar_parte = self.datos_del_parte
+            self.cruce.ia = self.ia
+            self.ia.arrancar()
         resto = threading.Thread(target=self._contexto_resto, name="pulso-contexto", daemon=True)
         self._hilos.append(resto)
         resto.start()

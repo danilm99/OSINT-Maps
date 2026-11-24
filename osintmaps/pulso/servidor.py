@@ -32,7 +32,7 @@ MAX_DIAS = 400                  # lo más que se deja pedir de una vez
 class Pulso:
     """Junta las piezas: el histórico, el recolector y, si se pide, la publicación en la web."""
 
-    def __init__(self, carpeta_datos: Path, *, recoger: bool = True, dias_valores: int = 90, dias_rastros: int = 30):
+    def __init__(self, carpeta_datos: Path, *, recoger: bool = True, dias_valores: int = 90, dias_rastros: int = 30, ia: bool = True):
         self.carpeta_datos = Path(carpeta_datos)
         self.almacen = Almacen(self.carpeta_datos / FICHERO_HISTORICO)
         self.normales = Normales(self.almacen)
@@ -43,7 +43,7 @@ class Pulso:
         self._estado: tuple[float, dict] = (0.0, {})
         self._candado = threading.Lock()
         # La sala de control: barrios, cruce y sucesos. Sin recoger, solo consulta lo guardado.
-        self.sala = Sala(self, recoger=recoger)
+        self.sala = Sala(self, recoger=recoger, ia=ia)
 
     @classmethod
     def si_hay(cls, carpeta_datos: Path) -> "Pulso | None":
