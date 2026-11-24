@@ -649,6 +649,84 @@ diarias, con semanas de retraso) y las posiciones de los autobuses de la EMT.
 Y lo que no habrá: nada de esto sigue a personas; son recuentos de sensores
 públicos.
 
+### La sala de control
+
+`sala.html` (enlace **Sala de control ↗** en la consola del pulso) es una pantalla
+para ver València de un vistazo: qué barrios están fuera de lo normal y por qué,
+los sucesos en marcha, las cifras de la ciudad, lo que se publica y lo previsto
+para hoy. Con el programa abierto (`osintmaps servir --pulso`) se pide al
+ordenador cada medio minuto; en la web, el ordenador sube cada cuarto de hora
+`datos/sala.json` y la pantalla lo lee.
+
+**Fuentes nuevas** (se recogen con `--pulso`, además de las del pulso):
+
+| Qué | Cada cuánto | De dónde |
+|---|---|---|
+| Titulares de prensa local, situados en su calle o barrio | 10 min | Las Provincias, Valencia Plaza, elDiario.es, Europa Press, 20minutos, El Mundo |
+| Publicaciones que hablan de València | 5-10 min | Bluesky (búsqueda pública), Mastodon (etiquetas) |
+| Incidencias de tráfico del área metropolitana | 10 min | DGT (DATEX II) |
+| Avisos meteorológicos | 15 min | AEMET vía Meteoalarm |
+| Retrasos y avisos de Cercanías | 30 s | Renfe |
+| Salidas de metro en la próxima media hora, por estación | 10 min | FGV, geoportal municipal |
+| Ocupación prevista de la zona azul | 15 min | Ajuntament de València |
+| Obras, ocupaciones de la vía, mudanzas y festejos | 3 h | Ajuntament de València |
+| Partidos en casa (Valencia, Levante, Valencia Basket) | 12 h | TheSportsDB |
+| Festivos y fiestas (Fallas, San Vicente Ferrer...) | 1 día | calendario laboral |
+| Ruido de día y de noche en Russafa (de ayer) | 6 h | sonómetros del Ajuntament |
+| Barrios, calles, patrimonio, registro de solares, vivienda protegida, zonas saturadas, vulnerabilidad, quejas, accidentes | al arrancar, si han caducado | geoportal y portal de datos abiertos del Ajuntament |
+| Viajes entre distritos hora a hora (un lunes, un sábado y un domingo) | una vez | Ministerio de Transportes (MITMA), estudio de movilidad con big data |
+
+**El cruce** (`pulso/cruce.py`). Cada diez minutos todo se lleva a los 87
+barrios y se convierte en rasgos: tráfico, tramos cortados, vehículos por
+hora, bicis que llegan y salen, aparcamientos, metro, publicaciones, noticias,
+incidencias, textos urgentes, minutos de helicóptero encima. Cada rasgo se
+compara con lo normal **para ese barrio a esa media hora de la semana** (las
+ocho semanas anteriores; mientras no las hay, los días del mismo tipo, y nunca
+lo de hoy). Lo que se mueve en toda la ciudad a la vez, como la lluvia, se
+quita de cada barrio y se cuenta aparte, como suceso de la ciudad.
+
+Un **suceso** necesita señales de fuentes distintas a la vez: Valenbisi sola
+(un camión que reparte bicis) no basta; Valenbisi y los aparcamientos llenos,
+sí. Tipos: afluencia, salida de gente, posible incidente (helicóptero encima,
+textos urgentes, incidencias), congestión, posible corte, metro sin servicio y
+«se habla de». Los barrios vecinos con el mismo tipo son un solo suceso, que
+se sigue mientras dura (y si se mueve, como una manifestación, sigue siendo el
+mismo). Para cada uno se busca la causa: algo previsto en la zona (un partido,
+un festejo, una obra), la lluvia o lo que se publica de allí. Si no hay
+ninguna, queda **sin causa conocida**. Durante las primeras cuatro semanas la
+sala está aprendiendo: solo salta lo muy claro.
+
+**Las fichas.** Cada suceso: por qué (causas con su peso), las señales en el
+momento más fuerte, la evolución de cada una frente a lo normal, lo publicado
+y los helicópteros que pasaron por la zona. Cada barrio: sus cifras de ahora,
+su nivel en 24 horas, vulnerabilidad, quejas del último año por tema,
+accidentes, sucesos del mes, obras y lo publicado. Cada punto (clic derecho
+en el mapa o **⌖ Investigar**): la calle y el número, la parcela del Catastro
+(uso, superficie, año de construcción, tipo de construcción), patrimonio,
+registro de solares y edificios a rehabilitar, vivienda protegida, zona
+acústicamente saturada, accidentes de esa esquina, obras registradas allí y
+noticias. Solo datos de inmuebles: nada sobre quién vive o es propietario.
+
+**Comparar** pone dos días uno al lado del otro (laborable, sábado, festivo
+o una fecha) para cualquier rasgo, con el mapa de la diferencia a cada hora.
+**Movilidad** enseña dónde llegan y de dónde salen las bicis y, con los datos
+del MITMA, los viajes entre distritos de un lunes, un sábado y un domingo.
+**Histórico** abre la máquina del tiempo del pulso.
+
+**IA local, opcional.** Si hay [Ollama](https://ollama.com) con un modelo
+(por ejemplo `ollama pull qwen3:8b`), la sala lo usa para afinar la
+categoría y el sitio de las noticias, resumir cada suceso y escribir el parte.
+Solo recibe cifras de conjunto y titulares públicos. El modelo sale de la
+memoria de la gráfica tras cinco minutos sin trabajo. Sin Ollama, o con
+`--sin-ia`, todo funciona con reglas.
+
+**Lo que no hace.** No sigue a nadie: son recuentos de sensores públicos,
+titulares y avisos oficiales. De las redes se guarda el texto público, la fecha
+y el enlace de cada publicación, nunca quién la escribió, y nada se junta por
+persona. Los textos de redes no se publican en la web (solo cuántos hay) y se
+borran del ordenador a los 30 días. No lee matrículas, caras, wifi ni
+bluetooth.
+
 ### Qué genera
 
 Todo queda en la carpeta `datos/`, que no se sube a git:
@@ -802,6 +880,7 @@ osintmaps/
   web/historia.js   la historia de un sitio: resumen, fechas, nombres del mapa, fotos con año y prensa
   web/tresd.js      la vista en 3D
   web/pulso.js      la consola del pulso: línea de tiempo, indicadores y capas en el tiempo
+  web/sala.html, web/sala.js  la sala de control
   pulso/
     fuentes.py      qué se pregunta a cada servicio y cómo se lee
     almacen.py      el histórico (SQLite): valores, indicadores, rastros y huecos
@@ -810,6 +889,17 @@ osintmaps/
     resumen.py      el trozo de histórico que pide el visor o que se publica
     publicar.py     sube a la web solo los datos
     servidor.py     las direcciones /vivo/pulso/...
+    catalogo.py     todas las fuentes del pulso y de la sala, en una lista
+    textos.py       prensa, Bluesky, Mastodon, avisos de AEMET e incidencias de la DGT
+    agenda.py       lo previsto: obras, ocupaciones, festejos, partidos, festivos; y el ruido
+    clasificar.py   de qué habla un texto y si es de València (reglas)
+    contexto.py     las capas de la ciudad que cambian poco (barrios, calles, patrimonio...)
+    zonas.py        barrios, vecinos y nomenclátor: de un texto o una dirección a un punto
+    cruce.py        el cruce: rasgos por barrio, lo normal, sucesos, su causa y su seguimiento
+    fichas.py       la ficha de un barrio y la de un inmueble (con el Catastro)
+    movilidad.py    los viajes entre distritos del MITMA
+    ia.py           la IA local opcional (Ollama)
+    sala.py         la sala en marcha y las direcciones /vivo/sala/...
   web/sw.js, manifest.webmanifest  lo que hace falta para instalarlo como aplicación
 tests/              pruebas; `pip install -e ".[dev]"` y luego `pytest`
 pruebas_navegador/  pruebas del visor en un navegador de verdad (ver su README)
@@ -846,6 +936,12 @@ experimentos/vision/  el detector por imagen: preparar datos, entrenar, calibrar
   Sensores de aire: sensor.community. Zonas inundables: SNCZI (MITECO), vía
   IDEE. Drones: ENAIRE. Senderos: Waymarked Trails. Mar: OpenSeaMap. Satélite
   diario y focos de calor: NASA GIBS.
+- Sala de control: prensa local (titulares enlazados a cada medio), Bluesky y
+  Mastodon (publicaciones públicas, enlazadas), DGT (DATEX II), AEMET vía
+  Meteoalarm, Renfe, FGV, TheSportsDB, Catastro (Sede Electrónica, datos no
+  protegidos), Ministerio de Transportes (estudio de movilidad con big data) y
+  portal de datos abiertos del Ajuntament de València (quejas y sugerencias,
+  accidentes, vulnerabilidad, obras y ocupaciones).
 - 3D: MapLibre GL (BSD); edificios y nombres de OpenFreeMap (OpenMapTiles,
   datos de OpenStreetMap); relieve de las teselas Terrarium (Mapzen, con
   datos SRTM y otros).
