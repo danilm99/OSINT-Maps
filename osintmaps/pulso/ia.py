@@ -5,7 +5,8 @@ Hace tres cosas, siempre en segundo plano y sin que nada dependa de ella:
 - **Lee los textos** (prensa y redes) y afina lo que las reglas de clasificar.py ponen: la categoría,
   la urgencia, si de verdad es de València y el sitio exacto del que habla.
 - **Resume cada suceso** en dos o tres frases a partir de sus señales y de lo que se publica.
-- **Escribe el parte** de la ciudad: el estado en un párrafo, con las cifras.
+- **Escribe el parte** de la ciudad: el estado en un párrafo. Cada media hora, o antes si cambia lo que
+  cuenta (un suceso, una cifra fuera de lo normal, un partido que empieza); lo escrito que ya no vale no se enseña.
 
 Si Ollama no está instalado o no contesta, todo sigue con las reglas: la sala lo dice y ya.
 El modelo recibe solo cifras de conjunto y titulares públicos; se le pide expresamente que no
@@ -14,6 +15,7 @@ hable de personas concretas.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import threading
@@ -27,7 +29,8 @@ log = logging.getLogger("osintmaps.pulso")
 
 OLLAMA = "http://127.0.0.1:11434"
 MODELOS_PREFERIDOS = ("qwen3:8b", "qwen3:4b", "qwen2.5:7b", "llama3.1:8b", "gemma3:4b")
-CADA_PARTE = 30 * 60
+CADA_PARTE = 30 * 60          # el parte se reescribe cada media hora aunque nada cambie...
+MIN_ENTRE_PARTES = 5 * 60     # ...y antes si cambia lo que cuenta, pero nunca más de uno cada cinco minutos
 MAX_TEXTOS_POR_VUELTA = 15
 # Tras cinco minutos sin trabajo, Ollama saca el modelo de la memoria de la gráfica: el ordenador queda libre
 # para lo demás (vídeo, 3D...) y solo se ocupa unos segundos cada vez que hay algo que leer o resumir.
@@ -48,6 +51,12 @@ ESQUEMA_TEXTO = {"type": "object", "properties": {
 ESQUEMA_SUCESO = {"type": "object", "properties": {
     "resumen": {"type": "string"}, "confianza": {"type": "string", "enum": ["alta", "media", "baja"]}}, "required": ["resumen", "confianza"]}
 ESQUEMA_PARTE = {"type": "object", "properties": {"parte": {"type": "string"}}, "required": ["parte"]}
+PEDIDO_PARTE = (
+    "Reescribe estos puntos como el parte de la ciudad en la radio: un párrafo breve y natural, en el mismo orden. No "
+    "copies las frases tal cual ni sus etiquetas («Hoy:», «En vigor:»): cuéntalo con tus palabras y junta lo que vaya "
+    "junto (los avisos, en una sola frase y sin repetir «aviso amarillo»). Mantén cada dato y cada cifra como están, no "
+    "añadas nada (ni cifras, ni causas, ni previsiones, ni valoraciones como «moderado», «alto» o «bajo») y lo que un "
+    "punto da como publicado o sin confirmar, sigue siéndolo.\n\nPuntos:\n")
 
 
 class IA:
@@ -62,7 +71,7 @@ class IA:
         self._parar = threading.Event()
         self._hilo: threading.Thread | None = None
         self._comprobado: float | None = None            # cuándo se miró por última vez si hay Ollama (None: nunca)
-        self.parte: dict | None = None                    # {"texto", "t", "modelo"}
+        self.parte: dict | None = None                    # {"texto", "t", "modelo", "firma"}
         self.preparar_parte = None                        # función que da los datos del parte (la pone la sala)
         self.ultimo_error: str | None = None
         self.hechos = {"textos": 0, "sucesos": 0, "partes": 0}
@@ -127,17 +136,21 @@ class IA:
                 "pendientes": len(self._pendientes), "error": self.ultimo_error}
 
     def _bucle(self) -> None:
-        ultimo_parte = 0.0
+        # Reloj monótono: en un ordenador recién encendido vale poco, y el primer parte no tiene por qué esperar.
+        ultimo_parte = mirado = float("-inf")
         while not self._parar.is_set():
             if not self.disponible():
                 self._parar.wait(60)
                 continue
             try:
                 hecho = self._un_suceso()
-                if not hecho and time.monotonic() - ultimo_parte > CADA_PARTE:
-                    self._escribir_parte()
-                    ultimo_parte = time.monotonic()
-                    hecho = True
+                if not hecho and self.preparar_parte and time.monotonic() - mirado >= 60:
+                    mirado = time.monotonic()
+                    datos = self.preparar_parte()
+                    if self._toca_parte(datos, mirado - ultimo_parte):
+                        self._escribir_parte(datos)
+                        ultimo_parte = time.monotonic()
+                        hecho = True
                 if not hecho:
                     hecho = self._textos() > 0
                 self.ultimo_error = None
@@ -166,15 +179,22 @@ class IA:
             self.hechos["sucesos"] += 1
         return True
 
-    def _escribir_parte(self) -> None:
-        if not self.preparar_parte:
-            return
-        datos = self.preparar_parte()
-        respuesta = self.chat("Escribe el parte de la ciudad ahora mismo en un párrafo de 4 a 6 frases, empezando por lo más importante. "
-                              "Si todo está normal, dilo en una frase. Datos:\n" + json.dumps(datos, ensure_ascii=False), ESQUEMA_PARTE, 350)
+    def _toca_parte(self, datos: dict, desde_el_ultimo: float) -> bool:
+        """Cada media hora; antes si lo escrito ya no vale (otro suceso, otra cifra fuera de lo normal, el partido que
+        empieza...), pero no más de uno cada cinco minutos aunque todo cambie."""
+        if desde_el_ultimo > CADA_PARTE:
+            return True
+        return desde_el_ultimo > MIN_ENTRE_PARTES and (self.parte is None or self.parte.get("firma") != firma_del_parte(datos))
+
+    def _escribir_parte(self, datos: dict | None = None) -> None:
+        if datos is None:
+            if not self.preparar_parte:
+                return
+            datos = self.preparar_parte()
+        respuesta = self.chat(PEDIDO_PARTE + "\n".join(f"- {p}" for p in puntos_del_parte(datos)), ESQUEMA_PARTE, 350)
         texto = (respuesta.get("parte") or "").strip()
         if texto:
-            self.parte = {"texto": texto[:1500], "t": int(time.time()), "modelo": self.modelo}
+            self.parte = {"texto": texto[:1500], "t": int(time.time()), "modelo": self.modelo, "firma": firma_del_parte(datos)}
             self.hechos["partes"] += 1
 
     def _textos(self) -> int:
@@ -207,6 +227,60 @@ class IA:
 
 def _hora(t: int | None) -> str:
     return time.strftime("%H:%M", time.localtime(t)) if t else "?"
+
+
+def _num(v) -> str:
+    if v is None:
+        return "?"
+    return f"{v:.0f}" if abs(v) >= 100 or float(v).is_integer() else f"{v:.1f}".replace(".", ",")
+
+
+def _frente_a_lo_normal(c: dict) -> str:
+    """La comparación delante y la cifra detrás: el modelo se queda con el principio de cada frase."""
+    unidad = f" {c['unidad']}" if c.get("unidad") else ""
+    nota = f"; {c['nota']}" if c.get("nota") else ""
+    sentido = "por encima" if (c.get("z") or 0) > 0 else "por debajo"
+    return (f"{c['nombre']} {sentido} de lo normal para la hora: {_num(c.get('valor'))}{unidad}, "
+            f"cuando lo normal es {_num(c.get('normal'))}{unidad}{nota}")
+
+
+def puntos_del_parte(d: dict) -> list[str]:
+    """Lo que tiene que decir el parte (con los hechos de `Sala.datos_del_parte`), punto por punto, en orden y ya
+    escrito con su sentido: lo eligen las reglas y el modelo solo lo cuenta bien. Probado con qwen3:8b y datos de
+    verdad, un modelo pequeño cuenta todo lo que recibe y lee mal las lecturas sueltas («tráfico 0 sobre 100» acababa
+    en «tráfico muy bajo», cuando el 0 solo dice que ningún tramo está congestionado; le ponía al metro el retraso de
+    Cercanías), confunde las condiciones («si no hay sucesos, di que todo es normal» lo decía también con un suceso)
+    y se inventa cifras. Así que no van las lecturas dentro de lo normal, ni cuántas noticias o incidencias de carretera
+    hay (sin saber cuántas son lo normal no dicen nada), ni los barrios más movidos, que cambian cada diez minutos:
+    el parte de reglas, al lado, lo dice todo."""
+    activos = d.get("sucesos_activos") or []
+    fuera = d.get("ciudad_fuera_de_lo_normal") or []
+    puntos = []
+    if not activos and not fuera:
+        puntos.append("La ciudad está dentro de lo normal para la hora.")
+    for s in activos[:3]:
+        resumen = f" {s['resumen']}" if s.get("resumen") else ""
+        puntos.append(f"Suceso en marcha desde las {s.get('desde')}: {s.get('titulo')}.{resumen}")
+    puntos += [_frente_a_lo_normal(c) + "." for c in fuera[:4]]
+    puntos += [f"Hoy: {a['que']}, {a['cuando']}." for a in (d.get("agenda_hoy") or [])[:4]]
+    if d.get("lluvia"):
+        puntos.append(f"Está {d['lluvia']}.")
+    if d.get("avisos"):
+        puntos.append("En vigor: " + "; ".join(d["avisos"]) + ".")
+    temas = (d.get("conversacion_2h") or {}).get("temas")
+    if temas:
+        puntos.append("En las últimas dos horas se habla sobre todo de " + ", ".join(temas) + ".")
+    return puntos
+
+
+def firma_del_parte(d: dict) -> str:
+    """Lo que, si cambia, deja viejo un parte ya escrito: los sucesos en marcha, qué cifras están fuera de lo normal,
+    la agenda de hoy (también cuando un partido empieza o acaba) y los avisos. Las cifras exactas no cuentan."""
+    clave = [sorted(s.get("titulo") or "" for s in d.get("sucesos_activos") or []),
+             sorted(c.get("nombre") or "" for c in d.get("ciudad_fuera_de_lo_normal") or []),
+             [f"{a.get('que')}|{a.get('cuando')}" for a in d.get("agenda_hoy") or []],
+             sorted(d.get("avisos") or [])]
+    return hashlib.sha1(json.dumps(clave, ensure_ascii=False).encode("utf-8")).hexdigest()[:12]
 
 
 def describir_suceso(ev: dict, zonas=None) -> str:

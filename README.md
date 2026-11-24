@@ -721,9 +721,16 @@ tiempo, que luego ya no crecen.
 **IA local, opcional.** Si hay [Ollama](https://ollama.com) con un modelo
 (por ejemplo `ollama pull qwen3:8b`), la sala lo usa para afinar la
 categoría y el sitio de las noticias, resumir cada suceso y escribir el parte.
-Solo recibe cifras de conjunto y titulares públicos. El modelo sale de la
-memoria de la gráfica tras cinco minutos sin trabajo. Sin Ollama, o con
-`--sin-ia`, todo funciona con reglas.
+Solo recibe cifras de conjunto y textos públicos (titulares y publicaciones, sin
+autor). Lo que dice el parte lo eligen las reglas, punto por punto y cada cifra
+con lo que significa y frente a qué se compara; el modelo solo lo cuenta con sus
+palabras (con más libertad, un modelo de este tamaño confunde cifras y fuentes).
+Se reescribe cada media hora, o antes si cambia lo que cuenta (un suceso, una
+cifra fuera de lo normal, un partido que empieza); mientras lo escrito no vale,
+se ve solo el de reglas.
+El modelo ocupa unos 6 GB de la gráfica mientras trabaja y sale de ella tras
+cinco minutos sin nada que hacer. Para tener la gráfica libre (vídeo, 3D), se
+arranca con `--sin-ia`: todo funciona con reglas, igual que sin Ollama.
 
 **Lo que no hace.** No sigue a nadie: son recuentos de sensores públicos,
 titulares y avisos oficiales. De las redes se guarda el texto público, la fecha
