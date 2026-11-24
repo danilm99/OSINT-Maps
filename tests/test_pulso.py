@@ -156,7 +156,7 @@ def test_aviones_y_trenes():
                       {"id": "VP_C2-1", "vehicle": {"position": {"latitude": 39.46, "longitude": -0.38}, "vehicle": {"id": "24601", "label": "C2-24601-PLATF.(6)"}}}])
     aviones = fuentes.tomar_aviones(red)
     assert [(a.id, a.nombre, a.alt) for a in aviones.objetos["aviones"]] == [("4cae5a", "RYR54XR", round(37000 * 0.3048)), ("344216", "EC-LPR", 762), ("aaaaaa", "aaaaaa", 0.0)]
-    assert aviones.indicadores == {"aviones": 2, "aviones_bajos": 1}
+    assert aviones.indicadores == {"aviones": 2, "aviones_bajos": 1, "helicopteros": 0}
     trenes = fuentes.tomar_trenes(red)
     assert trenes.objetos["trenes"] == [Objeto("24601", 39.46, -0.38, "C2-24601")] and trenes.indicadores == {"trenes": 1}
 
@@ -206,9 +206,11 @@ def test_entre_dos_peticiones_al_mismo_servicio_se_espera(monkeypatch):
 
 
 def test_cada_indicador_y_cada_serie_tienen_su_fuente():
-    ids = {f.id for f in fuentes.FUENTES}
-    assert {info["fuente"] for info in fuentes.INDICADORES.values()} <= ids and set(fuentes.SERIES.values()) <= ids
-    assert set(anomalias.VIGILADOS) <= set(fuentes.INDICADORES)
+    from osintmaps.pulso import catalogo
+    ids = {f.id for f in catalogo.FUENTES}
+    assert len(ids) == len(catalogo.FUENTES)                                  # sin repetidos
+    assert {info["fuente"] for info in catalogo.INDICADORES.values()} <= ids and set(catalogo.SERIES.values()) <= ids
+    assert set(anomalias.VIGILADOS) <= set(catalogo.INDICADORES)
 
 
 # --------------------------------------------------------------------------

@@ -19,7 +19,8 @@ import requests
 from ..red import nueva_sesion
 from . import anomalias
 from .almacen import Almacen
-from .fuentes import FUENTES, Fuente
+from .catalogo import FUENTES
+from .fuentes import Fuente
 
 log = logging.getLogger("osintmaps.pulso")
 

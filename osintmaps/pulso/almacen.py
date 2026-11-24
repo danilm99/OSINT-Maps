@@ -41,6 +41,21 @@ CREATE TABLE IF NOT EXISTS tomas (fuente TEXT NOT NULL, t INTEGER NOT NULL, ok I
     PRIMARY KEY (fuente, t)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS sucesos (clave TEXT NOT NULL, desde INTEGER NOT NULL, hasta INTEGER NOT NULL, valor REAL, normal REAL, z REAL,
     PRIMARY KEY (clave, desde)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS items (id TEXT PRIMARY KEY, fuente TEXT NOT NULL, t INTEGER NOT NULL, titulo TEXT, texto TEXT, url TEXT,
+    lat REAL, lon REAL, barrio TEXT, lugar TEXT, categoria TEXT, urgencia INTEGER, idioma TEXT, extra TEXT, visto INTEGER, ia INTEGER DEFAULT 0);
+CREATE INDEX IF NOT EXISTS items_por_hora ON items (t);
+CREATE INDEX IF NOT EXISTS items_por_barrio ON items (barrio, t);
+CREATE TABLE IF NOT EXISTS agenda (id TEXT PRIMARY KEY, tipo TEXT NOT NULL, titulo TEXT, desde INTEGER NOT NULL, hasta INTEGER NOT NULL,
+    lat REAL, lon REAL, barrio TEXT, fuente TEXT, url TEXT, extra TEXT, visto INTEGER);
+CREATE INDEX IF NOT EXISTS agenda_por_fecha ON agenda (hasta, desde);
+CREATE TABLE IF NOT EXISTS rasgos (rasgo TEXT NOT NULL, barrio TEXT NOT NULL, t INTEGER NOT NULL, v REAL NOT NULL,
+    PRIMARY KEY (rasgo, barrio, t)) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS rasgos_por_hora ON rasgos (t);
+CREATE TABLE IF NOT EXISTS muestras (rasgo TEXT NOT NULL, barrio TEXT NOT NULL, franja INTEGER NOT NULL, semana INTEGER NOT NULL, v REAL NOT NULL,
+    festivo INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (rasgo, barrio, franja, semana)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS eventos (id TEXT PRIMARY KEY, tipo TEXT, estado TEXT, inicio INTEGER, fin INTEGER, pico INTEGER, puntuacion REAL,
+    lat REAL, lon REAL, barrios TEXT, titulo TEXT, resumen TEXT, causa TEXT, evidencias TEXT, actualizado INTEGER);
+CREATE INDEX IF NOT EXISTS eventos_por_fecha ON eventos (fin, inicio);
 """
 
 
@@ -73,7 +88,10 @@ class Almacen:
     # ---------------------------------------------------------------- escribir
 
     def guardar_toma(self, fuente: str, t: int, toma) -> None:
-        """Apunta lo que ha visto una fuente en el momento `t`."""
+        """Apunta lo que ha visto una fuente en el momento `t`. Si la toma dice que sus datos son de otro
+        momento (el ruido de ayer), los valores y los indicadores van con ese momento; la toma, con `t`."""
+        t_toma = t
+        t = int(getattr(toma, "momento", None) or t)
         with self._candado:
             try:
                 with self._transaccion():
@@ -87,13 +105,33 @@ class Almacen:
                     self._bd.executemany("INSERT OR REPLACE INTO indicadores VALUES (?,?,?)", [(clave, t, v) for clave, v in toma.indicadores.items()])
                     for tipo, objetos in toma.objetos.items():
                         self._guardar_objetos(tipo, objetos, t)
-                    self._bd.execute("INSERT OR REPLACE INTO tomas VALUES (?,?,1,?,NULL)", (fuente, t, toma.n))
+                    if getattr(toma, "items", None):
+                        self._guardar_items(toma.items, t)
+                    if getattr(toma, "agenda", None):
+                        self._guardar_agenda(toma.agenda, t)
+                    self._bd.execute("INSERT OR REPLACE INTO tomas VALUES (?,?,1,?,NULL)", (fuente, t_toma, toma.n))
             except Exception:
                 # No se ha guardado nada de esta toma: lo que se recordaba como «ya guardado» deja de valer.
                 self._ultimo.clear()
                 self._ultimo_objeto.clear()
                 self._puntos_vistos.clear()
                 raise
+
+    def _guardar_items(self, items, t: int) -> None:
+        """Los textos se guardan una vez: si vuelven a llegar (un RSS los repite durante días) no se tocan,
+        para no pisar lo que la IA haya afinado."""
+        filas = [(it.id, it.fuente, int(it.t), it.titulo, it.texto, it.url, it.lat, it.lon, it.barrio, it.lugar, it.categoria,
+                  int(it.urgencia or 0), it.idioma, json.dumps(it.extra, ensure_ascii=False, separators=(",", ":")) if it.extra else None, t)
+                 for it in items]
+        # Si ya estaba, solo se apunta que se ha vuelto a ver (una incidencia de la DGT sigue activa mientras sale).
+        self._bd.executemany("INSERT INTO items (id, fuente, t, titulo, texto, url, lat, lon, barrio, lugar, categoria, urgencia, idioma, extra, visto) "
+                             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET visto=excluded.visto", filas)
+
+    def _guardar_agenda(self, citas, t: int) -> None:
+        """Lo previsto se reescribe cada vez: una obra puede alargarse o cambiar de estado."""
+        filas = [(c.id, c.tipo, c.titulo, int(c.desde), int(c.hasta), c.lat, c.lon, c.barrio, c.fuente, c.url,
+                  json.dumps(c.extra, ensure_ascii=False, separators=(",", ":")) if c.extra else None, t) for c in citas]
+        self._bd.executemany("INSERT OR REPLACE INTO agenda VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", filas)
 
     def conoce(self, serie: str, ident: str) -> bool:
         """¿Está ya apuntado dónde queda este punto?"""
@@ -154,6 +192,10 @@ class Almacen:
             if dias_rastros > 0:
                 self._bd.execute("DELETE FROM rastros WHERE t<?", (ahora - dias_rastros * 86400,))
             self._bd.execute("DELETE FROM tomas WHERE t<? AND ok=0", (ahora - 30 * 86400,))
+            # El texto de las redes se guarda 30 días; los titulares de prensa y los avisos, siempre.
+            self._bd.execute("UPDATE items SET texto=NULL WHERE t<? AND fuente IN ('bluesky','mastodon') AND texto IS NOT NULL", (ahora - 30 * 86400,))
+            self._bd.execute("DELETE FROM rasgos WHERE t<?", (ahora - 45 * 86400,))
+            self._bd.execute("DELETE FROM muestras WHERE semana<?", (ahora // (7 * 86400) - 26,))
 
     def _transaccion(self):
         return _Transaccion(self._bd)
@@ -219,6 +261,24 @@ class Almacen:
                     fila.append(actual)
                 salida[ident] = fila
         return salida
+
+    def cambios(self, serie: str, desde: int, hasta: int) -> dict[str, list[tuple[int, float]]]:
+        """Todos los cambios de los puntos de una serie entre `desde` y `hasta`, con el valor que tenía cada uno
+        justo antes de empezar (con t=desde): {id: [(t, v), ...]}."""
+        salida: dict[str, list[tuple[int, float]]] = {}
+        with self._candado:
+            ids = [f[0] for f in self._bd.execute("SELECT id FROM puntos WHERE serie=?", (serie,))]
+            for ident in ids:
+                antes = self._bd.execute("SELECT v FROM valores WHERE serie=? AND id=? AND t<=? ORDER BY t DESC LIMIT 1", (serie, ident, desde)).fetchone()
+                filas = self._bd.execute("SELECT t, v FROM valores WHERE serie=? AND id=? AND t>? AND t<=? ORDER BY t", (serie, ident, desde, hasta)).fetchall()
+                if antes is None and not filas:
+                    continue
+                salida[ident] = ([(desde, antes[0])] if antes else []) + filas
+        return salida
+
+    def ultima_toma(self, fuente: str, hasta: int) -> int | None:
+        fila = self._filas("SELECT MAX(t) FROM tomas WHERE fuente=? AND ok=1 AND t<=?", (fuente, hasta))
+        return fila[0][0] if fila else None
 
     def historia_de_punto(self, serie: str, ident: str, desde: int, hasta: int) -> list[tuple[int, float]]:
         """Los cambios de un punto, con el valor que tenía al empezar."""

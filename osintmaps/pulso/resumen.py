@@ -19,7 +19,8 @@ import time
 
 from .almacen import Almacen
 from .anomalias import Normales
-from .fuentes import FUENTES, INDICADORES, SERIES, Fuente
+from .catalogo import FUENTES, INDICADORES, SERIES
+from .fuentes import Fuente
 
 VERSION = 1
 PASOS = (60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400)

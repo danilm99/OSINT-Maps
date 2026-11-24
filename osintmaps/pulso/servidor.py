@@ -18,7 +18,7 @@ from urllib.parse import parse_qs
 from . import FICHERO_HISTORICO, FICHERO_RESUMEN
 from .almacen import Almacen
 from .anomalias import Normales
-from .fuentes import FUENTES, INDICADORES, SERIES
+from .catalogo import FUENTES, INDICADORES, SERIES
 from .publicar import Publicador, repositorio_de
 from .recolector import Recolector
 from .resumen import crear_resumen, paso_para, resumen_para_la_web
