@@ -3,13 +3,16 @@ y lo que pide la pantalla de la sala."""
 
 import json
 import random
+import threading
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
 from osintmaps.pulso import cruce as C
 from osintmaps.pulso.almacen import semana_local
 from osintmaps.pulso import fichas, sala, servidor
+from osintmaps.pulso import ia as IA_
 from osintmaps.pulso.fuentes import Cita, Item, Punto, Toma
 
 LETRAS = "ABCDEFGHI"
@@ -222,3 +225,107 @@ def test_movilidad_del_mitma(pulso):
     assert d["dias"][0]["dentro"][8] == 200 and d["zonas"]["4625001"]["nombre"] == "Districte 1" and d["zonas"]["fuera"]["nombre"] == "Fuera de València"
     assert d["zonas"]["4625002"]["lat"] is not None
     assert "sala-movilidad.json" in pulso.sala.ficheros_web()
+
+
+# ---------------------------------------------------------------- la IA local, contra un Ollama de mentira
+
+
+class OllamaFalso:
+    """Contesta como Ollama: /api/tags y /api/chat con la respuesta según el esquema que se pide."""
+
+    def __init__(self, conoce_think: bool = True):
+        self.pedidos: list[dict] = []
+        falso = self
+
+        class Manejador(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _json(self, codigo, datos):
+                cuerpo = json.dumps(datos).encode("utf-8")
+                self.send_response(codigo)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(cuerpo)))
+                self.end_headers()
+                self.wfile.write(cuerpo)
+
+            def do_GET(self):
+                self._json(200, {"models": [{"name": "llama3.1:8b"}, {"name": "qwen3:8b"}]})
+
+            def do_POST(self):
+                pedido = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                falso.pedidos.append(pedido)
+                if "think" in pedido and not conoce_think:
+                    self._json(400, {"error": "invalid option provided: think"})
+                    return
+                propiedades = pedido["format"]["properties"]
+                texto = pedido["messages"][-1]["content"]
+                if "categoria" in propiedades:
+                    if "Rafelguaraf" in texto:
+                        respuesta = {"categoria": "seguridad", "urgencia": 0, "de_valencia": False, "lugar": ""}
+                    else:
+                        respuesta = {"categoria": "emergencia", "urgencia": 3, "de_valencia": True, "lugar": "Calle Colón"}
+                elif "resumen" in propiedades:
+                    respuesta = {"resumen": "Afluencia de gente en el barrio antes del partido.", "confianza": "alta"}
+                else:
+                    respuesta = {"parte": "Un suceso en marcha: afluencia por el partido."}
+                self._json(200, {"message": {"role": "assistant", "content": json.dumps(respuesta, ensure_ascii=False)}})
+
+        self.servidor = ThreadingHTTPServer(("127.0.0.1", 0), Manejador)
+        threading.Thread(target=self.servidor.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.servidor.server_address[1]}"
+
+    def cerrar(self):
+        self.servidor.shutdown()
+
+
+@pytest.fixture()
+def ollama():
+    o = OllamaFalso()
+    yield o
+    o.cerrar()
+
+
+def test_la_ia_lee_textos_resume_sucesos_y_escribe_el_parte(pulso, ollama, monkeypatch):
+    motor = preparar(pulso)
+    monkeypatch.setattr(IA_.time, "time", lambda: T0 + 30)
+    monkeypatch.setattr(sala.time, "time", lambda: T0 + 30)
+    pulso.almacen.guardar_toma("prensa", T0 + 10, Toma(items=[
+        Item("prensa:x1", "prensa", T0 + 5, "Arde un piso en pleno centro", "Los bomberos trabajan en la zona"),
+        Item("prensa:x2", "prensa", T0 + 6, "Rafelguaraf abre la plaza de agente de la Policía Local")]))
+    ia = IA_.IA(pulso.almacen, motor, pulso.sala.zonas, url=ollama.url)
+    assert ia.disponible() and ia.modelo == "qwen3:8b"           # el preferido, aunque haya otro antes
+    assert ia._textos() >= 2
+    filas = dict((f[0], f[1:]) for f in pulso.almacen._filas("SELECT id, categoria, urgencia, barrio, lugar, ia FROM items WHERE id LIKE 'prensa:x%'"))
+    assert filas["prensa:x1"][:2] == ("emergencia", 3) and filas["prensa:x1"][2] == "022" and filas["prensa:x1"][4] == 1
+    assert filas["prensa:x2"][0] == "fuera" and filas["prensa:x2"][2] is None
+    # Lo que no es de aquí deja de contar en el cruce y sale del feed.
+    assert all(i["id"] != "prensa:x2" for i in pulso.sala.estado()["feed"])
+    pedido = ollama.pedidos[0]
+    assert pedido["think"] is False and pedido["keep_alive"] == IA_.MANTENER and pedido["options"]["temperature"] <= 0.3
+    assert "personas concretas" in pedido["messages"][0]["content"]
+    ev = motor.eventos(T0 - 3600, T0 + 1)[0]
+    ia.encargar_resumen(ev["id"])
+    assert ia._un_suceso()
+    assert motor.evento(ev["id"])["resumen"].startswith("Afluencia de gente")
+    texto_suceso = ollama.pedidos[-1]["messages"][-1]["content"]
+    assert "Valencia CF" in texto_suceso and "Barri E" in texto_suceso
+    ia.preparar_parte = pulso.sala.datos_del_parte
+    ia._escribir_parte()
+    assert ia.parte["texto"].startswith("Un suceso en marcha") and ia.parte["modelo"] == "qwen3:8b"
+    pulso.sala.ia = ia
+    pulso.sala._cache.clear()
+    assert pulso.sala.parte()["ia"]["texto"] == ia.parte["texto"]
+
+
+def test_ollama_antiguo_sin_think_y_sin_ollama(pulso):
+    viejo = OllamaFalso(conoce_think=False)
+    try:
+        ia = IA_.IA(pulso.almacen, pulso.sala.cruce, pulso.sala.zonas, url=viejo.url)
+        assert ia.disponible()
+        assert ia.chat("hola", IA_.ESQUEMA_PARTE)["parte"]
+        assert "think" not in viejo.pedidos[-1] and "think" in viejo.pedidos[0]
+    finally:
+        viejo.cerrar()
+    nadie = IA_.IA(pulso.almacen, pulso.sala.cruce, url="http://127.0.0.1:9")
+    assert nadie.disponible() is False and nadie.estado()["disponible"] is False
