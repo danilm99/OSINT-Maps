@@ -47,7 +47,7 @@ class Normales:
         self.vida = vida
         self._candado = threading.Lock()
         self._medias: dict[str, dict[int, float]] = {}
-        self._leido = 0.0
+        self._leido = float("-inf")         # nunca leído
         self._rango = (0, 0)
 
     def _cargar(self, t: int) -> dict[str, dict[int, float]]:

@@ -40,7 +40,7 @@ class Pulso:
         if self.recolector:
             self.recolector.normales = self.normales
         self.publicador: Publicador | None = None
-        self._estado: tuple[float, dict] = (0.0, {})
+        self._estado: tuple[float, dict] = (float("-inf"), {})      # nunca calculado
         self._candado = threading.Lock()
         # La sala de control: barrios, cruce y sucesos. Sin recoger, solo consulta lo guardado.
         self.sala = Sala(self, recoger=recoger, ia=ia)

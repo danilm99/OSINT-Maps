@@ -61,7 +61,7 @@ class IA:
         self._candado = threading.Lock()
         self._parar = threading.Event()
         self._hilo: threading.Thread | None = None
-        self._comprobado = 0.0
+        self._comprobado: float | None = None            # cuándo se miró por última vez si hay Ollama (None: nunca)
         self.parte: dict | None = None                    # {"texto", "t", "modelo"}
         self.preparar_parte = None                        # función que da los datos del parte (la pone la sala)
         self.ultimo_error: str | None = None
@@ -71,7 +71,7 @@ class IA:
 
     def disponible(self) -> bool:
         """¿Hay Ollama con algún modelo útil? Se mira como mucho una vez por minuto."""
-        if time.monotonic() - self._comprobado < 60:
+        if self._comprobado is not None and time.monotonic() - self._comprobado < 60:
             return self.modelo is not None
         self._comprobado = time.monotonic()
         try:
