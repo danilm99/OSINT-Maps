@@ -22,8 +22,9 @@ from typing import Callable
 
 import requests
 
+from ..aviones import pedir as pedir_aviones
+
 GEOPORTAL = "https://geoportal.valencia.es/server/rest/services/OPENDATA"      # datos abiertos del Ajuntament de València
-ADSB = "https://api.adsb.lol/v2"
 RENFE = "https://gtfsrt.renfe.com/vehicle_positions.json"
 
 # El centro del mapa del pulso: la plaza del Ayuntamiento. Los aviones se piden alrededor de aquí.
@@ -307,12 +308,11 @@ def tomar_meteo(sesion: requests.Session, geometria: bool = True) -> Toma:
 # --------------------------------------------------------------------------
 
 def tomar_aviones(sesion: requests.Session, geometria: bool = True) -> Toma:
-    """Aviones en vuelo alrededor de València (adsb.lol: receptores de aficionados de todo el mundo)."""
+    """Aviones en vuelo alrededor de València (adsb.fi o adsb.lol: receptores de aficionados de todo el mundo).
+    Las peticiones pasan por osintmaps.aviones, que reparte entre servicios y para si alguno lo pide."""
     lat, lon = CENTRO
-    resp = sesion.get(f"{ADSB}/lat/{lat:.3f}/lon/{lon:.3f}/dist/{MILLAS_AVIONES}", timeout=12)
-    resp.raise_for_status()
     aviones = []
-    for a in resp.json().get("ac") or []:
+    for a in pedir_aviones(lat, lon, MILLAS_AVIONES, get=sesion.get)["ac"]:
         if a.get("lat") is None or a.get("lon") is None or not a.get("hex"):
             continue
         if (_numero(a.get("seen_pos")) or 0) > 60:      # posición de hace más de un minuto: ya no está ahí
@@ -358,7 +358,7 @@ FUENTES: tuple[Fuente, ...] = (
     Fuente("aforo_bici", "Aforos de bicis", 600, tomar_aforos_bici, origen="Ajuntament de València"),
     Fuente("aire", "Calidad del aire", 900, tomar_aire, origen="Ajuntament de València"),
     Fuente("meteo", "Meteorología", 900, tomar_meteo, origen="Ajuntament de València"),
-    Fuente("aviones", "Aviones", 20, tomar_aviones, grupo="cielo", origen="adsb.lol"),
+    Fuente("aviones", "Aviones", 30, tomar_aviones, grupo="cielo", origen="adsb.fi / adsb.lol"),
     Fuente("trenes", "Trenes de Cercanías", 30, tomar_trenes, grupo="vias", origen="Renfe"),
 )
 

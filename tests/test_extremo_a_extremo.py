@@ -359,15 +359,19 @@ def test_el_servidor_pide_los_aviones_una_vez_por_zona(servidor, monkeypatch):
     salidas, candado = [], threading.Lock()
 
     class Respuesta:
-        content = b'{"ac": []}'
+        status_code = 200
+        headers = {}
 
         def raise_for_status(self):
             pass
 
+        def json(self):
+            return {"aircraft": []}
+
     pedir_de_verdad = requests.get
 
     def a_la_red(direccion, **kw):
-        if "adsb.lol" not in direccion:
+        if "adsb." not in direccion:
             return pedir_de_verdad(direccion, **kw)
         with candado:
             salidas.append(direccion)
@@ -377,19 +381,21 @@ def test_el_servidor_pide_los_aviones_una_vez_por_zona(servidor, monkeypatch):
         return Respuesta()
 
     cli._AVIONES.clear()
+    cli.aviones._olvidar()
+    monkeypatch.setattr(cli.aviones, "MIN_ENTRE", 0)
     monkeypatch.setattr(cli.requests, "get", a_la_red)
     pedir = lambda lat: pedir_de_verdad(f"{url}/vivo/aviones?lat={lat}&lon=-0.37&dist=40", timeout=10)
 
     # Seis peticiones a la vez por la misma zona: una sola sale a la red.
     with ThreadPoolExecutor(6) as grupo:
         respuestas = list(grupo.map(pedir, [39.47] * 6))
-    assert {r.status_code for r in respuestas} == {200} and respuestas[0].json() == {"ac": []}
+    assert {r.status_code for r in respuestas} == {200} and respuestas[0].json() == {"ac": [], "fuente": "adsb.fi"}
     assert len(salidas) == 1
     # Otra zona no borra la primera: al volver a ella no se pregunta de nuevo.
     assert pedir(41.0).status_code == 200 and pedir(39.47).status_code == 200
     assert len(salidas) == 2
     # Si el servicio falla se dice, y no se guarda nada; los parámetros malos se rechazan.
-    assert pedir(10.0).status_code == 502
+    assert pedir(10.0).status_code == 502 and len(salidas) == 4          # probó los dos servicios
     assert pedir_de_verdad(f"{url}/vivo/aviones?lat=norte&lon=0", timeout=10).status_code == 400
     assert len(cli._AVIONES) == 2
 

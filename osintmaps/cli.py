@@ -28,7 +28,7 @@ from collections import OrderedDict
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import __version__, exportar, fusion, historia, osint, puntuacion
+from . import __version__, aviones, exportar, fusion, historia, osint, puntuacion
 from .fuentes import camaras as fuente_camaras
 from .fuentes import catastro, dgt, listaroja, osm, subastas, wikidata
 from .geo import parsear_caja
@@ -377,7 +377,7 @@ _CANDADO_AVIONES = threading.Lock()
 _RELEVO: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
 _CANDADO_RELEVO = threading.Lock()
 _CANDADOS_RELEVO: dict[str, threading.Lock] = {}      # uno por clave, para la petición a la web de fuera
-VIDA_AVIONES = 8.0       # segundos que se reutiliza una respuesta
+VIDA_AVIONES = 15.0      # segundos que se reutiliza una respuesta
 # Si Google Noticias contesta «demasiadas peticiones», no se le vuelve a preguntar en un cuarto de hora.
 _PAUSA_NOTICIAS = [0.0]  # hasta cuándo (reloj del sistema que nunca retrocede); en una lista para poder cambiarlo desde dentro
 ESPERA_TRAS_BLOQUEO = 900.0
@@ -498,8 +498,9 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         return nombre if nombre in LIMPIADORES else None
 
     def _aviones(self) -> None:
-        """Aviones en vuelo cerca de un punto. El servicio (adsb.lol) no admite que
-        una página web le pregunte directamente, así que pregunta el servidor."""
+        """Aviones en vuelo cerca de un punto. Los servicios (adsb.fi, adsb.lol) no admiten que
+        una página web les pregunte directamente, así que pregunta el servidor (por osintmaps.aviones,
+        que reparte las peticiones y para si un servicio lo pide)."""
         try:
             q = parse_qs(urlparse(self.path).query)
             lat, lon = float(q["lat"][0]), float(q["lon"][0])
@@ -513,14 +514,13 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         with _CANDADO_AVIONES:
             ahora = time.monotonic()
             guardado = _AVIONES.get(clave)
-            if not guardado or ahora - guardado[0] > VIDA_AVIONES:      # como mucho una consulta cada 8 s por zona
+            if not guardado or ahora - guardado[0] > VIDA_AVIONES:      # como mucho una consulta cada 15 s por zona
                 try:
-                    resp = requests.get(f"https://api.adsb.lol/v2/lat/{lat:.3f}/lon/{lon:.3f}/dist/{millas}", timeout=12)
-                    resp.raise_for_status()
+                    datos = aviones.pedir(lat, lon, millas)
                 except Exception:  # noqa: BLE001
                     guardado = None
                 else:
-                    guardado = (time.monotonic(), resp.content)
+                    guardado = (time.monotonic(), json.dumps(datos, separators=(",", ":")).encode("utf-8"))
                     # Fuera las caducadas y, si aun así hay demasiadas zonas, la más antigua.
                     for vieja in [k for k, v in _AVIONES.items() if ahora - v[0] > VIDA_AVIONES]:
                         del _AVIONES[vieja]

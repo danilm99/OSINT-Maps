@@ -182,7 +182,7 @@ acerque el mapa, y lo dicen.
 | València: ciudad | Calidad del aire y estaciones meteorológicas al momento, sonómetros, fuentes, aseos, jardines, los 158.000 árboles, contenedores, wifi municipal, monumentos, excavaciones arqueológicas, fallas, hidrantes, mupis, quioscos, vivienda protegida, equipamientos | Ajuntament de València |
 | Fotos y artículos | Wikipedia, fotos de Commons, fotos a pie de calle | Wikimedia, Panoramax |
 | Catastro | Edificios con su estado (en uso, deficiente, ruina), año y uso | Catastro |
-| En vivo | Aviones en vuelo y trenes de Cercanías (solo con `osintmaps servir`); terremotos del último mes y sensores de partículas | adsb.lol, Renfe, EMSC, sensor.community |
+| En vivo | Aviones en vuelo y trenes de Cercanías (solo con `osintmaps servir`); terremotos del último mes y sensores de partículas | adsb.fi y adsb.lol, Renfe, EMSC, sensor.community |
 
 Los grupos del panel se pliegan y dicen cuántas capas tienen encendidas, y el
 buscador de capas del propio panel encuentra una por su nombre.
@@ -595,7 +595,7 @@ Qué se guarda, mientras el programa está abierto:
 | Estado de cada tramo de calle (fluido, denso, congestionado, cortado) | 3 min | Ajuntament de València |
 | Vehículos y bicis por hora en las espiras de aforo | 10 min | Ajuntament de València |
 | NO₂, partículas y ozono por estación; temperatura, viento y lluvia | 15 min | Ajuntament de València |
-| Aviones a menos de 75 km | 20 s | adsb.lol |
+| Aviones a menos de 75 km | 30 s | adsb.fi (y adsb.lol si falla) |
 | Trenes de Cercanías del área de València | 30 s | Renfe |
 
 Todo va a `datos/pulso.sqlite`. Los valores punto a punto se guardan solo
@@ -626,7 +626,7 @@ menos cuatro días comparables para que opine.
 | Aviones y trenes | Rastro completo | Los de las 3 h anteriores a la última subida |
 | Historia de un punto | La última semana | Las últimas 24 h |
 
-La web no puede preguntar a adsb.lol ni a Renfe (no dejan que una página les
+La web no puede preguntar a los servicios de aviones ni a Renfe (no dejan que una página les
 pregunte), ni guardar nada entre visitas: por eso su histórico es el que
 publica el ordenador. `--publicar-datos` cambia en la web **solo**
 `datos/pulso.json` (unos 600 KB, que viajan comprimidos en menos de 100): no
@@ -638,6 +638,11 @@ siguiente vuelta. La primera vez hay que haber publicado la web con
 
 `https://.../?pulso` abre la web con la consola ya desplegada, para un acceso
 directo en el móvil.
+
+Los aviones salen de adsb.fi y, si no contesta, de adsb.lol. Todas las peticiones (las del
+recolector y las de la capa en vivo) pasan por `osintmaps/aviones.py`: dejan al menos dos
+segundos entre una y otra al mismo servicio y, si uno contesta «demasiadas peticiones», no se
+le vuelve a preguntar en lo que pida (diez minutos si no lo dice).
 
 Lo que **no** hay, por ahora: el ruido (el Ayuntamiento solo publica medias
 diarias, con semanas de retraso) y las posiciones de los autobuses de la EMT.
@@ -829,7 +834,7 @@ experimentos/vision/  el detector por imagen: preparar datos, entrenar, calibrar
   enlazados a su medio.
 - Iconos: Material Design Icons (Pictogrammers), Apache 2.0.
 - Patrimonio en riesgo: Hispania Nostra. Fotos de calle: Panoramax. Aviones:
-  adsb.lol. Trenes: Renfe. Tiempo, altitud y aire: Open-Meteo. Lluvia:
+  adsb.fi y adsb.lol. Trenes: Renfe. Tiempo, altitud y aire: Open-Meteo. Lluvia:
   RainViewer. Mapas oscuro y claro: Esri. Luces nocturnas: NASA Black Marble.
 - Buscador: Photon (Komoot), CartoCiudad (IGN) y Nominatim, sobre datos de
   OpenStreetMap. Rutas: OSRM en los servidores de FOSSGIS. Transporte
