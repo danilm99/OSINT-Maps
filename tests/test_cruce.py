@@ -212,3 +212,31 @@ def test_perfiles_para_comparar_dias(ciudad):
     perfil = motor.perfil("bici_ocupacion", "L")
     assert set(perfil) >= set(LETRAS) and all(v is not None and 45 < v < 55 for v in perfil["E"])
     assert motor.perfil("bici_ocupacion", "S") == {}
+
+
+def test_dos_sucesos_juntos_no_se_mezclan(ciudad):
+    """Una afluencia en E y, en el barrio de al lado, un incendio: son dos sucesos, cada uno con lo suyo."""
+    almacen, motor = ciudad
+    tomar(almacen, T0 - 1200)
+    tomar(almacen, T0 - 600, bicis={"E": 19}, libres={"E": 5})
+    motor.paso(T0 - 600)
+    textos = [Item("prensa:1", "prensa", T0 - 300, "Incendio en un edificio", barrio="F", categoria="emergencia", urgencia=2),
+              Item("prensa:2", "prensa", T0 - 200, "Desalojan un edificio por un incendio", barrio="F", categoria="emergencia", urgencia=2)]
+    tomar(almacen, T0, bicis={"E": 19}, libres={"E": 5}, items=textos)
+    motor.paso(T0)
+    eventos = sorted((e["tipo"], tuple(e["barrios"]), e["inicio"]) for e in motor.eventos(T0 - 3600, T0))
+    assert eventos == [("concentracion", ("E",), T0 - 1200), ("incidente", ("F",), T0 - 600)]
+
+
+def test_lo_que_se_mueve_sigue_siendo_el_mismo_suceso(ciudad):
+    """La afluencia pasa del barrio D al de al lado (E): es el mismo suceso, que ahora está en E."""
+    almacen, motor = ciudad
+    tomar(almacen, T0 - 1200)
+    tomar(almacen, T0 - 600, bicis={"D": 19}, libres={"D": 5})
+    motor.paso(T0 - 600)
+    tomar(almacen, T0, bicis={"E": 19}, libres={"E": 5})
+    motor.paso(T0)
+    eventos = motor.eventos(T0 - 3600, T0)
+    assert len(eventos) == 1
+    # Ahora está sobre todo en E (D, de donde salen las bicis, puede seguir al lado con señales más flojas).
+    assert eventos[0]["barrios"] == ["D", "E"] and eventos[0]["evidencias"]["ahora"][0] == "E"

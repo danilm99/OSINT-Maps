@@ -554,25 +554,35 @@ class Cruce:
 
     def _seguir_sucesos(self, t: int, evaluacion: dict[str, dict], desplazamiento: dict[str, float]) -> list[dict]:
         """Junta barrios vecinos con suceso, los empareja con los sucesos abiertos y cierra los que se apagan."""
-        con_suceso = {b for b, e in evaluacion.items() if e["tipos"] and b != CIUDAD}
-        # Un vecino con señales (aunque no lleguen a suceso) se suma al grupo.
-        cerca = {b for b, e in evaluacion.items()
-                 if b != CIUDAD and b not in con_suceso and e["nivel"] >= 2.5 and self.zonas.vecinos.get(b, set()) & con_suceso}
-        grupos = [g for g in _componentes(con_suceso | cerca, self.zonas.vecinos) if g & con_suceso]
+        # Barrios vecinos con el mismo tipo de suceso son un solo suceso; un incendio al lado de un partido, dos.
+        principal = {b: e["tipos"][0][0] for b, e in evaluacion.items() if e["tipos"] and b != CIUDAD}
+        tipos_de = {b: {x for x, _ in evaluacion[b]["tipos"]} for b in principal}
+        grafo = {b: {v for v in self.zonas.vecinos.get(b, set()) if v in principal and (principal[b] in tipos_de[v] or principal[v] in tipos_de[b])}
+                 for b in principal}
+        grupos = _componentes(set(principal), grafo)
+        # Un vecino con señales (aunque no lleguen a suceso) se suma al grupo de al lado que esté más fuera de lo normal.
+        for b, e in evaluacion.items():
+            if b == CIUDAD or b in principal or e["nivel"] < 2.5:
+                continue
+            junto = [g for g in grupos if self.zonas.vecinos.get(b, set()) & g]
+            if junto:
+                max(junto, key=lambda g: max(evaluacion[x]["nivel"] for x in g)).add(b)
+        con_suceso = set(principal)
         abiertos = self._eventos_abiertos()
-        vistos, usados = [], set()
-        for grupo in sorted(grupos, key=lambda g: -max(evaluacion[b]["nivel"] for b in g)):
+        resumen = []
+        for grupo in grupos:
             tipos: dict[str, float] = defaultdict(float)
             for b in grupo & con_suceso:
                 for tipo, p in evaluacion[b]["tipos"]:
                     tipos[tipo] = max(tipos[tipo], p)
             tipo, puntos = max(tipos.items(), key=lambda x: x[1])
+            resumen.append((grupo, tipo, puntos))
+        asignados = self._emparejar(abiertos, [(g, tipo) for g, tipo, _ in resumen])
+        vistos = []
+        for k, (grupo, tipo, puntos) in enumerate(resumen):
             orden = sorted(grupo, key=lambda b: -evaluacion[b]["nivel"])
             senales = [_senal_dict(s, b, t) for b in orden[:4] for s in evaluacion[b]["senales"][:4]]
-            ev = self._emparejar([e for e in abiertos if e["id"] not in usados], grupo, tipo)
-            ev = self._actualizar_evento(ev, t, orden, tipo, puntos, senales)
-            usados.add(ev["id"])
-            vistos.append(ev)
+            vistos.append(self._actualizar_evento(asignados.get(k), t, orden, tipo, puntos, senales))
         ciudad = self._suceso_ciudad(t, evaluacion.get(CIUDAD), desplazamiento)
         if ciudad:
             puntos, senales = ciudad
@@ -590,9 +600,14 @@ class Cruce:
         """Toda la ciudad fuera de lo normal: por sus propias cifras o porque la mayoría de los barrios se
         han movido a la vez en el mismo sentido."""
         senales, puntos = [], 0.0
-        if ev_ciudad and ev_ciudad["tipos"]:
-            puntos = ev_ciudad["tipos"][0][1]
-            senales += [_senal_dict(s, CIUDAD, t) for s in ev_ciudad["senales"][:5]]
+        # Un incidente es siempre de un sitio: el helicóptero o las noticias de un incendio ya salen en su barrio.
+        # De la ciudad entera solo cuenta lo que es de verdad de conjunto (más tráfico, más gente, de qué se habla).
+        tipos = [x for x in (ev_ciudad or {}).get("tipos", []) if x[0] not in ("incidente",)]
+        if tipos:
+            puntos = tipos[0][1]
+            familias = {"concentracion": ("afluencia",), "salida": ("salida",), "congestion": ("congestion",), "corte": ("corte",),
+                        "servicio": ("servicio",), "conversacion": ("atencion",)}.get(tipos[0][0], ())
+            senales += [_senal_dict(s, CIUDAD, t) for s in ev_ciudad["senales"] if s.familia in familias][:5]
         for rasgo, z in desplazamiento.items():
             info = RASGOS[rasgo]
             familia = info["familias"].get(1 if z > 0 else -1)
@@ -606,20 +621,34 @@ class Cruce:
     def _eventos_abiertos(self) -> list[dict]:
         return [self._fila_evento(f) for f in self.almacen._filas("SELECT * FROM eventos WHERE estado='activo'")]
 
-    def _emparejar(self, abiertos: list[dict], grupo: set[str], tipo: str) -> dict | None:
-        """El suceso abierto que mejor encaja: el que comparte barrios o, si se ha movido (una manifestación que
-        avanza), el que tiene barrios al lado."""
-        mejor, puntuacion = None, 0.0
-        for e in abiertos:
-            if e["tipo"] == "ciudad":
+    def _emparejar(self, abiertos: list[dict], grupos: list[tuple[set[str], str]]) -> dict[int, dict]:
+        """Qué suceso abierto sigue cada grupo de barrios de ahora: {índice del grupo: suceso}.
+
+        Primero, por barrios en común (el par que más comparte, antes). Después, a los grupos que quedan, el suceso
+        del mismo tipo que tenga barrios al lado: algo que se mueve (una manifestación que avanza) sigue siendo lo
+        mismo, pero un incendio junto a un partido no es el partido."""
+        locales = [e for e in abiertos if e["tipo"] != "ciudad"]
+        actuales = {e["id"]: set((e.get("evidencias") or {}).get("ahora") or e["barrios"]) for e in locales}
+        pares = sorted(((len(actuales[e["id"]] & g), k, e) for k, (g, _) in enumerate(grupos) for e in locales),
+                       key=lambda x: (-x[0], x[1]))
+        asignados: dict[int, dict] = {}
+        usados: set[str] = set()
+        for comun, k, e in pares:
+            if comun == 0:
+                break
+            if k not in asignados and e["id"] not in usados:
+                asignados[k] = e
+                usados.add(e["id"])
+        for k, (g, tipo) in enumerate(grupos):
+            if k in asignados:
                 continue
-            suyos = set(e["barrios"])
-            comun = len(suyos & grupo)
-            lado = sum(1 for b in grupo - suyos if self.zonas.vecinos.get(b, set()) & suyos)
-            p = comun + 0.5 * lado + (0.25 if e["tipo"] == tipo else 0)
-            if (comun or lado) and p > puntuacion:
-                mejor, puntuacion = e, p
-        return mejor
+            cerca = [e for e in locales if e["id"] not in usados and e["tipo"] == tipo
+                     and any(self.zonas.vecinos.get(b, set()) & actuales[e["id"]] for b in g)]
+            if cerca:
+                e = max(cerca, key=lambda x: x["puntuacion"])
+                asignados[k] = e
+                usados.add(e["id"])
+        return asignados
 
     def _actualizar_evento(self, ev: dict | None, t: int, barrios: list[str], tipo: str, puntos: float, senales: list[dict]) -> dict:
         if ev is None:
@@ -716,7 +745,7 @@ class Cruce:
             elif not (a <= hasta and b >= desde):
                 continue
             elif base == "festejo":
-                peso = 0.85
+                peso = 0.85 if ev["tipo"] in ("concentracion", "salida", "congestion", "corte", "conversacion") else 0.3
             elif base in ("obra", "ocupacion"):
                 peso = 0.7 if ev["tipo"] in ("congestion", "corte") else 0.25
             elif base == "mudanza":

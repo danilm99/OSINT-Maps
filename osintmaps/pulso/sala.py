@@ -19,6 +19,7 @@ Lo que contesta, en /vivo/sala/...:
     items       buscar en lo publicado: ?q=&barrio=&fuente=&desde=&hasta=
     comparar    un rasgo en dos tipos de día o dos fechas: ?rasgo=&a=L&b=S
     movilidad   bicis que llegan y salen de cada barrio: ?horas=
+    cielo       helicópteros en el aire y su recorrido del último cuarto de hora
 
 En la web publicada no hay programa detrás: el ordenador sube cada cuarto de hora sala.json (lo
 mismo que «estado», sin el texto de las publicaciones de redes, que se queda en el ordenador),
@@ -412,7 +413,8 @@ class Sala:
             for f in geo["features"]:
                 c = contexto_barrios.get(f["properties"]["codigo"], {})
                 v = c.get("vulnerabilidad") or {}
-                f["properties"].update({"vulnerabilidad": v.get("ind_global"), "vulnerabilidad_texto": v.get("vul_global"),
+                b = self.zonas.barrios.get(f["properties"]["codigo"], {})
+                f["properties"].update({"lat": b.get("lat"), "lon": b.get("lon"), "vulnerabilidad": v.get("ind_global"), "vulnerabilidad_texto": v.get("vul_global"),
                                         "quejas": (c.get("quejas") or {}).get("total"), "accidentes": (c.get("accidentes") or {}).get("total")})
             return geo
         return self._guardado("barrios", 3600, hacer)
@@ -546,6 +548,13 @@ class Sala:
                 "normal": {r: self.cruce.perfil(r, tipo).get(CIUDAD) for r in ("bici_llegadas", "bici_salidas", "trafico", "metro")},
                 "franja": franja(ahora) % 48}
 
+    def cielo(self) -> dict:
+        """Los helicópteros en el aire ahora (vistos hace menos de dos minutos) y su recorrido del último cuarto
+        de hora. Sale de lo que ya recoge el pulso: no se pregunta a nadie más."""
+        ahora = int(time.time())
+        helis = self.almacen.rastros("helicopteros", ahora - 900, ahora)
+        return {"t": ahora, "helicopteros": {k: v for k, v in helis.items() if v["p"] and v["p"][-1][0] > ahora - 120}}
+
     # ------------------------------------------------------------ web
 
     def ficheros_web(self) -> dict[str, bytes]:
@@ -640,6 +649,8 @@ def atender(sala: "Sala | None", ruta: str, consulta: str) -> tuple[int, bytes]:
             datos = sala.comparar(q)
         elif ruta == "/vivo/sala/movilidad":
             datos = sala.movilidad(q)
+        elif ruta == "/vivo/sala/cielo":
+            datos = sala.cielo()
         else:
             return 404, b'{"error":"no existe"}'
     except ValueError as exc:
