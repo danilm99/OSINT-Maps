@@ -43,7 +43,7 @@ from . import contexto, movilidad as mitma
 from .catalogo import INDICADORES
 from .cruce import BIN, CIUDAD, FAMILIAS, RASGOS, TIPOS_SUCESO, Cruce, franja
 from .fichas import Fichas
-from .ia import IA
+from .ia import CADA_PARTE, IA, firma_del_parte
 from .zonas import Zonas
 
 log = logging.getLogger("osintmaps.pulso")
@@ -294,7 +294,7 @@ class Sala:
             info = INDICADORES.get(clave, {})
             c = comparadas.get(clave, {})
             salida.append({"clave": clave, "nombre": info.get("nombre", clave), "unidad": info.get("unidad", ""), "valor": round(v, 1), "t": t,
-                           "normal": c.get("normal"), "z": c.get("z"), "fuente": info.get("fuente")})
+                           "normal": c.get("normal"), "z": c.get("z"), "fuente": info.get("fuente"), "nota": info.get("nota")})
         return salida
 
     def _agenda(self, ahora: int) -> dict:
@@ -373,9 +373,11 @@ class Sala:
         d = datetime.fromtimestamp(ahora)
         sucesos = [self._suceso_corto(ev) for ev in self.cruce.eventos(ahora - 3600, ahora + 1, 20)] if self.cruce else []
         activos = sorted((s for s in sucesos if s["estado"] == "activo"), key=lambda s: -(s["puntuacion"] or 0))
-        ciudad = [c for c in self._ciudad(ahora) if c.get("z") is not None]
+        lecturas = self._ciudad(ahora)
+        fuera = sorted((c for c in lecturas if c.get("z") is not None and abs(c["z"]) >= 2), key=lambda c: -abs(c["z"]))[:6]
         agenda = self._agenda(ahora)
         hoy_fin = d.replace(hour=23, minute=59).timestamp()
+        de_hoy = [a for a in agenda["destacado"] if a["desde"] <= hoy_fin]
         barrios = (self.cruce.estado.get("barrios") or {}) if self.cruce else {}
         destacados = sorted(((b, x) for b, x in barrios.items() if b != CIUDAD and x["nivel"] >= 2.5), key=lambda x: -x[1]["nivel"])[:5]
         conversacion = self._conversacion(ahora)
@@ -383,13 +385,11 @@ class Sala:
             "momento": f"{DIAS_SEMANA[d.weekday()]} {d.day} de {MESES[d.month - 1]}, {d:%H:%M}",
             "sucesos_activos": [{"titulo": s["titulo"], "desde": time.strftime("%H:%M", time.localtime(s["inicio"])), "puntuacion": s["puntuacion"],
                                  "resumen": s.get("resumen")} for s in activos[:5]],
-            "ciudad_fuera_de_lo_normal": [{"nombre": c["nombre"], "valor": c["valor"], "unidad": c["unidad"], "normal": c["normal"], "z": c["z"]}
-                                          for c in sorted(ciudad, key=lambda c: -abs(c["z"])) if abs(c["z"]) >= 2][:6],
-            "ciudad": {c["nombre"]: f"{c['valor']} {c['unidad']}".strip() for c in self._ciudad(ahora)
-                       if c["clave"] in ("trafico_indice", "trafico_cortado", "bicis_fuera", "parking_ocupacion", "metro_salidas", "trenes_retraso",
-                                         "aire_no2", "meteo_temperatura", "meteo_lluvia", "helicopteros")},
-            "hoy": [f"{time.strftime('%H:%M', time.localtime(a['desde'])) if a['tipo'] == 'partido' else ''} {a['titulo']}".strip()
-                    for a in agenda["destacado"] if a["desde"] <= hoy_fin],
+            "ciudad_fuera_de_lo_normal": [{"nombre": c["nombre"], "valor": c["valor"], "unidad": c["unidad"], "normal": c["normal"], "z": c["z"],
+                                           "nota": c["nota"]} for c in fuera],
+            "tiempo": _tiempo(lecturas),
+            "hoy": [f"{time.strftime('%H:%M', time.localtime(a['desde'])) if a['tipo'] == 'partido' else ''} {a['titulo']}".strip() for a in de_hoy],
+            "agenda_hoy": [{"que": a["titulo"], "cuando": _cuando(a, ahora)} for a in de_hoy],
             "obras_y_ocupaciones_activas": sum(agenda["cuenta"].values()),
             "avisos": [a["titulo"] for a in self._avisos(ahora) if a["fuente"] == "meteoalarm"][:3],
             "incidencias_trafico": [a["titulo"] for a in self._avisos(ahora) if a["fuente"] == "dgt" and (a["urgencia"] or 0) >= 1][:5],
@@ -407,8 +407,11 @@ class Sala:
             d = self.datos_del_parte()
             texto = parte_por_reglas(d)
             salida = {"texto": texto, "fuente": "reglas", "t": int(time.time()), "momento": d["momento"]}
-            if self.ia and self.ia.parte and time.time() - self.ia.parte["t"] < 1800:
-                salida["ia"] = self.ia.parte
+            # El de la IA se enseña solo si se escribió para la situación de ahora: con otro suceso en marcha, otra cifra
+            # fuera de lo normal o el partido ya empezado, queda el de reglas hasta que la IA escriba el nuevo.
+            escrito = self.ia.parte if self.ia else None
+            if escrito and escrito.get("firma") == firma_del_parte(d) and time.time() - escrito["t"] < 2 * CADA_PARTE:
+                salida["ia"] = {k: escrito[k] for k in ("texto", "t", "modelo")}
             return salida
         return self._guardado("parte", 60, hacer)
 
@@ -657,6 +660,31 @@ def parte_por_reglas(d: dict) -> str:
         temas = f" Temas: {', '.join(c['temas'])}." if c.get("temas") else ""
         frases.append(f"En las últimas dos horas, {c.get('noticias', 0)} noticias y {c.get('publicaciones', 0)} publicaciones sobre la ciudad.{temas}")
     return " ".join(frases)
+
+
+def _tiempo(lecturas: list[dict]) -> str | None:
+    """El tiempo que hace, en pocas palabras: temperatura, si llueve y el viento."""
+    v = {c["clave"]: c["valor"] for c in lecturas}
+    partes = []
+    if v.get("meteo_temperatura") is not None:
+        partes.append(f"{_cifra(v['meteo_temperatura'])} °C")
+    if v.get("meteo_lluvia") is not None:
+        partes.append(f"lloviendo ({_cifra(v['meteo_lluvia'])} mm)" if v["meteo_lluvia"] > 0 else "sin lluvia")
+    if v.get("meteo_viento") is not None:
+        partes.append(f"viento de {v['meteo_viento'] * 3.6:.0f} km/h")
+    return ", ".join(partes) or None
+
+
+def _cuando(cita: dict, ahora: int) -> str:
+    """Cuándo es algo de la agenda de hoy, dicho para el parte: a qué hora y si aún no ha empezado, sigue o ya acabó."""
+    if (cita["hasta"] or cita["desde"]) - cita["desde"] >= 20 * 3600:
+        return "todo el día"
+    hora = time.strftime("%H:%M", time.localtime(cita["desde"]))
+    if cita["desde"] > ahora:
+        return f"a las {hora}, aún no ha empezado"
+    if (cita["hasta"] or 0) > ahora:
+        return f"en marcha desde las {hora}"
+    return f"ya acabado (empezó a las {hora})"
 
 
 def _cifra(v) -> str:

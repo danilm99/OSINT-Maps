@@ -4,6 +4,7 @@ y lo que pide la pantalla de la sala."""
 import json
 import random
 import threading
+import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -316,6 +317,84 @@ def test_la_ia_lee_textos_resume_sucesos_y_escribe_el_parte(pulso, ollama, monke
     pulso.sala.ia = ia
     pulso.sala._cache.clear()
     assert pulso.sala.parte()["ia"]["texto"] == ia.parte["texto"]
+
+
+def test_el_parte_de_la_ia_solo_lleva_cifras_con_sentido():
+    """Al modelo no le llegan lecturas sueltas («tráfico 0 sobre 100» acababa en «tráfico muy bajo»): cada cifra dice
+    qué es y frente a qué se compara, y la agenda dice si aún no ha empezado, sigue o ya acabó."""
+    d = {"momento": "martes 24 de noviembre, 20:29", "sucesos_activos": [],
+         "ciudad_fuera_de_lo_normal": [{"nombre": "Tráfico", "valor": 38.0, "unidad": "sobre 100", "normal": 12.0, "z": 4.2,
+                                        "nota": "0 es todo fluido y 100 todo congestionado"}],
+         "tiempo": "15,6 °C, sin lluvia, viento de 22 km/h",
+         "agenda_hoy": [{"que": "Valencia Basket vs Panathinaikos BC (Roig Arena)", "cuando": "a las 20:30, aún no ha empezado"}],
+         "avisos": ["Aviso amarillo por viento (Litoral norte de Valencia)"], "incidencias_trafico": ["Incidencia", "Obras"],
+         "barrios_destacados": [{"barrio": "Russafa", "nivel": 3.1, "senal": "Tráfico 50 (normal 20)"}],
+         "conversacion_2h": {"noticias": 6, "publicaciones": 54, "temas": ["deporte"]}}
+    h = IA_.hechos_del_parte(d)
+    assert h["situacion"] == "Hay 1 cifra de toda la ciudad fuera de lo normal."
+    assert h["fuera_de_lo_normal"] == ["Tráfico (0 es todo fluido y 100 todo congestionado): 38 sobre 100, "
+                                       "por encima de lo normal a esta hora (12 sobre 100)"]
+    assert h["agenda_de_hoy"] == ["Valencia Basket vs Panathinaikos BC (Roig Arena): a las 20:30, aún no ha empezado"]
+    assert h["incidencias_en_carreteras_del_area_segun_la_dgt"] == 2
+    assert "sucesos_en_marcha" not in h and not any("barrio" in k for k in h)       # lo que cambia cada diez minutos, no
+    tranquilo = IA_.hechos_del_parte(d | {"ciudad_fuera_de_lo_normal": []})
+    assert tranquilo["situacion"] == "Todo dentro de lo normal para esta hora." and "fuera_de_lo_normal" not in tranquilo
+
+
+def test_la_agenda_del_parte_dice_si_ya_ha_empezado():
+    partido = {"desde": T0 + 3600, "hasta": T0 + 3600 + 8100}
+    hora = time.strftime("%H:%M", time.localtime(T0 + 3600))
+    assert sala._cuando(partido, T0) == f"a las {hora}, aún no ha empezado"
+    assert sala._cuando(partido, T0 + 4000) == f"en marcha desde las {hora}"
+    assert sala._cuando(partido, T0 + 20000) == f"ya acabado (empezó a las {hora})"
+    assert sala._cuando({"desde": T0 - 19 * 3600, "hasta": T0 + 5 * 3600}, T0) == "todo el día"
+    assert sala._tiempo([{"clave": "meteo_temperatura", "valor": 15.6}, {"clave": "meteo_lluvia", "valor": 0.0},
+                         {"clave": "meteo_viento", "valor": 6.1}]) == "15,6 °C, sin lluvia, viento de 22 km/h"
+
+
+def test_el_parte_de_la_ia_se_retira_cuando_cambia_la_situacion(pulso, ollama, monkeypatch):
+    motor = preparar(pulso)
+    reloj = [T0 + 30]
+    monkeypatch.setattr(IA_.time, "time", lambda: reloj[0])
+    ia = IA_.IA(pulso.almacen, motor, pulso.sala.zonas, url=ollama.url)
+    assert ia.disponible()
+    ia.preparar_parte = pulso.sala.datos_del_parte
+    pulso.sala.ia = ia
+    d = pulso.sala.datos_del_parte()
+    assert ia._toca_parte(d, float("inf"))
+    ia._escribir_parte(d)
+    pedido = ollama.pedidos[-1]["messages"][-1]["content"]
+    assert "«situacion»" in pedido and "aún no ha empezado" in pedido and "Salidas de metro" not in pedido
+    pulso.sala._cache.clear()
+    assert pulso.sala.parte()["ia"]["texto"] == ia.parte["texto"] and "firma" not in pulso.sala.parte()["ia"]
+    assert not ia._toca_parte(d, IA_.MIN_ENTRE_PARTES + 1)          # nada ha cambiado: hasta la media hora, no
+    assert ia._toca_parte(d, IA_.CADA_PARTE + 1)
+    # Empieza el partido: lo escrito («aún no ha empezado») ya no vale y queda el de reglas hasta que haya otro.
+    reloj[0] = T0 + 3600 + 60
+    pulso.sala._cache.clear()
+    otro = pulso.sala.datos_del_parte()
+    assert otro["agenda_hoy"][0]["cuando"].startswith("en marcha") and IA_.firma_del_parte(otro) != IA_.firma_del_parte(d)
+    assert "ia" not in pulso.sala.parte() and pulso.sala.parte()["texto"]
+    assert not ia._toca_parte(otro, 60) and ia._toca_parte(otro, IA_.MIN_ENTRE_PARTES + 1)
+    ia._escribir_parte(otro)
+    pulso.sala._cache.clear()
+    assert pulso.sala.parte()["ia"]["texto"]
+
+
+def test_el_primer_parte_no_espera_aunque_el_ordenador_acabe_de_encenderse(pulso, ollama, monkeypatch):
+    preparar(pulso)
+    monkeypatch.setattr(IA_.time, "time", lambda: T0 + 30)
+    monkeypatch.setattr(IA_.time, "monotonic", lambda: 5.0)        # el reloj monótono cuenta desde que se encendió
+    ia = IA_.IA(pulso.almacen, pulso.sala.cruce, pulso.sala.zonas, url=ollama.url)
+    ia.preparar_parte = pulso.sala.datos_del_parte
+    ia.arrancar()
+    try:
+        limite = time.perf_counter() + 10
+        while ia.parte is None and time.perf_counter() < limite:
+            time.sleep(0.05)
+    finally:
+        ia.parar()
+    assert ia.parte and ia.hechos["partes"] == 1
 
 
 def test_ollama_antiguo_sin_think_y_sin_ollama(pulso):

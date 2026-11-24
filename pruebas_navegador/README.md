@@ -29,6 +29,12 @@ Siempre desde esta carpeta. Cada fichero es una prueba suelta y acaba con `ERROR
     python historia9.py  # la historia de un sitio: lo que ya consta, la búsqueda en cada fuente, las noticias y las fuentes caídas
     python estatico.py   # la versión web publicada (`osintmaps sitio`)
 
+Con los datos de verdad, en el ordenador donde corre el programa (copian el histórico a otra carpeta y no
+tocan el que está en marcha):
+
+    python sala_real.py     # la sala con una toma de cada fuente nueva, el cruce y capturas en capturas-sala/
+    python parte_real.py    # el parte que escribe la IA (Ollama) con la situación de ahora y dos inventadas
+
 ## Cómo están hechas
 
 `foto8.py` arranca el servidor del programa con los datos de `datos.zip` y define los servicios simulados
