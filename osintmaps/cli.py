@@ -780,6 +780,10 @@ def cmd_servir(args: argparse.Namespace) -> int:
     with ServidorMapa((anfitrion, args.puerto), manejador) as servidor:
         url = f"http://127.0.0.1:{args.puerto}/"
         _decir(f"Mapa en {url}  (Ctrl+C para parar)")
+        if _Servidor.pulso is not None:
+            _decir(f"Sala de control en {url}sala.html")
+        if getattr(args, "sala", False):
+            url += "sala.html"
         if args.red:
             ip = _ip_local()
             _decir(f"Desde el móvil, en la misma wifi: http://{ip or 'IP-DE-ESTE-PC'}:{args.puerto}/")
@@ -1059,6 +1063,7 @@ def crear_parser() -> argparse.ArgumentParser:
                    help="con --pulso: sube a la web el resumen de las últimas horas al arrancar y cada MINUTOS (15 si no se dice; mínimo 10)")
     p.add_argument("--guardar-dias", type=int, default=90, help="con --pulso: días que se conserva el detalle punto a punto (90; 0 = siempre)")
     p.add_argument("--repo", default=None, help="con --publicar-datos: dirección del repositorio (por defecto, el «origin» de esta carpeta)")
+    p.add_argument("--sala", action="store_true", help="abrir en el navegador la sala de control en vez del mapa")
     p.add_argument("--sin-ia", action="store_true",
                    help="con --pulso: no usar la IA local (Ollama) aunque esté instalada; la sala funciona igual, con reglas")
     p.set_defaults(func=cmd_servir)

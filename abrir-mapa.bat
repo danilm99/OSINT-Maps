@@ -4,6 +4,7 @@ rem Mientras esta ventana siga abierta se guarda el historico de la ciudad (el p
 rem y la web publicada recibe los datos al arrancar y cada 15 minutos.
 rem Para usarlo desde el movil en la misma wifi:  abrir-mapa.bat --red
 rem Solo el mapa, sin guardar ni publicar nada:  .venv\Scripts\osintmaps.exe servir
+rem Para abrir la sala de control en vez del mapa:  abrir-mapa.bat --sala
 cd /d "%~dp0"
 if not exist ".venv\Scripts\osintmaps.exe" (
   echo Falta instalar el programa. En esta carpeta, ejecuta:
