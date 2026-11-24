@@ -2,8 +2,8 @@
 
 Copia el histórico (pulso.sqlite) y el mapa de la ciudad a una carpeta temporal, pone el cruce al día, saca
 los hechos del parte y le pide el parte al modelo de Ollama varias veces: con la situación de ahora y con dos
-inventadas encima (un suceso en marcha; el tráfico de toda la ciudad y el retraso de Cercanías por encima de
-lo normal), para ver que no lee las cifras al revés ni le pone a una fuente lo que es de otra. Al lado, el
+inventadas encima (un suceso en marcha; lluvia, y el tráfico de toda la ciudad y el retraso de Cercanías por
+encima de lo normal), para ver que no lee las cifras al revés ni le pone a una fuente lo que es de otra. Al lado, el
 parte de reglas con los mismos hechos. Al acabar borra la copia.
 
     python parte_real.py [carpeta de datos] [--veces N]
@@ -51,7 +51,7 @@ try:
             "titulo": "Incidente en Russafa", "desde": time.strftime("%H:%M", time.localtime(ahora - 1500)), "puntuacion": 9.1,
             "resumen": "Dos helicópteros sobre Russafa y varias publicaciones que hablan de humo en la calle Sueca; "
                        "dos tramos de calle cortados cerca. Causa sin confirmar."}]},
-        "con atasco y retrasos": d | {"ciudad_fuera_de_lo_normal": [
+        "con atasco, retrasos y lluvia": d | {"lluvia": "lloviendo (2,4 mm en la última lectura)", "ciudad_fuera_de_lo_normal": [
             {"nombre": "Tráfico", "valor": 38.0, "unidad": "sobre 100", "normal": 12.0, "z": 4.2, "nota": "0 es todo fluido y 100 todo congestionado"},
             {"nombre": "Retraso medio de Cercanías", "valor": 9.5, "unidad": "min", "normal": 1.5, "z": 3.4, "nota": None}]},
     }

@@ -52,15 +52,13 @@ ESQUEMA_SUCESO = {"type": "object", "properties": {
     "resumen": {"type": "string"}, "confianza": {"type": "string", "enum": ["alta", "media", "baja"]}}, "required": ["resumen", "confianza"]}
 ESQUEMA_PARTE = {"type": "object", "properties": {"parte": {"type": "string"}}, "required": ["parte"]}
 PEDIDO_PARTE = (
-    "Escribe el parte de la ciudad para ahora mismo: de 2 a 5 frases seguidas, sin listas ni títulos, en este orden y "
-    "saltándote lo que no venga en los datos:\n"
-    "1. La situación. Si «situacion» dice que todo está dentro de lo normal, empieza diciéndolo; si no, cuenta los sucesos "
-    "en marcha y lo que está fuera de lo normal.\n"
-    "2. La agenda de hoy: qué es, dónde y cuándo, tal como viene (si aún no ha empezado, si está en marcha o si ya acabó).\n"
-    "3. El tiempo, los avisos meteorológicos y las incidencias en carretera.\n"
-    "4. De qué se habla, con los temas.\n"
-    "No digas que algo es alto, bajo, mucho o poco si no viene así en los datos; no juntes en una frase cifras de fuentes "
-    "distintas como si fueran una sola; no añadas causas ni previsiones que no estén en los datos.\nDatos:\n")
+    "Escribe el parte de la ciudad para ahora mismo, como un parte de radio: como mucho cuatro frases cortas, en prosa y "
+    "con tus palabras. Primero, lo que pasa: los sucesos en marcha y lo que está fuera de lo normal; si viene «situacion», "
+    "di en su lugar que la ciudad está dentro de lo normal para la hora. Después, lo que hay hoy en la agenda: qué, dónde "
+    "y si aún no ha empezado, sigue o ya acabó. Luego, si los hay, la lluvia y los avisos. Al final, en pocas palabras, de "
+    "qué se habla. No copies los nombres de los datos ni empieces frases con «La situación:», «La agenda:» o parecidas. "
+    "No digas que algo es alto, bajo, mucho o poco si no viene así en los datos, no le atribuyas a una fuente lo que es de "
+    "otra y no añadas causas ni previsiones que no estén en los datos.\nDatos:\n")
 
 
 class IA:
@@ -247,23 +245,17 @@ def _frente_a_lo_normal(c: dict) -> str:
 
 
 def hechos_del_parte(d: dict) -> dict:
-    """Los hechos del parte (los de `Sala.datos_del_parte`) tal como se le dan al modelo. Cada cifra va con lo que
-    significa y frente a qué se compara, y no van las lecturas que están dentro de lo normal: un modelo pequeño las
-    cuenta igual y las lee mal (con «tráfico 0 sobre 100» escribía «tráfico muy bajo», cuando el 0 solo dice que
-    ningún tramo está congestionado, y le ponía al metro el retraso de Cercanías). Tampoco van los barrios más
-    movidos: cambian cada diez minutos y el parte dura media hora (el de reglas, al lado, sí los dice)."""
+    """Los hechos del parte (los de `Sala.datos_del_parte`) tal como se le dan al modelo: solo lo que importa, y cada
+    cifra con lo que significa y frente a qué se compara. Un modelo pequeño cuenta todo lo que recibe y lee mal las
+    lecturas sueltas: con «tráfico 0 sobre 100» escribía «tráfico muy bajo» (el 0 solo dice que ningún tramo está
+    congestionado) y le ponía al metro el retraso de Cercanías. Así que no van las lecturas dentro de lo normal, ni
+    cuántas noticias o incidencias de carretera hay (sin saber cuántas son lo normal, no dicen nada), ni los barrios
+    más movidos, que cambian cada diez minutos: el parte de reglas, al lado, lo dice todo."""
     activos = d.get("sucesos_activos") or []
     fuera = d.get("ciudad_fuera_de_lo_normal") or []
+    h: dict = {"momento": d.get("momento")}
     if not activos and not fuera:
-        situacion = "Todo dentro de lo normal para esta hora."
-    else:
-        partes = []
-        if activos:
-            partes.append(f"{len(activos)} {'suceso' if len(activos) == 1 else 'sucesos'} en marcha")
-        if fuera:
-            partes.append(f"{len(fuera)} {'cifra' if len(fuera) == 1 else 'cifras'} de toda la ciudad fuera de lo normal")
-        situacion = "Hay " + " y ".join(partes) + "."
-    h: dict = {"momento": d.get("momento"), "situacion": situacion}
+        h["situacion"] = "todo dentro de lo normal para esta hora"
     if activos:
         h["sucesos_en_marcha"] = [{"que": s.get("titulo"), "desde_las": s.get("desde"), **({"resumen": s["resumen"]} if s.get("resumen") else {})}
                                   for s in activos]
@@ -271,16 +263,13 @@ def hechos_del_parte(d: dict) -> dict:
         h["fuera_de_lo_normal"] = [_frente_a_lo_normal(c) for c in fuera]
     if d.get("agenda_hoy"):
         h["agenda_de_hoy"] = [f"{a['que']}: {a['cuando']}" for a in d["agenda_hoy"][:5]]
-    if d.get("tiempo"):
-        h["tiempo"] = d["tiempo"]
+    if d.get("lluvia"):
+        h["lluvia"] = d["lluvia"]
     if d.get("avisos"):
         h["avisos_meteorologicos"] = d["avisos"]
-    if d.get("incidencias_trafico"):
-        h["incidencias_en_carreteras_del_area_segun_la_dgt"] = len(d["incidencias_trafico"])
-    c = d.get("conversacion_2h") or {}
-    if c.get("noticias") or c.get("publicaciones"):
-        h["de_que_se_habla_en_las_ultimas_dos_horas"] = {"noticias": c.get("noticias", 0), "publicaciones_en_redes": c.get("publicaciones", 0),
-                                                          "temas": c.get("temas") or []}
+    temas = (d.get("conversacion_2h") or {}).get("temas")
+    if temas:
+        h["temas_de_los_que_mas_se_habla"] = temas
     return h
 
 

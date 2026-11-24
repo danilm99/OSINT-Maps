@@ -387,7 +387,7 @@ class Sala:
                                  "resumen": s.get("resumen")} for s in activos[:5]],
             "ciudad_fuera_de_lo_normal": [{"nombre": c["nombre"], "valor": c["valor"], "unidad": c["unidad"], "normal": c["normal"], "z": c["z"],
                                            "nota": c["nota"]} for c in fuera],
-            "tiempo": _tiempo(lecturas),
+            "lluvia": _lluvia(lecturas),
             "hoy": [f"{time.strftime('%H:%M', time.localtime(a['desde'])) if a['tipo'] == 'partido' else ''} {a['titulo']}".strip() for a in de_hoy],
             "agenda_hoy": [{"que": a["titulo"], "cuando": _cuando(a, ahora)} for a in de_hoy],
             "obras_y_ocupaciones_activas": sum(agenda["cuenta"].values()),
@@ -662,17 +662,10 @@ def parte_por_reglas(d: dict) -> str:
     return " ".join(frases)
 
 
-def _tiempo(lecturas: list[dict]) -> str | None:
-    """El tiempo que hace, en pocas palabras: temperatura, si llueve y el viento."""
-    v = {c["clave"]: c["valor"] for c in lecturas}
-    partes = []
-    if v.get("meteo_temperatura") is not None:
-        partes.append(f"{_cifra(v['meteo_temperatura'])} °C")
-    if v.get("meteo_lluvia") is not None:
-        partes.append(f"lloviendo ({_cifra(v['meteo_lluvia'])} mm)" if v["meteo_lluvia"] > 0 else "sin lluvia")
-    if v.get("meteo_viento") is not None:
-        partes.append(f"viento de {v['meteo_viento'] * 3.6:.0f} km/h")
-    return ", ".join(partes) or None
+def _lluvia(lecturas: list[dict]) -> str | None:
+    """Si llueve en la ciudad (las estaciones del Ajuntament), para el parte; si no, nada."""
+    mm = next((c["valor"] for c in lecturas if c["clave"] == "meteo_lluvia"), None)
+    return f"lloviendo ({_cifra(mm)} mm en la última lectura)" if mm else None
 
 
 def _cuando(cita: dict, ahora: int) -> str:

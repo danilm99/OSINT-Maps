@@ -325,20 +325,22 @@ def test_el_parte_de_la_ia_solo_lleva_cifras_con_sentido():
     d = {"momento": "martes 24 de noviembre, 20:29", "sucesos_activos": [],
          "ciudad_fuera_de_lo_normal": [{"nombre": "Tráfico", "valor": 38.0, "unidad": "sobre 100", "normal": 12.0, "z": 4.2,
                                         "nota": "0 es todo fluido y 100 todo congestionado"}],
-         "tiempo": "15,6 °C, sin lluvia, viento de 22 km/h",
+         "lluvia": None,
          "agenda_hoy": [{"que": "Valencia Basket vs Panathinaikos BC (Roig Arena)", "cuando": "a las 20:30, aún no ha empezado"}],
          "avisos": ["Aviso amarillo por viento (Litoral norte de Valencia)"], "incidencias_trafico": ["Incidencia", "Obras"],
          "barrios_destacados": [{"barrio": "Russafa", "nivel": 3.1, "senal": "Tráfico 50 (normal 20)"}],
          "conversacion_2h": {"noticias": 6, "publicaciones": 54, "temas": ["deporte"]}}
     h = IA_.hechos_del_parte(d)
-    assert h["situacion"] == "Hay 1 cifra de toda la ciudad fuera de lo normal."
+    assert "situacion" not in h and "sucesos_en_marcha" not in h
     assert h["fuera_de_lo_normal"] == ["Tráfico (0 es todo fluido y 100 todo congestionado): 38 sobre 100, "
                                        "por encima de lo normal a esta hora (12 sobre 100)"]
     assert h["agenda_de_hoy"] == ["Valencia Basket vs Panathinaikos BC (Roig Arena): a las 20:30, aún no ha empezado"]
-    assert h["incidencias_en_carreteras_del_area_segun_la_dgt"] == 2
-    assert "sucesos_en_marcha" not in h and not any("barrio" in k for k in h)       # lo que cambia cada diez minutos, no
-    tranquilo = IA_.hechos_del_parte(d | {"ciudad_fuera_de_lo_normal": []})
-    assert tranquilo["situacion"] == "Todo dentro de lo normal para esta hora." and "fuera_de_lo_normal" not in tranquilo
+    assert h["temas_de_los_que_mas_se_habla"] == ["deporte"] and "lluvia" not in h
+    # Ni cifras sin referencia (cuántas noticias, cuántas incidencias de carretera) ni lo que cambia cada diez minutos.
+    assert not any(k.startswith(("incidencias", "barrios")) for k in h) and "54" not in json.dumps(h)
+    tranquilo = IA_.hechos_del_parte(d | {"ciudad_fuera_de_lo_normal": [], "lluvia": "lloviendo (0,4 mm en la última lectura)"})
+    assert tranquilo["situacion"] == "todo dentro de lo normal para esta hora" and "fuera_de_lo_normal" not in tranquilo
+    assert tranquilo["lluvia"].startswith("lloviendo")
 
 
 def test_la_agenda_del_parte_dice_si_ya_ha_empezado():
@@ -348,8 +350,8 @@ def test_la_agenda_del_parte_dice_si_ya_ha_empezado():
     assert sala._cuando(partido, T0 + 4000) == f"en marcha desde las {hora}"
     assert sala._cuando(partido, T0 + 20000) == f"ya acabado (empezó a las {hora})"
     assert sala._cuando({"desde": T0 - 19 * 3600, "hasta": T0 + 5 * 3600}, T0) == "todo el día"
-    assert sala._tiempo([{"clave": "meteo_temperatura", "valor": 15.6}, {"clave": "meteo_lluvia", "valor": 0.0},
-                         {"clave": "meteo_viento", "valor": 6.1}]) == "15,6 °C, sin lluvia, viento de 22 km/h"
+    assert sala._lluvia([{"clave": "meteo_temperatura", "valor": 15.6}, {"clave": "meteo_lluvia", "valor": 0.0}]) is None
+    assert sala._lluvia([{"clave": "meteo_lluvia", "valor": 1.2}]) == "lloviendo (1,2 mm en la última lectura)"
 
 
 def test_el_parte_de_la_ia_se_retira_cuando_cambia_la_situacion(pulso, ollama, monkeypatch):
@@ -364,7 +366,7 @@ def test_el_parte_de_la_ia_se_retira_cuando_cambia_la_situacion(pulso, ollama, m
     assert ia._toca_parte(d, float("inf"))
     ia._escribir_parte(d)
     pedido = ollama.pedidos[-1]["messages"][-1]["content"]
-    assert "«situacion»" in pedido and "aún no ha empezado" in pedido and "Salidas de metro" not in pedido
+    assert "como mucho cuatro frases" in pedido and "aún no ha empezado" in pedido and "Salidas de metro" not in pedido
     pulso.sala._cache.clear()
     assert pulso.sala.parte()["ia"]["texto"] == ia.parte["texto"] and "firma" not in pulso.sala.parte()["ia"]
     assert not ia._toca_parte(d, IA_.MIN_ENTRE_PARTES + 1)          # nada ha cambiado: hasta la media hora, no
