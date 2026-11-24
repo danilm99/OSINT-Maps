@@ -609,8 +609,12 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
 
     def _pulso(self, ruta: str) -> None:
         """El histórico de la ciudad. Un trozo grande son cientos de KB de cifras: va comprimido."""
-        from .pulso.servidor import atender
-        codigo, cuerpo = atender(self.pulso, ruta, urlparse(self.path).query)
+        if ruta.startswith("/vivo/sala/"):
+            from .pulso.sala import atender as atender_sala
+            codigo, cuerpo = atender_sala(getattr(self.pulso, "sala", None), ruta, urlparse(self.path).query)
+        else:
+            from .pulso.servidor import atender
+            codigo, cuerpo = atender(self.pulso, ruta, urlparse(self.path).query)
         comprimir = "gzip" in self.headers.get("Accept-Encoding", "") and len(cuerpo) >= 1024
         if comprimir:
             cuerpo = gzip.compress(cuerpo, compresslevel=5)
@@ -643,7 +647,7 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         if ruta == "/vivo/noticias":
             self._noticias()
             return
-        if ruta.startswith("/vivo/pulso/"):
+        if ruta.startswith("/vivo/pulso/") or ruta.startswith("/vivo/sala/"):
             self._pulso(ruta)
             return
         # Si el fichero aún no existe se responde con un objeto vacío en vez de un
@@ -753,7 +757,7 @@ def _arrancar_pulso(args: argparse.Namespace):
             _decir("--publicar-datos solo hace algo junto con --pulso: sin él no hay datos nuevos que subir.")
         return Pulso.si_hay(carpeta)
     carpeta.mkdir(parents=True, exist_ok=True)
-    pulso = Pulso(carpeta, dias_valores=args.guardar_dias)
+    pulso = Pulso(carpeta, dias_valores=args.guardar_dias, ia=not getattr(args, "sin_ia", False))
     pulso.arrancar()
     _decir("Pulso: guardando el histórico de la ciudad mientras esto esté abierto (datos/pulso.sqlite).")
     if args.publicar_datos is not None:
@@ -776,6 +780,10 @@ def cmd_servir(args: argparse.Namespace) -> int:
     with ServidorMapa((anfitrion, args.puerto), manejador) as servidor:
         url = f"http://127.0.0.1:{args.puerto}/"
         _decir(f"Mapa en {url}  (Ctrl+C para parar)")
+        if _Servidor.pulso is not None:
+            _decir(f"Sala de control en {url}sala.html")
+        if getattr(args, "sala", False):
+            url += "sala.html"
         if args.red:
             ip = _ip_local()
             _decir(f"Desde el móvil, en la misma wifi: http://{ip or 'IP-DE-ESTE-PC'}:{args.puerto}/")
@@ -862,7 +870,8 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
 # --------------------------------------------------------------------------
 
 # Lo que se copia de la carpeta de datos a la web. Las notas (marcas y marcadores propios) solo si se pide.
-DATOS_DEL_SITIO = ("candidatos.geojson", "huellas.geojson", "camaras.geojson", *(f"capa-{n}.geojson" for n in CAPAS_EXTRA), "revision.json", historia.FICHERO, "pulso.json")
+DATOS_DEL_SITIO = ("candidatos.geojson", "huellas.geojson", "camaras.geojson", *(f"capa-{n}.geojson" for n in CAPAS_EXTRA), "revision.json", historia.FICHERO, "pulso.json",
+                   "sala.json", "sala-barrios.json", "sala-perfiles.json", "sala-movilidad.json")
 # Lo que un programa aparte ha visto en la foto aérea alrededor de cada sitio (experimentos/vision):
 # revision.json es el resumen y en esta subcarpeta va un fichero de líneas por sitio.
 CARPETA_VISION = "vision"
@@ -885,14 +894,14 @@ def crear_sitio(destino: Path, carpeta_datos: Path | None, con_notas: bool = Fal
     # programa de la anterior. Para evitarlo, la página pide cada programa con una marca de su
     # contenido (capas.js?v=1a2b3c4d): si el contenido cambia, la dirección cambia y se baja de nuevo.
     import hashlib
-    indice = destino / "index.html"
-    pagina = indice.read_text(encoding="utf-8")
-    for guion in sorted(destino.glob("*.js")):
-        etiqueta = f'<script src="{guion.name}"></script>'
-        if etiqueta in pagina:
-            marca = hashlib.sha256(guion.read_bytes()).hexdigest()[:10]
-            pagina = pagina.replace(etiqueta, f'<script src="{guion.name}?v={marca}"></script>')
-    indice.write_text(pagina, encoding="utf-8")
+    for html in sorted(destino.glob("*.html")):        # el visor y la sala de control
+        pagina = html.read_text(encoding="utf-8")
+        for guion in sorted(destino.glob("*.js")):
+            etiqueta = f'<script src="{guion.name}"></script>'
+            if etiqueta in pagina:
+                marca = hashlib.sha256(guion.read_bytes()).hexdigest()[:10]
+                pagina = pagina.replace(etiqueta, f'<script src="{guion.name}?v={marca}"></script>')
+        html.write_text(pagina, encoding="utf-8")
     copiados = []
     if carpeta_datos is not None:
         (destino / "datos").mkdir(exist_ok=True)
@@ -1054,6 +1063,9 @@ def crear_parser() -> argparse.ArgumentParser:
                    help="con --pulso: sube a la web el resumen de las últimas horas al arrancar y cada MINUTOS (15 si no se dice; mínimo 10)")
     p.add_argument("--guardar-dias", type=int, default=90, help="con --pulso: días que se conserva el detalle punto a punto (90; 0 = siempre)")
     p.add_argument("--repo", default=None, help="con --publicar-datos: dirección del repositorio (por defecto, el «origin» de esta carpeta)")
+    p.add_argument("--sala", action="store_true", help="abrir en el navegador la sala de control en vez del mapa")
+    p.add_argument("--sin-ia", action="store_true",
+                   help="con --pulso: no usar la IA local (Ollama) aunque esté instalada; la sala funciona igual, con reglas")
     p.set_defaults(func=cmd_servir)
 
     p = sub.add_parser("sitio", help="deja el mapa como web estática en una carpeta, para alojarla donde quieras")

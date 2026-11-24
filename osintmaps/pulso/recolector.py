@@ -17,9 +17,10 @@ import time
 import requests
 
 from ..red import nueva_sesion
-from . import anomalias
+from . import anomalias, textos
 from .almacen import Almacen
-from .fuentes import FUENTES, Fuente
+from .catalogo import FUENTES
+from .fuentes import Fuente
 
 log = logging.getLogger("osintmaps.pulso")
 
@@ -46,6 +47,7 @@ class Recolector:
         self._geometria: dict[str, float] = {}      # cuándo se pidió por última vez con posiciones
         self._candado = threading.Lock()
         self.arrancado = 0.0
+        self.zonas = None                           # el nomenclátor, cuando la sala lo tiene listo (zonas.Zonas)
 
     # ------------------------------------------------------------ una toma
 
@@ -61,6 +63,8 @@ class Recolector:
                 toma, con_geometria = fuente.tomar(sesion, True), True
             if toma.n == 0 and not toma.indicadores:
                 raise ValueError("respuesta vacía")
+            # Después de mirar si ha venido algo: que ningún texto sea de València también es una toma buena.
+            self.situar(toma)
             self.almacen.guardar_toma(fuente.id, t, toma)
         except Exception as exc:  # noqa: BLE001  (un fallo de una fuente nunca debe parar el recolector)
             with self._candado:
@@ -77,6 +81,24 @@ class Recolector:
             if con_geometria:
                 self._geometria[fuente.id] = t
         return True
+
+    def situar(self, toma) -> None:
+        """Sitúa y clasifica los textos (y tira los que no son de la ciudad), pone barrio a lo previsto y
+        posición a los puntos que solo traen dirección (los sonómetros)."""
+        zonas = self.zonas
+        if toma.items:
+            toma.items = textos.enriquecer(toma.items, zonas)
+        if zonas is None or not zonas.hay:
+            return
+        for cita in toma.agenda:
+            if cita.barrio is None and cita.lat is not None:
+                cita.barrio = zonas.barrio_de(cita.lat, cita.lon)
+        for puntos in toma.puntos.values():
+            for punto in puntos.values():
+                if punto.lat is None and punto.nombre:
+                    sitio = next(iter(zonas.buscar(punto.nombre)), None)
+                    if sitio:
+                        punto.lat, punto.lon = sitio.lat, sitio.lon
 
     def espera(self, fuente: Fuente) -> float:
         """Segundos hasta la siguiente pregunta a esta fuente, según cuántas veces seguidas ha fallado."""

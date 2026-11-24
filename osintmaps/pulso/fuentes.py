@@ -16,7 +16,10 @@ Todas las fuentes son públicas, gratuitas y sin clave.
 
 from __future__ import annotations
 
+import html
 import math
+import re
+import time
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -26,6 +29,9 @@ from ..aviones import pedir as pedir_aviones
 
 GEOPORTAL = "https://geoportal.valencia.es/server/rest/services/OPENDATA"      # datos abiertos del Ajuntament de València
 RENFE = "https://gtfsrt.renfe.com/vehicle_positions.json"
+RENFE_RETRASOS = "https://gtfsrt.renfe.com/trip_updates.json"
+RENFE_AVISOS = "https://gtfsrt.renfe.com/alerts.json"
+METRO_SALIDAS = "https://geoportal.valencia.es/geoportal-services/api/v1/salidas-metro.html"
 
 # El centro del mapa del pulso: la plaza del Ayuntamiento. Los aviones se piden alrededor de aquí.
 CENTRO = (39.4699, -0.3763)
@@ -57,16 +63,55 @@ class Objeto:
 
 
 @dataclass
+class Item:
+    """Algo que se dice de la ciudad: una noticia, una publicación, un aviso. `id` lo hace único entre tomas."""
+    id: str
+    fuente: str                 # prensa, bluesky, mastodon, dgt, meteoalarm, renfe...
+    t: int                      # cuándo se publicó (segundos desde 1970)
+    titulo: str
+    texto: str = ""
+    url: str = ""
+    lat: float | None = None
+    lon: float | None = None
+    barrio: str | None = None
+    lugar: str = ""             # el nombre del sitio, si se sabe
+    categoria: str = ""         # emergencia, accidente, seguridad, protesta, trafico, transporte, meteo, evento...
+    urgencia: int = 0           # 0 nada, 1 aviso, 2 importante, 3 urgente
+    idioma: str = ""
+    extra: dict = field(default_factory=dict)
+
+
+@dataclass
+class Cita:
+    """Algo que está previsto (o en curso) en un sitio y unas fechas: una obra, un corte, un partido, un festivo."""
+    id: str
+    tipo: str                   # obra, ocupacion, festejo, mudanza, partido, festivo, fiesta...
+    titulo: str
+    desde: int
+    hasta: int
+    lat: float | None = None
+    lon: float | None = None
+    barrio: str | None = None
+    fuente: str = ""
+    url: str = ""
+    extra: dict = field(default_factory=dict)
+
+
+@dataclass
 class Toma:
     valores: dict[str, dict[str, float]] = field(default_factory=dict)         # serie -> id -> valor
     puntos: dict[str, dict[str, Punto]] = field(default_factory=dict)          # serie -> id -> punto
     indicadores: dict[str, float] = field(default_factory=dict)
     objetos: dict[str, list[Objeto]] = field(default_factory=dict)             # tipo -> objetos
+    items: list[Item] = field(default_factory=list)
+    agenda: list[Cita] = field(default_factory=list)
+    momento: int | None = None  # si los datos son de otro momento que la toma (el ruido de ayer, por ejemplo)
 
     @property
     def n(self) -> int:
         """Cuántas cosas trae, para el registro."""
-        return sum(len(v) for v in self.valores.values()) + sum(len(o) for o in self.objetos.values())
+        return (sum(len(v) for v in self.valores.values()) + sum(len(o) for o in self.objetos.values())
+                + len(self.items) + len(self.agenda))
 
 
 @dataclass(frozen=True)
@@ -311,7 +356,7 @@ def tomar_aviones(sesion: requests.Session, geometria: bool = True) -> Toma:
     """Aviones en vuelo alrededor de València (adsb.fi o adsb.lol: receptores de aficionados de todo el mundo).
     Las peticiones pasan por osintmaps.aviones, que reparte entre servicios y para si alguno lo pide."""
     lat, lon = CENTRO
-    aviones = []
+    aviones, helicopteros = [], []
     for a in pedir_aviones(lat, lon, MILLAS_AVIONES, get=sesion.get)["ac"]:
         if a.get("lat") is None or a.get("lon") is None or not a.get("hex"):
             continue
@@ -320,21 +365,25 @@ def tomar_aviones(sesion: requests.Session, geometria: bool = True) -> Toma:
         alt = a.get("alt_baro")
         metros = 0.0 if alt == "ground" else (round(alt * PIES) if isinstance(alt, (int, float)) else None)
         nombre = (a.get("flight") or "").strip() or a.get("r") or a["hex"]
-        aviones.append(Objeto(str(a["hex"]), round(a["lat"], 5), round(a["lon"], 5), nombre, _numero(a.get("track")), metros))
-    toma = Toma(objetos={"aviones": aviones})
+        objeto = Objeto(str(a["hex"]), round(a["lat"], 5), round(a["lon"], 5), nombre, _numero(a.get("track")), metros)
+        # Categoría A7 de ADS-B: helicóptero. Van aparte: uno que da vueltas sobre un barrio es una señal en sí.
+        (helicopteros if a.get("category") == "A7" else aviones).append(objeto)
+    toma = Toma(objetos={"aviones": aviones, "helicopteros": helicopteros})
     en_el_aire = [a for a in aviones if a.alt is None or a.alt > 0]
     toma.indicadores = {"aviones": len(en_el_aire),
                         # Por debajo de 3.000 m a esta distancia: despegando, aterrizando, o un helicóptero o avioneta.
-                        "aviones_bajos": sum(1 for a in en_el_aire if a.alt is not None and a.alt < 3000)}
+                        "aviones_bajos": sum(1 for a in en_el_aire if a.alt is not None and a.alt < 3000),
+                        "helicopteros": len(helicopteros)}
     return toma
 
 
 def tomar_trenes(sesion: requests.Session, geometria: bool = True) -> Toma:
-    """Trenes de Cercanías: Renfe publica dónde va cada uno. Se guardan los del área de València."""
+    """Trenes de Cercanías: Renfe publica dónde va cada uno, cuánto retraso lleva y sus avisos.
+    Se guardan los del área de València."""
     resp = sesion.get(RENFE, timeout=20)
     resp.raise_for_status()
     oeste, sur, este, norte = CAJA_TRENES
-    trenes = []
+    trenes, viajes = [], {}
     for entidad in resp.json().get("entity") or []:
         v = entidad.get("vehicle") or {}
         pos = v.get("position") or {}
@@ -345,8 +394,126 @@ def tomar_trenes(sesion: requests.Session, geometria: bool = True) -> Toma:
         ident = str(vehiculo.get("id") or (v.get("trip") or {}).get("tripId") or "")
         if ident:
             trenes.append(Objeto(ident, round(lat, 5), round(lon, 5), str(vehiculo.get("label") or "").split("-PLATF")[0].strip() or ident))
+            if (v.get("trip") or {}).get("tripId"):
+                viajes[v["trip"]["tripId"]] = ident
     toma = Toma(objetos={"trenes": trenes})
     toma.indicadores = {"trenes": len(trenes)}
+    # Retrasos: los de los viajes que están ahora en el área (Renfe los da en segundos).
+    try:
+        actualizaciones = sesion.get(RENFE_RETRASOS, timeout=20)
+        actualizaciones.raise_for_status()
+        retrasos = []
+        for entidad in actualizaciones.json().get("entity") or []:
+            tu = entidad.get("tripUpdate") or {}
+            viaje = (tu.get("trip") or {}).get("tripId")
+            retraso = _numero(tu.get("delay"))
+            if viaje in viajes and retraso is not None and -600 < retraso < 4 * 3600:
+                retrasos.append(max(0.0, retraso) / 60)
+        if retrasos:
+            _poner(toma.indicadores, "trenes_retraso", sum(retrasos) / len(retrasos))
+            toma.indicadores["trenes_retrasados"] = sum(1 for r in retrasos if r >= 5)
+    except Exception:  # noqa: BLE001  (sin retrasos sigue valiendo la posición)
+        pass
+    try:
+        toma.items = avisos_renfe(sesion)
+    except Exception:  # noqa: BLE001
+        pass
+    return toma
+
+
+# En los ficheros de Renfe, las líneas de Cercanías València empiezan por «40T» (Madrid es «10T»).
+PREFIJO_RUTAS_VALENCIA = "40T"
+
+
+def avisos_renfe(sesion: requests.Session) -> list[Item]:
+    """Avisos de Renfe (obras, incidencias, servicios alternativos) de las líneas de València."""
+    resp = sesion.get(RENFE_AVISOS, timeout=20)
+    resp.raise_for_status()
+    items = []
+    for entidad in resp.json().get("entity") or []:
+        aviso = entidad.get("alert") or {}
+        rutas = [str(e.get("routeId") or "") for e in aviso.get("informedEntity") or []]
+        texto = " ".join(t.get("text", "") for t in ((aviso.get("descriptionText") or {}).get("translation") or [])[:1]).strip()
+        cabecera = " ".join(t.get("text", "") for t in ((aviso.get("headerText") or {}).get("translation") or [])[:1]).strip()
+        if not (any(r.startswith(PREFIJO_RUTAS_VALENCIA) for r in rutas) or re.search(r"#Val\b|Val[eè]ncia", texto + cabecera)):
+            continue
+        periodos = aviso.get("activePeriod") or [{}]
+        inicio = int(_numero(periodos[0].get("start")) or time.time())
+        lineas = sorted({r[-2:] if r[-2:].startswith("C") else r for r in rutas if r.startswith(PREFIJO_RUTAS_VALENCIA)})
+        items.append(Item(f"renfe:{entidad.get('id')}", "renfe", inicio, (cabecera or texto)[:160], texto[:1000],
+                          "https://www.renfe.com/es/es/cercanias/cercanias-valencia", categoria="transporte", urgencia=1,
+                          lugar=", ".join(lineas), extra={"lineas": lineas}))
+    return items
+
+
+def tomar_ora(sesion: requests.Session, geometria: bool = True) -> Toma:
+    """Zona azul (ORA): la ocupación que el Ajuntament prevé dentro de una hora en cada tramo regulado.
+    Es una predicción oficial, no una medida: dice dónde se espera que cueste aparcar."""
+    toma = Toma(valores={"ora": {}}, puntos={"ora": {}})
+    for e in pedir_geoportal(sesion, "Trafico/254", geometria=geometria):
+        p = e.get("properties") or {}
+        ocupacion = _numero(p.get("ocupacion_1"))
+        if p.get("id_tramo") is None or ocupacion is None:
+            continue
+        ident = str(int(_numero(p["id_tramo"]) or 0)) if _numero(p["id_tramo"]) is not None else str(p["id_tramo"])
+        toma.valores["ora"][ident] = ocupacion
+        if geometria:
+            linea = _linea(e)
+            medio = linea[len(linea) // 2] if linea else (None, None)
+            toma.puntos["ora"][ident] = Punto(str(p.get("nombre_via") or "").strip(), medio[0], medio[1], None, linea)
+    _poner(toma.indicadores, "ora_ocupacion", _media(list(toma.valores["ora"].values())))
+    return toma
+
+
+_ESTACIONES_METRO: list[tuple[str, str, float, float]] = []      # (código, nombre, lat, lon), se pide una vez
+CAJA_CIUDAD = (-0.45, 39.40, -0.30, 39.53)                       # oeste, sur, este, norte: el término de València, más o menos
+
+
+def _estaciones_metro(sesion: requests.Session) -> list[tuple[str, str, float, float]]:
+    if not _ESTACIONES_METRO:
+        oeste, sur, este, norte = CAJA_CIUDAD
+        for e in pedir_geoportal(sesion, "Trafico/221", campos="codigo,nombre"):
+            p = e.get("properties") or {}
+            lat, lon = _coordenadas(e)
+            if p.get("codigo") and lat is not None and sur <= lat <= norte and oeste <= lon <= este:
+                _ESTACIONES_METRO.append((str(p["codigo"]), str(p.get("nombre") or "").strip(), lat, lon))
+    return _ESTACIONES_METRO
+
+
+def salidas_metro(texto: str, ahora: float) -> list[tuple[str, str, float]]:
+    """Las próximas salidas de una estación (la página del geoportal): [(línea, destino, segundos que faltan)]."""
+    salidas = []
+    for linea, destino, hora in re.findall(r"<span>(\d+)\s*-[^<]*</span>,\s*<span>Destino</span>\s*<b>([^<]+)</b>\s*-\s*<span>(\d{1,2}:\d{2})(?::\d{2})?</span>", texto):
+        h, m = (int(x) for x in hora.split(":"))
+        local = time.localtime(ahora)
+        objetivo = time.mktime((local.tm_year, local.tm_mon, local.tm_mday, h, m, 0, 0, 0, -1))
+        if objetivo < ahora - 6 * 3600:          # pasada la medianoche
+            objetivo += 86400
+        salidas.append((linea, html.unescape(destino).strip(), objetivo - ahora))
+    return salidas
+
+
+def tomar_metro(sesion: requests.Session, geometria: bool = True) -> Toma:
+    """Metrovalencia: cuántos trenes salen en la próxima media hora de cada estación de la ciudad.
+    Si una estación que suele tener seis se queda en cero, algo pasa en esa línea."""
+    toma = Toma(valores={"metro": {}}, puntos={"metro": {}})
+    ahora = time.time()
+    total, sin_servicio = 0, 0
+    for codigo, nombre, lat, lon in _estaciones_metro(sesion):
+        try:
+            resp = sesion.get(METRO_SALIDAS, params={"estacion": codigo, "lang": "es"}, timeout=12)
+            resp.raise_for_status()
+        except Exception:  # noqa: BLE001  (una estación que no contesta no tumba la toma)
+            continue
+        n = sum(1 for _, _, s in salidas_metro(resp.text, ahora) if -60 <= s <= 1800)
+        toma.valores["metro"][codigo] = n
+        if geometria:
+            toma.puntos["metro"][codigo] = Punto(nombre, lat, lon)
+        total += n
+        sin_servicio += n == 0
+        time.sleep(0.25)                         # sin prisa: es un servicio del Ajuntament
+    if toma.valores["metro"]:
+        toma.indicadores = {"metro_salidas": total, "metro_sin_servicio": sin_servicio}
     return toma
 
 
@@ -360,6 +527,8 @@ FUENTES: tuple[Fuente, ...] = (
     Fuente("meteo", "Meteorología", 900, tomar_meteo, origen="Ajuntament de València"),
     Fuente("aviones", "Aviones", 30, tomar_aviones, grupo="cielo", origen="adsb.fi / adsb.lol"),
     Fuente("trenes", "Trenes de Cercanías", 30, tomar_trenes, grupo="vias", origen="Renfe"),
+    Fuente("ora", "Zona azul (previsión)", 900, tomar_ora, origen="Ajuntament de València"),
+    Fuente("metro", "Metrovalencia", 600, tomar_metro, grupo="metro", origen="FGV / Ajuntament de València"),
 )
 
 # Qué es cada indicador: su nombre para el visor, su unidad y la fuente de la que sale. «entero»: es un recuento
@@ -386,7 +555,14 @@ INDICADORES: dict[str, dict] = {
     "aviones": {"nombre": "Aviones en el aire", "unidad": "a menos de 75 km", "fuente": "aviones", "entero": True},
     "aviones_bajos": {"nombre": "Aviones por debajo de 3.000 m", "unidad": "aviones", "fuente": "aviones", "entero": True},
     "trenes": {"nombre": "Trenes de Cercanías circulando", "unidad": "trenes", "fuente": "trenes", "entero": True},
+    "trenes_retraso": {"nombre": "Retraso medio de Cercanías", "unidad": "min", "fuente": "trenes"},
+    "trenes_retrasados": {"nombre": "Trenes con más de 5 min de retraso", "unidad": "trenes", "fuente": "trenes", "entero": True},
+    "helicopteros": {"nombre": "Helicópteros en el aire", "unidad": "a menos de 75 km", "fuente": "aviones", "entero": True},
+    "ora_ocupacion": {"nombre": "Zona azul prevista", "unidad": "%", "fuente": "ora", "nota": "ocupación que el Ajuntament prevé dentro de una hora"},
+    "metro_salidas": {"nombre": "Salidas de metro en 30 min", "unidad": "trenes", "fuente": "metro", "entero": True},
+    "metro_sin_servicio": {"nombre": "Estaciones sin salidas en 30 min", "unidad": "estaciones", "fuente": "metro", "entero": True},
 }
 # Las series de puntos fijos: de qué fuente sale cada una.
 SERIES: dict[str, str] = {"bicis": "bicis", "parking": "parking", "trafico": "trafico", "aforo": "aforo", "aforo_bici": "aforo_bici",
+                          "ora": "ora", "metro": "metro",
                           **{c: "aire" for c in CONTAMINANTES}}

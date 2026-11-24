@@ -92,7 +92,8 @@ const estilo = el("style", { textContent: `
     -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); font: 12px/1.3 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
   #pulso[hidden] { display: none; }
   #pulso button { font: inherit; color: inherit; background: none; border: 1px solid rgba(148,163,184,.35); border-radius: 5px; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
-  #pulso button:hover { border-color: ${CIAN}; }
+  #pulso button:hover, #pulso a.pz-sala:hover { border-color: ${CIAN}; }
+  #pulso a.pz-sala { color: ${MAGENTA}; text-decoration: none; border: 1px solid rgba(255,45,149,.5); border-radius: 5px; padding: 3px 8px; white-space: nowrap; }
   #pulso button[aria-pressed=true] { background: rgba(34,211,238,.16); border-color: ${CIAN}; color: ${CIAN}; }
   #pulso .pz-fila { display: flex; align-items: center; gap: 6px; min-width: 0; }
   #pulso .pz-fila > * { flex: none; } #pulso .pz-fila > .pz-hueco { flex: 1 0 4px; }
@@ -154,13 +155,16 @@ const bAhora = el("button", { type: "button", textContent: "AHORA", title: "Volv
 const bSucesos = el("button", { type: "button" }), bFuentes = el("button", { type: "button", textContent: "Leyenda y fuentes" });
 const bFondo = el("button", { type: "button", textContent: "Fondo oscuro", title: "Poner el mapa oscuro mientras el pulso está abierto" });
 const bCerrar = el("button", { type: "button", textContent: "✕", title: "Cerrar el pulso" });
+// Desde el mapa, un enlace a la sala de control (en la propia sala no hace falta).
+const aSala = /sala\.html$/.test(location.pathname) ? null
+  : el("a", { className: "pz-sala", href: "sala.html", textContent: "Sala de control ↗", title: "La sala de control: sucesos, barrios fuera de lo normal y el estado de la ciudad" });
 const filaRangos = el("span", { className: "pz-fila" }), fecha = el("input", { type: "date", title: "Ir a un día concreto" });
 const tejas = el("div", { className: "pz-tejas" }), lienzo = el("canvas"), nota = el("div", { className: "pz-nota" });
 const filaCapas = el("div", { className: "pz-fila pz-desliza" }), lista = el("div", { className: "pz-lista", hidden: true });
 consola.append(
   // En pantallas anchas todo cabe en una línea; en el móvil, lo de «mas» baja a una segunda línea que se desliza.
   el("div", { className: "pz-fila pz-cabecera" }, el("span", { className: "pz-marca", textContent: "PULSO" }), reloj, modo, bPlay,
-    el("span", { className: "pz-mas" }, bVel, bAhora, el("span", { className: "pz-hueco" }), filaRangos, fecha, bSucesos, bFuentes, bFondo), bCerrar),
+    el("span", { className: "pz-mas" }, bVel, bAhora, el("span", { className: "pz-hueco" }), filaRangos, fecha, bSucesos, bFuentes, bFondo, aSala), bCerrar),
   el("div", { className: "pz-fila pz-desliza" }, tejas), lienzo, filaCapas, nota, lista);
 /* La rueda del ratón sobre una fila la desliza de lado. */
 for (const fila of consola.querySelectorAll(".pz-desliza")) fila.addEventListener("wheel", (ev) => { if (!ev.deltaX && fila.scrollWidth > fila.clientWidth) { fila.scrollLeft += ev.deltaY; ev.preventDefault(); } }, { passive: false });
