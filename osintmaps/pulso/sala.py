@@ -11,8 +11,10 @@ Al arrancar el programa:
 
 Lo que contesta, en /vivo/sala/...:
 
-    estado      todo lo de la pantalla principal: barrios, sucesos, ciudad, agenda, textos, parte
+    estado      todo lo de la pantalla principal: barrios, sucesos, ciudad, agenda, textos, parte,
+                el estado de cada tramo de calle y el calor de gente (dónde se mueve más)
     barrios     el mapa de barrios (GeoJSON) con su contexto
+    tramos      el trazado de los tramos de calle del estado del tráfico
     evento      un suceso entero: señales a lo largo del tiempo, causa, textos, helicópteros
     barrio      la ficha de un barrio
     lugar       la ficha de un punto (un inmueble): ?lat=&lon=
@@ -24,7 +26,7 @@ Lo que contesta, en /vivo/sala/...:
 
 En la web publicada no hay programa detrás: el ordenador sube cada cuarto de hora sala.json (lo
 mismo que «estado», sin el texto de las publicaciones de redes, que se queda en el ordenador),
-sala-barrios.json y sala-perfiles.json.
+sala-barrios.json, sala-tramos.json, sala-perfiles.json y sala-movilidad.json.
 """
 
 from __future__ import annotations
@@ -37,6 +39,8 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs
+
+from shapely.geometry import LineString
 
 from ..red import nueva_sesion
 from . import contexto, movilidad as mitma
@@ -54,7 +58,12 @@ REDES = ("bluesky", "mastodon")
 RASGOS_PERFIL = ("trafico", "aforo", "bici_ocupacion", "parking", "metro", "social", "bici_llegadas", "bici_salidas")
 DIAS_SEMANA = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
 MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre")
-FICHEROS_WEB = ("sala.json", "sala-barrios.json", "sala-perfiles.json", "sala-movilidad.json")
+FICHEROS_WEB = ("sala.json", "sala-barrios.json", "sala-perfiles.json", "sala-movilidad.json", "sala-tramos.json")
+# El mapa de calor de gente: lo que se ha movido en la última hora. Cuánto es «mucho» (peso 1) en cada fuente:
+# una estación de Valenbisi con diez bicis que salen o llegan en una hora, una espira del carril bici con 250
+# bicis a la hora, un aparcamiento con 400 coches dentro.
+VENTANA_CALOR = 3600
+ESCALA_CALOR = {"bicis": 10.0, "aforo_bici": 250.0, "parking": 400.0}
 
 
 def nivel_de_ciudad(n: float) -> tuple[str, str]:
@@ -277,7 +286,7 @@ class Sala:
             "barrios": barrios, "desplazamiento": e.get("desplazamiento", {}),
             "sucesos": sucesos, "ciudad": self._ciudad(ahora), "agenda": self._agenda(ahora),
             "feed": self._feed(ahora, publico), "avisos": self._avisos(ahora), "conversacion": self._conversacion(ahora),
-            "fuentes": self._fuentes(), "parte": self.parte(),
+            "fuentes": self._fuentes(), "parte": self.parte(), "trafico": self._trafico(ahora), "calor": self.calor(ahora),
             "ia": self.ia.estado() if self.ia else {"disponible": False},
             "rasgos": {r: {"nombre": i["nombre"], "unidad": i["unidad"], "tipo": i["tipo"]} for r, i in RASGOS.items()},
             "familias": FAMILIAS, "tipos": TIPOS_SUCESO,
@@ -561,6 +570,66 @@ class Sala:
                 "normal": {r: self.cruce.perfil(r, tipo).get(CIUDAD) for r in ("bici_llegadas", "bici_salidas", "trafico", "metro")},
                 "franja": franja(ahora) % 48}
 
+    def tramos(self) -> dict:
+        """El trazado de los tramos de calle del estado del tráfico, para pintar cada uno del color de su estado.
+        Cambia poco, así que se guarda una hora. Simplificado a unos 3 metros y con cinco decimales (un metro)."""
+        def hacer():
+            salida = []
+            for ident, p in sorted(self.almacen.puntos("trafico").items()):
+                geo = [(lon, lat) for lat, lon in (p.get("geo") or []) if lat is not None and lon is not None]
+                if len(geo) < 2:
+                    continue
+                linea = LineString(geo).simplify(0.00003, preserve_topology=False)
+                salida.append([ident, p.get("nombre") or "", [[round(y, 5), round(x, 5)] for x, y in linea.coords]])
+            return {"generado": int(time.time()), "tramos": salida}
+        return self._guardado("tramos", 3600, hacer)
+
+    def _trafico(self, ahora: int) -> dict:
+        """El último estado de cada tramo (0 fluido, 1 denso, 2 congestionado, 3 cortado) si la fuente contesta. La
+        sala lo pide además al geoportal directamente, que es más fresco y dice qué tramos están sin datos."""
+        def hacer():
+            t = self.almacen.ultima_toma("trafico", ahora)
+            if not t or ahora - t > 2 * 3600:
+                return {"t": t, "estados": {}}
+            rejilla = self.almacen.valores_en_rejilla("trafico", [t])
+            return {"t": t, "estados": {i: int(v[0]) for i, v in rejilla.items() if v and v[0] is not None}}
+        return self._guardado("trafico", 50, hacer)
+
+    def calor(self, ahora: int | None = None) -> dict:
+        """Dónde se mueve gente ahora, para el mapa de calor. No hay contadores de personas en la calle, así que es una
+        estimación con sensores de conjunto: las bicis de Valenbisi que salen y llegan en cada estación en la última
+        hora, las bicis por hora de cada espira del carril bici y los coches que hay dentro de cada aparcamiento
+        público. Cada fuente se lleva a la misma escala (peso 1 = mucho para esa fuente, ver ESCALA_CALOR), sin
+        pasar de 1,5, y las que no han contestado en dos horas no cuentan."""
+        ahora = int(ahora or time.time())
+
+        def hacer():
+            puntos: list[list[float]] = []
+            cuenta: dict[str, int] = {}
+            for serie in ("bicis", "aforo_bici", "parking"):
+                ultima = self.almacen.ultima_toma(serie, ahora)
+                if ultima is None or ultima < ahora - 2 * VENTANA_CALOR:
+                    continue
+                sitios = self.almacen.puntos(serie)
+                desde = ahora - (VENTANA_CALOR if serie == "bicis" else 3 * VENTANA_CALOR)
+                for ident, cambios in self.almacen.cambios(serie, desde, ahora).items():
+                    sitio = sitios.get(ident)
+                    if not sitio or sitio.get("lat") is None:
+                        continue
+                    if serie == "bicis":           # cuántas bicis han salido o llegado (las que salen y vuelven en el mismo rato no se ven)
+                        valor = sum(abs(b - a) for (_, a), (_, b) in zip(cambios, cambios[1:]))
+                    elif not any(t > desde for t, _ in cambios):
+                        continue                    # el sensor no ha dicho nada en tres horas
+                    elif serie == "parking":        # plazas ocupadas
+                        valor = max(0.0, (sitio.get("cap") or 0) - cambios[-1][1])
+                    else:
+                        valor = cambios[-1][1]
+                    if valor > 0:
+                        puntos.append([round(sitio["lat"], 5), round(sitio["lon"], 5), round(min(1.5, valor / ESCALA_CALOR[serie]), 3)])
+                        cuenta[serie] = cuenta.get(serie, 0) + 1
+            return {"t": ahora, "ventana": VENTANA_CALOR, "puntos": puntos, "cuenta": cuenta}
+        return self._guardado("calor", 60, hacer)
+
     def cielo(self) -> dict:
         """Los helicópteros en el aire ahora (vistos hace menos de dos minutos) y su recorrido del último cuarto
         de hora. Sale de lo que ya recoge el pulso: no se pregunta a nadie más."""
@@ -624,6 +693,7 @@ class Sala:
                 return a_bytes(self.flujos(todo=True))
             except ValueError:
                 return None
+        salida["sala-tramos.json"] = self._guardado("web-tramos", 6 * 3600, lambda: a_bytes(self.tramos()))
         datos_mitma = self._guardado("web-mitma", 24 * 3600, flujos)
         if datos_mitma:
             salida["sala-movilidad.json"] = datos_mitma
@@ -722,6 +792,8 @@ def atender(sala: "Sala | None", ruta: str, consulta: str) -> tuple[int, bytes]:
             datos = sala.comparar(q)
         elif ruta == "/vivo/sala/movilidad":
             datos = sala.movilidad(q)
+        elif ruta == "/vivo/sala/tramos":
+            datos = sala.tramos()
         elif ruta == "/vivo/sala/cielo":
             datos = sala.cielo()
         elif ruta == "/vivo/sala/flujos":

@@ -38,6 +38,7 @@ const dos = (n) => String(n).padStart(2, "0");
 const DIAS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
 const DIAS_LARGOS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const MESES_LARGOS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 const hora = (t) => { const d = new Date(t * 1000); return `${dos(d.getHours())}:${dos(d.getMinutes())}`; };
 const fecha = (t) => { const d = new Date(t * 1000); return `${DIAS[d.getDay()]} ${d.getDate()} ${MESES[d.getMonth()]}`; };
 const fechaHora = (t) => (Math.abs(Date.now() / 1000 - t) < 20 * 3600 ? hora(t) : `${fecha(t)} ${hora(t)}`);
@@ -49,25 +50,85 @@ const cifra = (v, dec = 1) => (v == null || Number.isNaN(v) ? "—"
 const cifraCorta = (v) => (Math.abs(v) >= 1000 ? `${(v / 1000).toLocaleString("es-ES", { maximumFractionDigits: 1 })}k` : cifra(v));
 const movil = () => matchMedia("(max-width: 760px)").matches;
 
-/* ====================== Colores y nombres ====================== */
-const C = { cian: "#22d3ee", magenta: "#ff2d95", ambar: "#fbbf24", lima: "#a3e635", rojo: "#f43f5e", violeta: "#a78bfa", naranja: "#fb923c",
-  azul: "#60a5fa", gris: "#64748b", texto: "#d8e6ee", suave: "#8aa2b0", tenue: "#4d6574" };
+/* ====================== Colores, dibujos y nombres ====================== */
+// Cada color dice una cosa: verde, ámbar, rojo y blanco a rayas, el tráfico; azul a cian, la gente; magenta, lo que
+// se sale de lo normal; cian, la interfaz.
+const C = { cian: "#22d3ee", magenta: "#ff2d95", ambar: "#fbbf24", lima: "#4ade80", rojo: "#f43f5e", violeta: "#a78bfa", naranja: "#fb923c",
+  azul: "#60a5fa", gris: "#64748b", blanco: "#e2e8f0", texto: "#dbe7ee", suave: "#91a8b5", tenue: "#5a7482" };
 const COLOR_FAMILIA = { afluencia: C.cian, salida: C.violeta, congestion: C.ambar, corte: C.naranja, servicio: C.rojo, atencion: C.magenta, alerta: C.rojo, ambiente: C.lima };
-const COLOR_TIPO = { concentracion: C.cian, salida: C.violeta, incidente: C.rojo, congestion: C.ambar, corte: C.naranja, servicio: C.rojo, conversacion: C.magenta, ciudad: "#e2e8f0" };
-const COLOR_CATEGORIA = { emergencia: C.rojo, accidente: C.naranja, seguridad: "#fb7185", protesta: C.magenta, trafico: C.ambar, transporte: C.cian,
-  meteo: C.azul, evento: C.violeta, deporte: C.lima, vivienda: "#f472b6", urbanismo: "#94a3b8", sanidad: "#34d399", medioambiente: "#86efac",
+const COLOR_TIPO = { concentracion: C.magenta, salida: C.magenta, incidente: C.rojo, congestion: C.magenta, corte: C.magenta, servicio: C.magenta, conversacion: C.magenta, ciudad: C.magenta };
+const COLOR_CATEGORIA = { emergencia: C.rojo, accidente: C.naranja, seguridad: "#fb7185", protesta: "#c084fc", trafico: C.ambar, transporte: C.cian,
+  meteo: C.azul, evento: C.violeta, deporte: "#86efac", vivienda: "#f472b6", urbanismo: "#94a3b8", sanidad: "#34d399", medioambiente: "#86efac",
   politica: "#cbd5e1", cultura: "#c4b5fd", economia: "#fde68a" };
+const COLOR_TRAFICO = [C.lima, C.ambar, C.rojo, C.blanco];
+const NOMBRE_TRAFICO = ["fluido", "denso", "atasco", "cortado"];
 const NOMBRE_FAMILIA = { afluencia: "llega gente", salida: "se va gente", congestion: "más tráfico", corte: "cortes", servicio: "metro", atencion: "se habla",
   alerta: "alerta", ambiente: "aire" };
 const NOMBRE_FUENTE = { prensa: "Prensa", bluesky: "Bluesky", mastodon: "Mastodon", dgt: "DGT", renfe: "Renfe", meteoalarm: "AEMET" };
+const NOMBRE_CATEGORIA = { emergencia: "emergencia", accidente: "accidente", seguridad: "seguridad", protesta: "protesta", trafico: "tráfico", transporte: "transporte",
+  meteo: "tiempo", evento: "evento", deporte: "deporte", vivienda: "vivienda", urbanismo: "urbanismo", sanidad: "sanidad", medioambiente: "medio ambiente",
+  politica: "política", cultura: "cultura", economia: "economía" };
 const CLASE_NIVEL = { normal: [C.lima, "Normal", 1], atencion: [C.ambar, "Atención", 2], alta: [C.naranja, "Alta", 3], "muy alta": [C.rojo, "Muy alta", 4] };
 const GRAVEDAD = ["sin heridos", "heridos leves", "heridos de baja gravedad", "heridos graves", "fallecidos"];
 const TEJAS = [["trafico_indice", "Tráfico"], ["trafico_cortado", "Tramos cortados"], ["bicis_fuera", "Valenbisi en uso"], ["parking_ocupacion", "Aparcamientos"],
-  ["metro_salidas", "Metro · salidas 30 min"], ["metro_sin_servicio", "Estaciones sin metro"], ["trenes_retraso", "Retraso Cercanías"], ["trenes_retrasados", "Trenes retrasados"],
-  ["aforo", "Vehículos/hora"], ["aforo_bici", "Bicis/hora"], ["aire_no2", "NO₂"], ["aire_pm25", "PM2,5"], ["helicopteros", "Helicópteros"], ["aviones_bajos", "Aviones bajos"],
-  ["meteo_temperatura", "Temperatura"], ["meteo_lluvia", "Lluvia"], ["ora_ocupacion", "Zona azul (previsión)"], ["ruido_noche", "Ruido Russafa (anoche)"]];
+  ["metro_salidas", "Metro: salidas en 30 min"], ["metro_sin_servicio", "Estaciones sin metro"], ["trenes_retraso", "Retraso en Cercanías"], ["trenes_retrasados", "Trenes con retraso"],
+  ["aforo", "Vehículos por hora"], ["aforo_bici", "Bicis por hora"], ["aire_no2", "NO₂"], ["aire_pm25", "PM2,5"], ["helicopteros", "Helicópteros"], ["aviones_bajos", "Aviones bajos"],
+  ["meteo_temperatura", "Temperatura"], ["meteo_lluvia", "Lluvia"], ["ora_ocupacion", "Zona azul (previsión)"], ["ruido_noche", "Ruido en Russafa (anoche)"]];
+// Las cifras que se ven de un vistazo; el resto, al pulsar «Ver todas las cifras».
+const TEJAS_PRINCIPALES = [["bicis_fuera", "Valenbisi en uso"], ["parking_ocupacion", "Aparcamientos"], ["metro_sin_servicio", "Sin metro"],
+  ["trenes_retraso", "Retraso en Cercanías"], ["aire_no2", "Aire (NO₂)"], ["meteo_temperatura", "Temperatura"]];
 const RASGOS_WEB = ["aforo", "trafico", "bici_llegadas", "bici_salidas", "bici_ocupacion", "parking", "metro", "social"];
+const REDES = ["bluesky", "mastodon"];
 const BASE = new URLSearchParams(location.search).get("datos") || "datos/";
+const GEOPORTAL = "https://geoportal.valencia.es/server/rest/services/OPENDATA";
+
+// Los dibujos de las marcas, de 24×24 con trazo: los mismos en el mapa, en las listas y en la leyenda.
+const ICONOS = {
+  noticia: '<rect x="4" y="5" width="16" height="14" rx="1.5"/><path d="M8 9h8M8 12.5h8M8 16h5"/>',
+  redes: '<path d="M5 5.5h14v10h-8.5L6 19v-3.5H5z"/>',
+  emergencia: '<path d="M12 3c.6 3.2 4.8 5 4.8 9.6a4.8 4.8 0 0 1-9.6 0c0-2.4 1.3-4 2.4-5 .2 1.5 1 2.5 2.1 2.8-.3-2.6-.1-5 .3-7.4z"/>',
+  accidente: '<path d="M5 17l1.5-4.3a2 2 0 0 1 1.9-1.4h7.2a2 2 0 0 1 1.9 1.4L19 17v2.5H5z"/><path d="M8.5 17h.01M15.5 17h.01M12 4v3.3M8.2 5.6l1.3 2M15.8 5.6l-1.3 2"/>',
+  seguridad: '<path d="M12 3l7 3v5.5c0 4.3-2.9 7.7-7 9.5-4.1-1.8-7-5.2-7-9.5V6z"/>',
+  protesta: '<path d="M4 10v4h3l8 4.5v-13L7 10z"/><path d="M18.2 9.5a3.5 3.5 0 0 1 0 5"/>',
+  trafico: '<path d="M10.2 4h3.6l4.4 14.5H5.8z"/><path d="M8.7 9.5h6.6M7.4 14h9.2M4 18.5h16"/>',
+  transporte: '<rect x="6" y="3.5" width="12" height="13" rx="2.5"/><path d="M6 10h12M9 16.5 7 20M15 16.5l2 3.5M9 13.3h.01M15 13.3h.01"/>',
+  meteo: '<path d="M7 18h10a4 4 0 0 0 .4-8 5.5 5.5 0 0 0-10.6 1.4A3.3 3.3 0 0 0 7 18z"/>',
+  evento: '<path d="M4 8.5V6h16v2.5a2 2 0 0 0 0 4V15H4v-2.5a2 2 0 0 0 0-4z"/><path d="M14 6v9"/>',
+  cultura: '<path d="M9 17V6l10-2v11"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="15" r="2"/>',
+  deporte: '<circle cx="12" cy="12" r="8"/><path d="m12 8 3.3 2.4-1.3 3.9h-4l-1.3-3.9zM12 4v4M15.3 10.4l3.9-1.3M14 14.3l2.3 3.3M10 14.3l-2.3 3.3M8.7 10.4 4.8 9.1"/>',
+  politica: '<path d="M4 9.5 12 5l8 4.5M6 10.5V17M10 10.5V17M14 10.5V17M18 10.5V17M4 19h16"/>',
+  sanidad: '<path d="M10 4h4v6h6v4h-6v6h-4v-6H4v-4h6z"/>',
+  vivienda: '<path d="M4 11.5 12 5l8 6.5M6.5 10v9h11v-9M10.5 19v-5h3v5"/>',
+  urbanismo: '<path d="M4 20V9h6v11M10 20V4h9v16M3 20h18M13 8h3M13 11.5h3M13 15h3"/>',
+  medioambiente: '<path d="M5 19c0-8.5 5.5-13.5 14-14-.5 9-6 14-14 14zM5 19l7.5-7.5"/>',
+  economia: '<circle cx="12" cy="12" r="8"/><path d="M15 9.2a3.6 3.6 0 1 0 0 5.6M7.5 11h6M7.5 13.2h6"/>',
+  aviso: '<path d="M12 6.5v6.5M12 17.2h.01"/>',
+  carril: '<path d="M6.5 12h11"/>',
+  obra: '<path d="M10.2 5h3.6l3.6 12H6.6z"/><path d="M8.9 10h6.2M5 17.5h14"/>',
+  estrella: '<path d="M12 4.5l2.3 4.8 5.2.6-3.9 3.6 1.1 5.2L12 16.1l-4.7 2.6 1.1-5.2-3.9-3.6 5.2-.6z"/>',
+  gente: '<circle cx="9" cy="8.5" r="2.6"/><circle cx="16.5" cy="9.5" r="2"/><path d="M4 19c0-3 2.2-5.2 5-5.2s5 2.2 5 5.2M14.5 14.3c2.6-.4 4.8 1.5 4.8 4.4"/>',
+  salida: '<circle cx="8.5" cy="8.5" r="2.6"/><path d="M3.5 19c0-3 2.2-5.2 5-5.2 1.6 0 3 .7 3.9 1.8M14 11h6.5M17.5 8l3 3-3 3"/>',
+  incidente: '<path d="M12 4l9 15.5H3z"/><path d="M12 10v4.3M12 17h.01"/>',
+  coche: '<path d="M5 15.5l1.6-4.6a2 2 0 0 1 1.9-1.4h7a2 2 0 0 1 1.9 1.4l1.6 4.6v3H5z"/><path d="M8.5 15.5h.01M15.5 15.5h.01"/>',
+  corte: '<path d="M3.5 9h17v5h-17zM7 14v5M17 14v5M8 9l-3 5M13.5 9l-3 5M19 9l-3 5"/>',
+  ciudad: '<path d="M3 20h18M5 20V10h4v10M9 20V5h6v15M15 20v-8h4v8"/>',
+};
+const dibujo = (nombre, tam = 14) => `<svg viewBox="0 0 24 24" width="${tam}" height="${tam}" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONOS[nombre] || ICONOS.noticia}</svg>`;
+const icono = (nombre, color, grande = false) => { const s = el("span", { className: `ico${grande ? " grande" : ""}`, innerHTML: dibujo(nombre, grande ? 17 : 14) }); s.style.setProperty("--c", color); return s; };
+const DIBUJO_TIPO = { concentracion: "gente", salida: "salida", incidente: "incidente", congestion: "coche", corte: "corte", servicio: "transporte", conversacion: "redes", ciudad: "ciudad" };
+const dibujoDeTexto = (it) => (it.fuente === "renfe" ? "transporte" : it.fuente === "meteoalarm" ? "meteo" : it.fuente === "dgt" ? dibujoDeAviso(it)
+  : ICONOS[it.categoria] ? it.categoria : REDES.includes(it.fuente) ? "redes" : "noticia");
+function dibujoDeAviso(a) {
+  const t = a.tipo || "";
+  if (a.fuente === "renfe") return "transporte";
+  if (a.fuente === "meteoalarm") return "meteo";
+  if (/Roadworks|Maintenance|Construction/i.test(t)) return "obra";
+  if (/Accident|Vehicle/i.test(t)) return "accidente";
+  if (/Lane|Carriageway/i.test(t)) return "carril";
+  if (/Weather|Environment|Wind|Fog|Snow|Ice/i.test(t)) return "meteo";
+  return "aviso";
+}
+const colorDeTexto = (it) => (it.fuente === "dgt" ? C.ambar : COLOR_CATEGORIA[it.categoria] || (REDES.includes(it.fuente) ? C.violeta : C.suave));
 
 /* ====================== Estado ====================== */
 let E = null;                 // lo último de la sala (estado)
@@ -78,58 +139,163 @@ let modo = { tipo: "nivel" }; // cómo se pintan los barrios: nivel, comparar o 
 let fichaAbierta = null;
 let investigando = false;
 let ultimoError = null;
-const ajustes = Object.assign({ capas: { barrios: true, sucesos: true, textos: true, avisos: true, agenda: true, obras: false, helis: true, nombres: true }, feed: "todo" },
-  leerLocal("osintmaps.sala.v1", {}));
-const recordar = () => guardarLocal("osintmaps.sala.v1", ajustes);
+let tramos = null;            // el trazado de cada tramo de calle: [[id, nombre, [[lat, lon], ...]], ...]
+let estadosTrafico = {};      // id del tramo -> 0 fluido, 1 denso, 2 atasco, 3 cortado (null: sin datos)
+let traficoDe = { origen: null, t: 0 };     // de dónde y de cuándo es el estado del tráfico
+const POR_DEFECTO = { trafico: true, calor: true, sucesos: true, textos: true, agenda: true, avisos: true, barrios: false, obras: false, helis: true, nombres: false };
+const guardado = leerLocal("osintmaps.sala.v2", {});
+const ajustes = { feed: guardado.feed || "todo", plegado: !!guardado.plegado, capas: Object.assign({}, POR_DEFECTO, guardado.capas || {}) };
+const recordar = () => guardarLocal("osintmaps.sala.v2", ajustes);
 const nombreBarrio = (c) => (c === "VLC" ? "Toda la ciudad" : props[c]?.nombre || c || "");
 
 /* ====================== El mapa ====================== */
 const mapa = L.map("mapa", { zoomControl: true, minZoom: 10, maxZoom: 19, zoomSnap: 0.5 }).setView([39.4699, -0.3763], movil() ? 12.5 : 13);
 window.mapa = mapa;
-mapa.createPane("barrios").style.zIndex = 350;
-mapa.createPane("rotulos").style.zIndex = 450;
-mapa.getPane("rotulos").style.pointerEvents = "none";
-mapa.createPane("sucesos").style.zIndex = 640;
+// De abajo arriba: el fondo, el calor de gente, los barrios y las calles (en un mismo lienzo, para que se puedan
+// pulsar los dos), los rótulos del fondo, lo resaltado y las marcas.
+for (const [nombre, z, sinRaton] of [["calor", 380, true], ["vectores", 400, false], ["rotulos", 450, true], ["foco", 455, true], ["sucesos", 640, false]]) {
+  const p = mapa.createPane(nombre); p.style.zIndex = z; if (sinRaton) p.style.pointerEvents = "none";
+}
+const vectores = L.canvas({ pane: "vectores", tolerance: 6, padding: 0.4 });
 const ESRI = (parte) => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_${parte}/MapServer/tile/{z}/{y}/{x}`;
 L.tileLayer(ESRI("Base"), { maxZoom: 19, maxNativeZoom: 16, attribution: "Esri, HERE, Garmin, OpenStreetMap" }).addTo(mapa);
 L.tileLayer(ESRI("Reference"), { maxZoom: 19, maxNativeZoom: 16, pane: "rotulos" }).addTo(mapa);
 mapa.attributionControl.addAttribution("Datos: Ajuntament de València, FGV, Renfe, DGT, AEMET, prensa local, adsb.fi");
 
+/* ---------- El calor de gente: un lienzo propio (como simpleheat: sellos que se suman y luego se colorean) ---------- */
+const CapaCalor = L.Layer.extend({
+  options: { pane: "calor", metros: 260, minimo: 13, maximo: 64, ganancia: 0.6 },
+  initialize(puntos, op) { L.setOptions(this, op); this._puntos = puntos || []; },
+  ponerPuntos(puntos) { this._puntos = puntos || []; if (this._map) this._pintar(); return this; },
+  onAdd(m) {
+    this._lienzo = L.DomUtil.create("canvas", "capa-calor leaflet-zoom-hide");
+    this.getPane().appendChild(this._lienzo);
+    m.on("moveend zoomend resize", this._pintar, this);
+    this._pintar();
+  },
+  onRemove(m) { m.off("moveend zoomend resize", this._pintar, this); this._lienzo.remove(); this._lienzo = null; },
+  _sello(r) {
+    if (this._r === r) return this._s;
+    const s = document.createElement("canvas"); s.width = s.height = 2 * r;
+    const g = s.getContext("2d"), grad = g.createRadialGradient(r, r, 0, r, r, r);
+    grad.addColorStop(0, "rgba(0,0,0,1)"); grad.addColorStop(0.45, "rgba(0,0,0,.55)"); grad.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = grad; g.fillRect(0, 0, 2 * r, 2 * r);
+    this._r = r; this._s = s;
+    return s;
+  },
+  _paleta() {
+    if (this._p) return this._p;
+    const c = document.createElement("canvas"); c.width = 256; c.height = 1;
+    const g = c.getContext("2d"), grad = g.createLinearGradient(0, 0, 256, 0);
+    for (const [k, color] of [[0, "#0b1d4d"], [0.22, "#2563eb"], [0.45, "#7c3aed"], [0.7, "#22d3ee"], [1, "#ecfeff"]]) grad.addColorStop(k, color);
+    g.fillStyle = grad; g.fillRect(0, 0, 256, 1);
+    return (this._p = g.getImageData(0, 0, 256, 1).data);
+  },
+  _pintar() {
+    const m = this._map, c = this._lienzo;
+    if (!m || !c) return;
+    const tam = m.getSize(), dpr = Math.min(2, window.devicePixelRatio || 1);
+    L.DomUtil.setPosition(c, m.containerPointToLayerPoint([0, 0]));
+    c.width = Math.round(tam.x * dpr); c.height = Math.round(tam.y * dpr);
+    c.style.width = `${tam.x}px`; c.style.height = `${tam.y}px`;
+    const g = c.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, tam.x, tam.y);
+    if (!this._puntos.length) return;
+    const lat = m.getCenter().lat;
+    const metrosPorPixel = 40075016.686 * Math.cos(lat * Math.PI / 180) / (256 * 2 ** m.getZoom());
+    const r = Math.round(Math.max(this.options.minimo, Math.min(this.options.maximo, this.options.metros / metrosPorPixel)));
+    const sello = this._sello(r);
+    for (const [la, lo, w] of this._puntos) {
+      const p = m.latLngToContainerPoint([la, lo]);
+      if (p.x < -r || p.y < -r || p.x > tam.x + r || p.y > tam.y + r) continue;
+      g.globalAlpha = Math.max(0.04, Math.min(0.92, w * this.options.ganancia));
+      g.drawImage(sello, p.x - r, p.y - r);
+    }
+    g.globalAlpha = 1;
+    const img = g.getImageData(0, 0, c.width, c.height), d = img.data, pal = this._paleta();
+    for (let i = 3; i < d.length; i += 4) {
+      const a = d[i];
+      if (!a) continue;
+      const j = a * 4;
+      d[i - 3] = pal[j]; d[i - 2] = pal[j + 1]; d[i - 1] = pal[j + 2]; d[i] = Math.min(235, a * 1.15);
+    }
+    g.putImageData(img, 0, 0);
+  },
+});
+
 const capas = {
-  sucesos: L.layerGroup(), textos: L.layerGroup(), avisos: L.layerGroup(), agenda: L.layerGroup(), obras: L.layerGroup(),
-  helis: L.layerGroup(), nombres: L.layerGroup(), foco: L.layerGroup().addTo(mapa), barrios: null,
+  trafico: L.layerGroup(), calor: new CapaCalor([]), sucesos: L.layerGroup(), textos: L.layerGroup(), avisos: L.layerGroup(), agenda: L.layerGroup(),
+  obras: L.layerGroup(), helis: L.layerGroup(), nombres: L.layerGroup(), foco: L.layerGroup().addTo(mapa), barrios: null,
 };
-const CAPAS_MAPA = [
-  ["barrios", "Barrios", C.cian], ["sucesos", "Sucesos", C.magenta], ["textos", "Noticias", C.violeta], ["avisos", "Incidencias", C.ambar],
-  ["agenda", "Previsto", C.ambar], ["obras", "Obras", C.gris], ["helis", "Helicópteros", C.rojo], ["nombres", "Nombres", C.suave],
-];
+const enHistorico = () => !!document.getElementById("pulso") && !document.getElementById("pulso").hidden;
 function ponerCapa(id, si) {
   ajustes.capas[id] = si; recordar();
-  const capa = capas[id];
-  if (capa) si ? capa.addTo(mapa) : mapa.removeLayer(capa);
-  if (id === "helis") si ? pedirCielo() : null;
+  const capa = id === "barrios" ? null : capas[id];
+  const ver = si && !((id === "trafico" || id === "calor") && enHistorico());
+  if (capa) ver ? capa.addTo(mapa) : mapa.removeLayer(capa);
+  if (id === "barrios") pintarBarrios();
+  if (id === "nombres") pintarNombres();
+  if (id === "helis" && si) pedirCielo();
+  if (id === "trafico" && si) pintarTrafico();
   pintarLeyenda();
 }
-const barraMapa = $("herramientas-mapa");
-for (const [id, nombre, color] of CAPAS_MAPA) {
-  const b = el("button", { type: "button", title: `Ver u ocultar: ${nombre}` }, el("i"), nombre);
-  b.style.setProperty("--c", color);
-  b.setAttribute("aria-pressed", String(!!ajustes.capas[id]));
-  b.addEventListener("click", () => { const si = b.getAttribute("aria-pressed") !== "true"; b.setAttribute("aria-pressed", String(si)); ponerCapa(id, si); });
-  barraMapa.append(b);
+
+/* ---------- El panel de capas, con la leyenda de cada una dentro ---------- */
+const ley = (...hijos) => el("span", { className: "ley" }, ...hijos);
+const linea = (color, texto, rayas = false) => { const i = el("i", { className: `linea${rayas ? " rayas" : ""}` }); i.style.setProperty("--c", color); return el("span", {}, i, texto); };
+const mini = (nombre, color, texto, carretera = false) => { const s = el("i", { className: `mini${carretera ? " carretera" : ""}`, innerHTML: dibujo(nombre, 10) }); s.style.setProperty("--c", color); return el("span", {}, s, texto || ""); };
+const DEF_CAPAS = [
+  { id: "trafico", nombre: "Tráfico", ley: () => ley(linea(C.lima, "fluido"), linea(C.ambar, "denso"), linea(C.rojo, "atasco"), linea(C.blanco, "cortado", true)) },
+  { id: "calor", nombre: "Gente", ley: () => ley(el("span", {}, "poca", el("i", { className: "rampa" }), "mucha"), el("span", { textContent: "bicis y aparcamientos, última hora" })),
+    titulo: "Dónde se mueve más gente en la última hora: bicis de Valenbisi que salen y llegan, bicis por el carril bici y coches en los aparcamientos públicos. No hay contadores de personas en la calle." },
+  { id: "sucesos", nombre: "Sucesos", ley: () => ley(mini("gente", C.magenta, "fuera de lo normal"), mini("incidente", C.rojo, "incidente")),
+    titulo: "Lo que se sale de lo normal para la hora en varias fuentes a la vez (el cruce de datos)" },
+  { id: "textos", nombre: "Noticias", ley: () => ley(mini("emergencia", C.rojo), mini("seguridad", "#fb7185"), mini("deporte", "#86efac"), mini("politica", "#cbd5e1"), el("span", { textContent: "últimas 6 h" })),
+    titulo: "Noticias y publicaciones que dicen dónde pasa algo, de las últimas seis horas" },
+  { id: "agenda", nombre: "Hoy", ley: () => ley(mini("deporte", C.ambar, "partidos"), mini("estrella", C.ambar, "fiestas")) },
+  { id: "avisos", nombre: "Carreteras y trenes", ley: () => ley(mini("carril", C.ambar, "carril cortado", true), mini("aviso", C.ambar, "incidencia", true), mini("transporte", C.cian, "Renfe")) },
+  { id: "barrios", nombre: "Barrios fuera de lo normal", ley: () => ley(el("span", {}, el("i", { className: "cuadro" }), "más intenso, más raro")),
+    titulo: "Cada barrio frente a lo normal para esa hora y ese día: cuanto más intenso, más lejos de lo normal" },
+  { id: "obras", nombre: "Obras y cortes previstos" },
+  { id: "helis", nombre: "Helicópteros", soloServidor: true },
+  { id: "nombres", nombre: "Nombres de barrio" },
+];
+const panelCapas = $("capas");
+function montarCapas() {
+  const plegar = el("button", { type: "button", textContent: movil() ? "Cerrar" : ajustes.plegado ? "Mostrar" : "Ocultar", title: "Mostrar u ocultar la lista de capas" });
+  plegar.addEventListener("click", () => {
+    if (movil()) { cerrarCapas(); return; }
+    ajustes.plegado = !ajustes.plegado; recordar();
+    panelCapas.classList.toggle("plegado", ajustes.plegado); plegar.textContent = ajustes.plegado ? "Mostrar" : "Ocultar";
+  });
+  panelCapas.replaceChildren(el("div", { className: "cab" }, el("span", { textContent: "Capas" }), plegar));
+  panelCapas.classList.toggle("plegado", ajustes.plegado && !movil());
+  for (const d of DEF_CAPAS) {
+    if (d.soloServidor && !servidor) continue;
+    const b = el("button", { type: "button", className: "capa", role: "switch", title: d.titulo || "" }, el("span", { className: "interruptor" }), el("span", { className: "nombre", textContent: d.nombre }), d.ley ? d.ley() : null);
+    b.setAttribute("aria-checked", String(!!ajustes.capas[d.id]));
+    b.addEventListener("click", () => { const si = b.getAttribute("aria-checked") !== "true"; b.setAttribute("aria-checked", String(si)); ponerCapa(d.id, si); });
+    panelCapas.append(b);
+  }
 }
-const bInvestigar = el("button", { type: "button", className: "investigar", title: "Investigar un punto: pulsa en el mapa para ver la ficha de ese inmueble (también con clic derecho)" }, "⌖ Investigar");
-bInvestigar.setAttribute("aria-pressed", "false");
+function cerrarCapas() { $("mapa-zona").classList.remove("capas-abiertas"); $("b-capas").setAttribute("aria-expanded", "false"); }
+$("b-capas").addEventListener("click", () => {
+  const abierto = $("mapa-zona").classList.toggle("capas-abiertas");
+  $("b-capas").setAttribute("aria-expanded", String(abierto));
+});
+L.DomEvent.disableClickPropagation(panelCapas); L.DomEvent.disableScrollPropagation(panelCapas);
+for (const id of ["b-capas", "b-investigar", "tira-parte"]) L.DomEvent.disableClickPropagation($(id));
+montarCapas();
+const bInvestigar = $("b-investigar");
 bInvestigar.addEventListener("click", () => { investigando = !investigando; bInvestigar.setAttribute("aria-pressed", String(investigando)); $("mapa-zona").classList.toggle("investigando", investigando); });
-barraMapa.append(bInvestigar);
-L.DomEvent.disableClickPropagation(barraMapa);
-for (const id of ["sucesos", "textos", "avisos", "agenda", "obras", "helis", "nombres"]) if (ajustes.capas[id]) capas[id].addTo(mapa);
+for (const id of ["trafico", "calor", "sucesos", "textos", "avisos", "agenda", "obras", "helis", "nombres"]) if (ajustes.capas[id]) capas[id].addTo(mapa);
 
-mapa.on("click", (ev) => { if (investigando) abrirLugar(ev.latlng.lat, ev.latlng.lng); });
+mapa.on("click", (ev) => { if (investigando) abrirLugar(ev.latlng.lat, ev.latlng.lng); else if (movil()) cerrarCapas(); });
 mapa.on("contextmenu", (ev) => abrirLugar(ev.latlng.lat, ev.latlng.lng));
-mapa.on("zoomend", () => pintarNombres());
+mapa.on("zoomend", () => { pintarNombres(); if (ajustes.capas.trafico) pintarTrafico(); });
 
-/* ---------- Barrios ---------- */
+/* ---------- Barrios: un contorno tenue que se puede pulsar; relleno solo si están fuera de lo normal ---------- */
 function familiaDominante(b) {
   let mejor = null, max = 0;
   for (const [f, v] of Object.entries(b?.familias || {})) if (v > max) { max = v; mejor = f; }
@@ -146,14 +312,13 @@ function estiloBarrio(f) {
   const c = f.properties.codigo;
   if (modo.tipo !== "nivel") {
     const [color, a] = colorDivergente(modo.valores?.[c], modo.escala, modo.pos, modo.neg);
-    return { pane: "barrios", color: "#1d4655", weight: 0.8, opacity: 0.8, fillColor: color, fillOpacity: modo.valores?.[c] == null ? 0.04 : a };
+    return { color: "#1e4252", weight: 0.8, opacity: 0.8, dashArray: null, fillColor: color, fillOpacity: modo.valores?.[c] == null ? 0.04 : a };
   }
-  const b = E?.barrios?.[c];
-  const n = b?.nivel || 0;
-  const color = COLOR_FAMILIA[familiaDominante(b)] || C.cian;
-  const activo = enSuceso.has(c);
-  return { pane: "barrios", color: activo ? color : "#1d4655", weight: activo ? 2.2 : 0.8, opacity: activo ? 1 : 0.75,
-    fillColor: color, fillOpacity: n < 2 ? 0.02 : Math.min(0.6, 0.1 + (n - 2) * 0.08) };
+  const n = E?.barrios?.[c]?.nivel || 0;
+  const raro = ajustes.capas.barrios && n >= 2.5;
+  if (enSuceso.has(c)) return { color: C.magenta, weight: 1.6, opacity: 0.75, dashArray: "4 4", fillColor: C.magenta, fillOpacity: raro ? Math.min(0.42, 0.06 + (n - 2.5) * 0.06) : 0.06 };
+  return { color: raro ? C.magenta : "#27485a", weight: raro ? 1 : 0.6, opacity: raro ? 0.7 : 0.45, dashArray: null,
+    fillColor: C.magenta, fillOpacity: raro ? Math.min(0.42, 0.06 + (n - 2.5) * 0.06) : 0 };
 }
 function tooltipBarrio(c) {
   const b = E?.barrios?.[c];
@@ -165,8 +330,9 @@ function tooltipBarrio(c) {
   }
   if (!b) { caja.append(el("div", { className: "tt-s", textContent: "Sin datos aún" })); return caja; }
   const s = b.senales?.[0];
-  caja.append(el("div", { className: "tt-s", textContent: b.nivel >= 2 ? `Nivel ${cifra(b.nivel)} · ${NOMBRE_FAMILIA[familiaDominante(b)] || ""}` : "Dentro de lo normal" }));
-  if (s && b.nivel >= 2) caja.append(el("div", { className: "tt-s", textContent: `${E.rasgos?.[s.rasgo]?.nombre || s.rasgo}: ${cifra(s.valor)} (normal ${cifra(s.normal)})` }));
+  caja.append(el("div", { className: "tt-s", textContent: b.nivel >= 2.5 ? `Fuera de lo normal (${cifra(b.nivel)}): ${NOMBRE_FAMILIA[familiaDominante(b)] || ""}` : "Dentro de lo normal" }));
+  if (s && b.nivel >= 2.5) caja.append(el("div", { className: "tt-s", textContent: `${E.rasgos?.[s.rasgo]?.nombre || s.rasgo}: ${cifra(s.valor)} (lo normal, ${cifra(s.normal)})` }));
+  caja.append(el("div", { className: "tt-s", textContent: "Pulsa para ver la ficha del barrio" }));
   return caja;
 }
 function pintarBarrios() {
@@ -174,15 +340,15 @@ function pintarBarrios() {
   enSuceso = barriosEnSuceso();
   if (!capas.barrios) {
     capas.barrios = L.geoJSON(geo, {
-      pane: "barrios", style: estiloBarrio,
+      renderer: vectores, style: estiloBarrio,
       onEachFeature: (f, capa) => {
         capa.on("click", (ev) => { L.DomEvent.stop(ev); investigando ? abrirLugar(ev.latlng.lat, ev.latlng.lng) : abrirBarrio(f.properties.codigo); });
         capa.on("contextmenu", (ev) => { L.DomEvent.stop(ev); abrirLugar(ev.latlng.lat, ev.latlng.lng); });
         capa.bindTooltip(() => tooltipBarrio(f.properties.codigo), { sticky: true, className: "sala", direction: "top", offset: [0, -10] });
       },
-    });
-    if (ajustes.capas.barrios) capas.barrios.addTo(mapa);
+    }).addTo(mapa);
   } else capas.barrios.setStyle(estiloBarrio);
+  capas.barrios.bringToBack();
   pintarNombres();
 }
 function pintarNombres() {
@@ -196,49 +362,131 @@ function pintarNombres() {
   }
 }
 
-/* ---------- Sucesos, textos, avisos, agenda ---------- */
+/* ---------- Tráfico: cada tramo de calle, del color de su estado ---------- */
+function grosor(estado) {
+  const z = mapa.getZoom();
+  const base = z >= 16 ? 5 : z >= 15 ? 4 : z >= 14 ? 3.2 : z >= 13 ? 2.6 : 2;
+  return estado === 0 ? base * 0.7 : estado === 3 ? base * 0.9 : base + (estado === 2 ? 1.2 : 0.6);
+}
+function pintarTrafico() {
+  capas.trafico.clearLayers();
+  if (!tramos || !ajustes.capas.trafico) return;
+  // Primero lo fluido y encima lo demás: un atasco no se queda debajo de una calle verde.
+  for (const estado of [0, 1, 2, 3]) {
+    for (const [id, nombre, trazo] of tramos) {
+      if (estadosTrafico[id] !== estado) continue;
+      L.polyline(trazo, { renderer: vectores, color: COLOR_TRAFICO[estado], weight: grosor(estado), opacity: estado === 0 ? 0.6 : 0.95,
+        dashArray: estado === 3 ? "4 5" : null, lineCap: estado === 3 ? "butt" : "round" })
+        .bindTooltip(() => el("div", {}, el("div", { className: "tt-n", textContent: nombre || "Tramo" }), el("div", { className: "tt-s", textContent: NOMBRE_TRAFICO[estado] })),
+          { sticky: true, className: "sala", direction: "top", offset: [0, -8] })
+        .addTo(capas.trafico);
+    }
+  }
+}
+// El estado de cada tramo lo da el geoportal del Ajuntament, que se puede pedir desde el navegador: así está al
+// minuto también en la web. Si no contesta, vale lo último que guardó el programa.
+let relojTrafico = 0;
+async function pedirTraficoVivo() {
+  clearTimeout(relojTrafico);
+  relojTrafico = setTimeout(pedirTraficoVivo, 180000);
+  if (document.hidden) return;
+  try {
+    const r = await fetch(`${GEOPORTAL}/Trafico/MapServer/192/query?where=1%3D1&outFields=idtramo,estado&returnGeometry=false&resultRecordCount=2000&f=json`);
+    if (!r.ok) throw new Error(r.status);
+    const j = await r.json();
+    const estados = {};
+    for (const f of j.features || []) {
+      const a = f.attributes || {};
+      let n = Number(a.estado);
+      if (a.idtramo == null || a.estado == null || !Number.isFinite(n)) continue;
+      if (n >= 5 && n <= 8) n -= 5;
+      estados[String(a.idtramo)] = n >= 0 && n <= 3 ? n : null;
+    }
+    if (!Object.keys(estados).length) return;
+    estadosTrafico = estados; traficoDe = { origen: "geoportal", t: ahoraSeg() };
+    pintarTrafico(); if (E) pintarTejas();
+  } catch { /* se queda con lo del programa */ }
+}
+function traficoDelPrograma() {
+  const t = E?.trafico;
+  if (!t?.estados || !Object.keys(t.estados).length) return;
+  if (traficoDe.origen === "geoportal" && ahoraSeg() - traficoDe.t < 600) return;    // lo del geoportal es más fresco
+  if (traficoDe.origen === "programa" && traficoDe.t === t.t) return;
+  estadosTrafico = t.estados; traficoDe = { origen: "programa", t: t.t };
+  pintarTrafico();
+}
+
+/* ---------- Marcas: sucesos, noticias, carreteras, lo de hoy, obras ---------- */
+function insignia({ dibujo: d, color, tam = 24, llena = false, cuenta = 0, clase = "" }) {
+  return L.divIcon({ className: `insignia ${clase}${llena ? " llena" : ""}`, iconSize: [tam, tam], iconAnchor: [tam / 2, tam / 2],
+    html: `<span style="--c:${color}">${dibujo(d, Math.round(tam * 0.58))}</span>${cuenta > 1 ? `<b style="--c:${color}">${cuenta}</b>` : ""}` });
+}
+// Lo que cae en el mismo sitio (a unos cien metros) va en una sola marca con el número de cosas.
+function agrupar(lista) {
+  const grupos = new Map();
+  for (const x of lista) {
+    const k = `${x.lat.toFixed(3)},${x.lon.toFixed(3)}`;
+    if (!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k).push(x);
+  }
+  return [...grupos.values()];
+}
+function popupLista(lista, cita = false) {
+  if (lista.length === 1) return cita ? popupCita(lista[0]) : popupTexto(lista[0]);
+  return el("div", { className: "pop-lista" }, ...lista.slice(0, 8).map((x) => (cita ? popupCita(x) : popupTexto(x))),
+    lista.length > 8 ? el("div", { className: "tt-s", textContent: `y ${lista.length - 8} más` }) : null);
+}
 function pintarCapas() {
   capas.sucesos.clearLayers();
-  for (const s of E?.sucesos || []) {
-    if (s.lat == null) continue;
+  const ordenados = [...(E?.sucesos || [])].filter((s) => s.lat != null).sort((a, b) => (a.estado === "activo") - (b.estado === "activo") || (a.puntuacion || 0) - (b.puntuacion || 0));
+  const conRotulo = new Set(ordenados.filter((s) => s.estado === "activo").slice(-3).map((s) => s.id));
+  for (const s of ordenados) {
     const activo = s.estado === "activo";
-    const d = Math.round(Math.max(14, Math.min(46, 10 + (s.puntuacion || 0) * 3)));
-    const color = COLOR_TIPO[s.tipo] || C.cian;
-    const icono = L.divIcon({ className: `icono-suceso ${activo ? "activo" : "cerrado"}`, html: `<span style="--c:${color};--d:${d}px"></span>`, iconSize: [d, d] });
-    L.marker([s.lat, s.lon], { icon: icono, pane: "sucesos", title: s.titulo || "", keyboard: false, zIndexOffset: activo ? 1000 : 0 })
+    const d = Math.round(Math.max(28, Math.min(44, 22 + (s.puntuacion || 0) * 1.6)));
+    const color = COLOR_TIPO[s.tipo] || C.magenta;
+    const marca = L.marker([s.lat, s.lon], { pane: "sucesos", title: s.titulo || "", keyboard: false, zIndexOffset: activo ? 1000 : 0,
+      icon: L.divIcon({ className: `marca-suceso ${activo ? "activo" : "cerrado"}`, iconSize: [d, d], iconAnchor: [d / 2, d / 2],
+        html: `<span style="--c:${color}">${dibujo(DIBUJO_TIPO[s.tipo] || "gente", Math.round(d * 0.5))}</span>` }) })
       .on("click", () => abrirSuceso(s.id)).addTo(capas.sucesos);
+    if (conRotulo.has(s.id)) {
+      const rotulo = el("span", { textContent: (s.titulo || "").split(" — ")[0] });
+      marca.bindTooltip(rotulo, { permanent: true, direction: "right", offset: [d / 2 + 4, 0], className: `rotulo-suceso${s.tipo === "incidente" ? " rojo" : ""}`, interactive: false });
+    }
   }
   capas.textos.clearLayers();
   const desde = ahoraSeg() - 6 * 3600;
-  for (const it of E?.feed || []) {
-    if (it.lat == null || it.t < desde || it.fuente === "dgt" || it.fuente === "renfe") continue;
-    const color = COLOR_CATEGORIA[it.categoria] || C.violeta;
-    L.circleMarker([it.lat, it.lon], { radius: it.urgencia >= 2 ? 6 : 4.5, color, weight: 1.5, fillColor: color, fillOpacity: 0.55 })
-      .bindPopup(() => popupTexto(it), { maxWidth: 300 }).addTo(capas.textos);
+  const textos = (E?.feed || []).filter((it) => it.lat != null && it.t >= desde && !["dgt", "renfe", "meteoalarm"].includes(it.fuente));
+  for (const grupo of agrupar(textos)) {
+    const it = [...grupo].sort((a, b) => (b.urgencia || 0) - (a.urgencia || 0) || b.t - a.t)[0];
+    L.marker([it.lat, it.lon], { keyboard: false, title: it.titulo || "", icon: insignia({ dibujo: dibujoDeTexto(it), color: colorDeTexto(it), llena: (it.urgencia || 0) >= 2, cuenta: grupo.length }) })
+      .bindPopup(() => popupLista(grupo), { maxWidth: 320 }).addTo(capas.textos);
   }
   capas.avisos.clearLayers();
-  for (const a of E?.avisos || []) {
-    if (a.lat == null) continue;
-    const icono = L.divIcon({ className: `icono-aviso u${Math.min(2, a.urgencia || 0)}`, html: "▲", iconSize: [16, 16] });
-    L.marker([a.lat, a.lon], { icon: icono, title: a.titulo || "", keyboard: false }).bindPopup(() => popupTexto(a), { maxWidth: 300 }).addTo(capas.avisos);
+  for (const grupo of agrupar((E?.avisos || []).filter((a) => a.lat != null))) {
+    const a = grupo[0];
+    const tren = a.fuente === "renfe";
+    L.marker([a.lat, a.lon], { keyboard: false, title: a.titulo || "",
+      icon: insignia({ dibujo: dibujoDeAviso(a), color: tren ? C.cian : C.ambar, tam: tren ? 22 : 20, clase: tren ? "" : "carretera", cuenta: grupo.length, llena: (a.urgencia || 0) >= 2 }) })
+      .bindPopup(() => popupLista(grupo), { maxWidth: 320 }).addTo(capas.avisos);
   }
   capas.agenda.clearLayers();
-  for (const a of E?.agenda?.destacado || []) {
-    if (a.lat == null) continue;
-    const icono = L.divIcon({ className: "icono-agenda", html: a.tipo === "partido" ? "◆" : "★", iconSize: [18, 18] });
-    L.marker([a.lat, a.lon], { icon: icono, title: a.titulo || "", keyboard: false }).bindPopup(() => popupCita(a), { maxWidth: 300 }).addTo(capas.agenda);
+  for (const grupo of agrupar((E?.agenda?.destacado || []).filter((a) => a.lat != null))) {
+    const a = grupo[0];
+    L.marker([a.lat, a.lon], { keyboard: false, title: a.titulo || "", icon: insignia({ dibujo: a.tipo === "partido" ? "deporte" : a.tipo === "festejo" ? "evento" : "estrella", color: C.ambar, tam: 26, llena: true, cuenta: grupo.length }) })
+      .bindPopup(() => popupLista(grupo, true), { maxWidth: 320 }).addTo(capas.agenda);
   }
   capas.obras.clearLayers();
   for (const a of E?.agenda?.planificado || []) {
-    L.circleMarker([a.lat, a.lon], { radius: 3, color: "#94a3b8", weight: 1, fillColor: "#94a3b8", fillOpacity: 0.35 })
+    if (a.lat == null) continue;
+    L.circleMarker([a.lat, a.lon], { renderer: vectores, radius: 3, color: "#94a3b8", weight: 1, fillColor: "#94a3b8", fillOpacity: 0.35 })
       .bindPopup(() => popupCita(a), { maxWidth: 300 }).addTo(capas.obras);
   }
 }
 function popupTexto(it) {
   const caja = el("div", {},
-    el("div", { className: "tt-s", textContent: `${NOMBRE_FUENTE[it.fuente] || it.fuente}${it.medio ? ` · ${it.medio}` : ""} · ${fechaHora(it.t)}` }),
+    el("div", { className: "tt-s", textContent: `${NOMBRE_FUENTE[it.fuente] || it.fuente}${it.medio ? `, ${it.medio}` : ""}, ${fechaHora(it.t)}` }),
     el("div", { style: "margin:4px 0; font-weight:600" }, enlace(it.titulo || "(sin título)", it.url)));
-  if (it.barrio) caja.append(el("div", { className: "tt-s", textContent: nombreBarrio(it.barrio) + (it.lugar ? ` · ${it.lugar}` : "") }));
+  if (it.barrio) caja.append(el("div", { className: "tt-s", textContent: nombreBarrio(it.barrio) + (it.lugar ? `, ${it.lugar}` : "") }));
   return caja;
 }
 function popupCita(a) {
@@ -258,71 +506,67 @@ async function pedirCielo() {
     capas.helis.clearLayers();
     for (const [ident, h] of Object.entries(d.helicopteros || {})) {
       const p = h.p.map((x) => [x[1], x[2]]);
-      L.polyline(p, { color: C.rojo, weight: 1.6, opacity: 0.7, dashArray: "3 4" }).addTo(capas.helis);
+      L.polyline(p, { renderer: vectores, color: C.rojo, weight: 1.6, opacity: 0.7, dashArray: "3 4", interactive: false }).addTo(capas.helis);
       const u = h.p[h.p.length - 1];
-      const icono = L.divIcon({ className: "icono-heli", html: "<b></b>", iconSize: [14, 14], iconAnchor: [7, 7] });
-      L.marker([u[1], u[2]], { icon: icono, keyboard: false, title: h.nombre || ident })
-        .bindTooltip(`${h.nombre || ident} · ${u[3] == null ? "?" : `${u[3]} m`}`, { className: "sala", direction: "right", offset: [8, 0] }).addTo(capas.helis);
+      const marca = L.divIcon({ className: "icono-heli", html: "<b></b>", iconSize: [14, 14], iconAnchor: [7, 7] });
+      L.marker([u[1], u[2]], { icon: marca, keyboard: false, title: h.nombre || ident })
+        .bindTooltip(`${h.nombre || ident}, ${u[3] == null ? "altura desconocida" : `${u[3]} m`}`, { className: "sala", direction: "right", offset: [8, 0] }).addTo(capas.helis);
     }
   } catch { /* sin cielo */ }
   relojCielo = setTimeout(pedirCielo, 30000);
 }
 
-/* ====================== Leyenda ====================== */
+/* ====================== Leyenda (solo para comparar y movilidad: la del día a día está en las capas) ====================== */
 function pintarLeyenda() {
-  const ley = $("leyenda");
-  ley.replaceChildren();
-  if (modo.tipo === "nivel") {
-    ley.append(el("div", { className: "titulo", textContent: "Barrios fuera de lo normal" }));
-    for (const f of ["afluencia", "salida", "congestion", "corte", "atencion", "alerta"]) {
-      const c = el("span", { className: "cuadro" }); c.style.setProperty("--c", COLOR_FAMILIA[f]);
-      ley.append(el("div", { className: "lin" }, c, NOMBRE_FAMILIA[f]));
-    }
-    ley.append(el("div", { className: "lin", textContent: "Más intenso, más lejos de lo normal para esa hora y ese día." }));
-  } else {
-    ley.append(el("div", { className: "titulo", textContent: modo.titulo || "" }));
-    const g = el("div", { className: "degradado" });
-    g.style.background = `linear-gradient(90deg, ${modo.neg}, #0b1621 50%, ${modo.pos})`;
-    ley.append(g, el("div", { className: "lin", style: "justify-content:space-between" }, el("span", { textContent: modo.izquierda || "menos" }), el("span", { textContent: modo.derecha || "más" })));
-  }
+  const caja = $("leyenda");
+  caja.replaceChildren();
+  if (modo.tipo === "nivel") return;
+  caja.append(el("div", { className: "titulo", textContent: modo.titulo || "" }));
+  const g = el("div", { className: "degradado" });
+  g.style.background = `linear-gradient(90deg, ${modo.neg}, #0d1822 50%, ${modo.pos})`;
+  caja.append(g, el("div", { className: "lin", style: "justify-content:space-between" }, el("span", { textContent: modo.izquierda || "menos" }), el("span", { textContent: modo.derecha || "más" })));
 }
 
 /* ====================== Cabecera ====================== */
 function pintarReloj() {
   const d = new Date();
   $("reloj").firstChild.nodeValue = `${dos(d.getHours())}:${dos(d.getMinutes())}:${dos(d.getSeconds())}`;
-  $("fecha").textContent = `${DIAS_LARGOS[d.getDay()]} ${d.getDate()} ${MESES[d.getMonth()]}`;
+  $("fecha").textContent = `${DIAS_LARGOS[d.getDay()]} ${d.getDate()} de ${MESES_LARGOS[d.getMonth()]}`;
   const vivo = $("vivo");
   if (!E) { vivo.className = "vivo parado"; vivo.textContent = "sin datos"; return; }
   const edad = ahoraSeg() - (E.generado || 0);
   const limite = servidor ? 150 : 25 * 60;
   vivo.className = `vivo${edad > limite * 6 ? " parado" : edad > limite ? " atrasado" : ""}`;
-  vivo.textContent = servidor ? (edad > limite ? `datos ${hace(edad)}` : "en directo") : `web · ${hace(edad)}`;
+  vivo.textContent = servidor && edad <= limite ? "en directo" : `actualizado ${hace(edad)}`;
 }
 setInterval(pintarReloj, 1000);
 
 function pintarCabecera() {
-  const [color, nombre, barras] = CLASE_NIVEL[E.nivel?.clase] || CLASE_NIVEL.normal;
-  const v = $("nivel-valor");
-  v.textContent = nombre; v.style.color = color;
-  $("nivel-ciudad").title = `${E.nivel?.frase || ""} (nivel ${cifra(E.nivel?.valor)})`;
+  const ap = E.aprendiendo;
+  const aprendiendo = !!ap && !ap.listo;
+  let clase = E.nivel?.clase || "normal";
+  // Con menos de cuatro semanas de histórico, lo normal de cada barrio a cada hora aún no es fiable: no se pasa de «atención».
+  if (aprendiendo && (clase === "alta" || clase === "muy alta")) clase = "atencion";
+  const [color, nombre, barras] = CLASE_NIVEL[clase] || CLASE_NIVEL.normal;
+  const caja = $("nivel-ciudad");
+  caja.style.setProperty("--c", color);
+  caja.classList.toggle("provisional", aprendiendo);
+  $("nivel-valor").textContent = nombre;
+  $("nivel-detalle").textContent = aprendiendo ? `aprendiendo, ${Math.min(4, ap.semanas || 0)} de 4 semanas` : "";
+  caja.title = `${E.nivel?.frase || ""}${aprendiendo ? ". Con menos de cuatro semanas de histórico lo normal aún no es fiable, así que la sala no pasa de «atención»." : ""}`;
   $("nivel-barras").replaceChildren(...[1, 2, 3, 4].map((k) => { const s = el("span"); if (k <= barras) { s.style.background = color; s.style.boxShadow = `0 0 6px ${color}`; } return s; }));
   const fuentes = E.fuentes || [];
   const ahora = ahoraSeg();
   const bien = fuentes.filter((f) => f.ok && f.ultima && ahora - f.ultima < Math.max(3 * (f.cada || 600), 1800)).length;
   const chip = $("chip-fuentes");
   chip.className = `chip ${!fuentes.length ? "" : bien === fuentes.length ? "ok" : bien >= fuentes.length * 0.7 ? "aviso" : "mal"}`;
-  chip.replaceChildren(el("span", { className: "punto" }), fuentes.length ? `Fuentes ${bien}/${fuentes.length}` : "Fuentes");
-  const ap = E.aprendiendo;
-  const chipAp = $("chip-aprendiendo");
-  chipAp.hidden = !ap || ap.listo;
-  if (ap && !ap.listo) chipAp.textContent = `Aprendiendo · ${Math.min(4, ap.semanas || 0)}/4 sem`;
+  chip.replaceChildren(el("span", { className: "punto" }), fuentes.length ? `${bien} de ${fuentes.length} fuentes` : "Fuentes");
   const ia = E.ia || {};
   const chipIa = $("chip-ia");
   chipIa.hidden = !servidor;
   chipIa.className = `chip opcional ${ia.disponible ? "ia" : ""}`;
-  chipIa.textContent = ia.disponible ? `IA · ${ia.modelo}` : "IA local: no";
-  chipIa.title = ia.disponible ? `IA local (${ia.modelo}): ${ia.hechos?.sucesos || 0} sucesos resumidos, ${ia.hechos?.textos || 0} textos leídos` : "Sin IA local: todo funciona con reglas. Instala Ollama para que resuma sucesos y escriba el parte.";
+  chipIa.textContent = ia.disponible ? `IA local (${ia.modelo})` : "Sin IA local";
+  chipIa.title = ia.disponible ? `IA local (${ia.modelo}): ${ia.hechos?.sucesos || 0} sucesos resumidos y ${ia.hechos?.textos || 0} textos leídos` : "Sin IA local: todo funciona con reglas. Instala Ollama para que resuma sucesos y escriba el parte.";
   const activos = (E.sucesos || []).filter((s) => s.estado === "activo").length;
   $("pestana-n").textContent = activos ? `(${activos})` : "";
   const aviso = $("aviso-mapa");
@@ -332,95 +576,128 @@ function pintarCabecera() {
 $("chip-fuentes").addEventListener("click", abrirFuentes);
 
 /* ====================== Columnas ====================== */
+function tejaTrafico() {
+  const cuenta = [0, 0, 0, 0];
+  let total = 0;
+  for (const v of Object.values(estadosTrafico)) if (v != null && v >= 0 && v <= 3) { cuenta[v]++; total++; }
+  const caja = el("div", { className: "teja ancha" }, el("div", { className: "n", textContent: "Tráfico en las calles" }));
+  if (!total) { caja.append(el("div", { className: "z", textContent: "Sin datos del estado de las calles." })); return caja; }
+  const frase = cuenta[2] ? `${cuenta[2]} ${cuenta[2] === 1 ? "tramo con atasco" : "tramos con atasco"}`
+    : cuenta[1] ? `${cuenta[1]} ${cuenta[1] === 1 ? "tramo denso" : "tramos densos"}` : "Todo fluido";
+  const reparto = el("div", { className: "reparto" });
+  cuenta.forEach((n, k) => {
+    if (!n) return;
+    const i = el("i", { title: `${NOMBRE_TRAFICO[k]}: ${n}` });
+    i.style.cssText = `flex:${n} 1 0; background:${k === 3 ? "repeating-linear-gradient(90deg, #e2e8f0 0 4px, #2a3a44 4px 6px)" : COLOR_TRAFICO[k]}`;
+    reparto.append(i);
+  });
+  const leyenda = el("div", { className: "reparto-ley" }, ...cuenta.map((n, k) => {
+    const i = el("i", { className: k === 3 ? "rayas" : "" }); i.style.setProperty("--c", COLOR_TRAFICO[k]);
+    return el("span", {}, i, `${NOMBRE_TRAFICO[k]} `, el("b", { textContent: String(n) }));
+  }));
+  caja.title = traficoDe.origen === "geoportal" ? `Estado de ${total} tramos según el Ajuntament, ${hace(ahoraSeg() - traficoDe.t)}` : `Estado de ${total} tramos, lo último que guardó el programa`;
+  caja.classList.add(cuenta[2] ? "alto" : cuenta[1] > total * 0.1 ? "alto" : "normal");
+  caja.append(el("div", { className: "v", textContent: frase }), reparto, leyenda);
+  return caja;
+}
+function teja(c, nombre) {
+  const z = c.z;
+  const estado = z == null ? "" : z >= 2 ? "alto" : z <= -2 ? "bajo" : "normal";
+  const frase = c.normal == null ? "aprendiendo lo normal" : z >= 2 ? `más de lo normal (${cifra(c.normal)})` : z <= -2 ? `menos de lo normal (${cifra(c.normal)})` : "normal para la hora";
+  return el("div", { className: `teja ${estado}`, title: `${c.nombre}${c.normal != null ? `. Lo normal a esta hora: ${cifra(c.normal)} ${c.unidad || ""}` : ""}` },
+    el("div", { className: "n", textContent: nombre }),
+    el("div", { className: "v" }, cifra(c.valor), el("small", { textContent: c.unidad && c.unidad.length < 14 ? c.unidad : "" })),
+    el("div", { className: "z", textContent: frase }));
+}
 function pintarTejas() {
   const porClave = Object.fromEntries((E.ciudad || []).map((c) => [c.clave, c]));
-  const tejas = [];
-  for (const [clave, nombre] of TEJAS) {
-    const c = porClave[clave];
-    if (!c) continue;
-    const z = c.z;
-    const t = el("div", { className: `teja${z >= 2 ? " alto" : z <= -2 ? " bajo" : ""}`, title: `${c.nombre}${c.normal != null ? ` · lo normal a esta hora: ${cifra(c.normal)}` : ""}` },
-      el("div", { className: "n", textContent: nombre }),
-      el("div", { className: "v mono" }, cifra(c.valor), el("small", { textContent: c.unidad && c.unidad.length < 12 ? c.unidad : "" })),
-      el("div", { className: "z mono", textContent: c.normal != null ? `normal ${cifra(c.normal)}${z != null ? ` · z ${z > 0 ? "+" : ""}${cifra(z)}` : ""}` : "aprendiendo…" }));
-    if (z != null) {
-      const barra = el("i", { className: "barra" });
-      barra.style.width = `${Math.min(100, Math.abs(z) * 25)}%`;
-      barra.style.background = z >= 2 ? C.magenta : z <= -2 ? C.azul : C.tenue;
-      t.append(barra);
-    }
-    tejas.push(t);
-  }
-  $("tejas").replaceChildren(...(tejas.length ? tejas : [el("div", { className: "vacio", textContent: "Aún no han llegado cifras." })]));
+  const principales = TEJAS_PRINCIPALES.filter(([clave]) => porClave[clave]).map(([clave, nombre]) => teja(porClave[clave], nombre));
+  $("tejas").replaceChildren(tejaTrafico(), ...principales);
+  $("tejas-todas").replaceChildren(...TEJAS.filter(([clave]) => porClave[clave]).map(([clave, nombre]) => teja(porClave[clave], nombre)));
   const ultima = Math.max(0, ...(E.ciudad || []).map((c) => c.t || 0));
-  $("estado-nota").textContent = ultima ? hora(ultima) : "";
+  $("estado-nota").textContent = ultima ? `datos de las ${hora(ultima)}` : "";
 }
+$("mas-cifras").addEventListener("click", () => {
+  const caja = $("tejas-todas"), b = $("mas-cifras");
+  caja.hidden = !caja.hidden;
+  b.setAttribute("aria-expanded", String(!caja.hidden));
+  b.textContent = caja.hidden ? "Ver todas las cifras" : "Ver menos cifras";
+});
 
 function pintarListaBarrios() {
-  const filas = Object.entries(E.barrios || {}).filter(([c, b]) => c !== "VLC" && b.nivel >= 2).sort((a, b) => b[1].nivel - a[1].nivel).slice(0, 10);
+  const filas = Object.entries(E.barrios || {}).filter(([c, b]) => c !== "VLC" && b.nivel >= 2.5).sort((a, b) => b[1].nivel - a[1].nivel);
+  $("barrios-nota").textContent = filas.length ? String(filas.length) : "";
   const caja = $("lista-barrios");
-  if (!filas.length) { caja.replaceChildren(el("div", { className: "vacio", textContent: E.t ? "Todos los barrios dentro de lo normal." : "Calculando…" })); return; }
-  caja.replaceChildren(...filas.map(([c, b]) => {
+  if (!filas.length) { caja.replaceChildren(el("div", { className: "vacio", textContent: E.t ? "Todos los barrios están dentro de lo normal para la hora." : "Calculando…" })); return; }
+  caja.replaceChildren(...filas.slice(0, 8).map(([c, b]) => {
     const fam = familiaDominante(b);
-    const color = COLOR_FAMILIA[fam] || C.cian;
     const s = b.senales?.[0];
     const medidor = el("div", { className: "medidor" }, el("i"));
-    medidor.firstChild.style.cssText = `width:${Math.min(100, b.nivel * 10)}%; background:${color}; box-shadow: 0 0 6px ${color}`;
-    const fila = el("div", { className: "fila", onclick: () => abrirBarrio(c) },
-      el("span", { className: "t", textContent: nombreBarrio(c) }), el("span", { className: "mono", style: `color:${color}`, textContent: cifra(b.nivel) }),
-      el("span", { className: "s", textContent: `${NOMBRE_FAMILIA[fam] || ""}${s ? ` · ${E.rasgos?.[s.rasgo]?.nombre || s.rasgo} ${cifra(s.valor)} (normal ${cifra(s.normal)})` : ""}` }), medidor);
-    return fila;
+    medidor.firstChild.style.cssText = `width:${Math.min(100, b.nivel * 10)}%; background:${C.magenta}`;
+    return el("div", { className: "fila", onclick: () => abrirBarrio(c) },
+      el("span", { className: "t", textContent: nombreBarrio(c) }), el("span", { className: "num", style: `color:${C.magenta}`, textContent: cifra(b.nivel) }),
+      el("span", { className: "s", textContent: `${NOMBRE_FAMILIA[fam] || ""}${s ? `: ${(E.rasgos?.[s.rasgo]?.nombre || s.rasgo).toLowerCase()} ${cifra(s.valor)}, lo normal ${cifra(s.normal)}` : ""}` }), medidor);
   }));
 }
 
 function pintarParte() {
   const p = E.parte || {};
   const caja = $("parte");
-  caja.replaceChildren();
-  if (p.ia?.texto) {
-    caja.append(el("div", { textContent: p.ia.texto }), el("div", { className: "alt", textContent: p.texto }));
-    $("parte-nota").textContent = `IA · ${hora(p.ia.t)}`;
-  } else {
-    caja.append(el("div", { textContent: p.texto || "—" }));
-    $("parte-nota").textContent = p.t ? `reglas · ${hora(p.t)}` : "";
+  const abierto = !!caja.querySelector("details")?.open;
+  const principal = p.ia?.texto || p.texto || "";
+  caja.replaceChildren(el("div", { textContent: principal || "—" }));
+  if (p.ia?.texto && p.texto) {
+    const detalle = el("details", {}, el("summary", { textContent: "Ver el parte con todas las cifras" }), el("p", { textContent: p.texto }));
+    detalle.open = abierto;
+    caja.append(detalle);
   }
+  $("parte-nota").textContent = p.ia?.texto ? `IA local, ${hora(p.ia.t)}` : p.t ? hora(p.t) : "";
+  $("tira-parte").replaceChildren(...(principal ? [el("span", { className: "texto-tira", textContent: principal })] : []));
 }
+const tira = $("tira-parte");
+tira.addEventListener("click", () => tira.classList.toggle("abierta"));
+tira.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); tira.classList.toggle("abierta"); } });
 
 function pintarHoy() {
   const ag = E.agenda || {};
   const fin = new Date(); fin.setHours(23, 59, 59);
   const filas = (ag.destacado || []).filter((a) => a.desde <= fin.getTime() / 1000 + 86400);
   const caja = $("hoy");
-  caja.replaceChildren(...filas.slice(0, 12).map((a) => el("div", { className: "a", style: "cursor:pointer", onclick: () => (a.lat != null ? mapa.flyTo([a.lat, a.lon], 15) : null) },
+  caja.replaceChildren(...filas.slice(0, 12).map((a) => el("div", { className: "a", title: a.lat != null ? "Ver en el mapa" : "", onclick: () => (a.lat != null ? (ponerVista("mapa"), mapa.flyTo([a.lat, a.lon], 15)) : null) },
+    icono(a.tipo === "partido" ? "deporte" : a.tipo === "festejo" ? "evento" : "estrella", C.ambar),
     el("span", { className: "h", textContent: a.tipo === "partido" || a.tipo === "festejo" ? (a.desde < fin.getTime() / 1000 ? hora(a.desde) : fecha(a.desde).split(" ")[0]) : a.tipo === "fiesta" ? "fiesta" : "festivo" }),
     el("span", { textContent: a.titulo || "" }))));
   const cuenta = ag.cuenta || {};
-  const nombres = { obra: "obras", ocupacion: "ocupaciones de vía", mudanza: "mudanzas" };
-  const resumen = Object.entries(cuenta).map(([k, n]) => `${n} ${nombres[k] || k}`).join(" · ");
-  if (resumen) caja.append(el("div", { className: "vacio", style: "padding-top:6px", textContent: `En curso: ${resumen}` }));
-  if (!filas.length && !resumen) caja.replaceChildren(el("div", { className: "vacio", textContent: "Nada previsto." }));
-  $("hoy-nota").textContent = filas.length ? `${filas.length}` : "";
+  const nombres = { obra: "obras", ocupacion: "ocupaciones de la vía", mudanza: "mudanzas" };
+  const resumen = Object.entries(cuenta).map(([k, n]) => `${n} ${nombres[k] || k}`).join(", ");
+  if (resumen) caja.append(el("div", { className: "vacio", style: "padding-top:6px", textContent: `En curso: ${resumen}.` }));
+  if (!filas.length && !resumen) caja.replaceChildren(el("div", { className: "vacio", textContent: "Nada previsto para hoy." }));
+  $("hoy-nota").textContent = filas.length ? String(filas.length) : "";
 }
 
 function pintarSucesos() {
   const todos = [...(E.sucesos || [])].sort((a, b) => (b.estado === "activo") - (a.estado === "activo") || (b.estado === "activo" ? b.puntuacion - a.puntuacion : b.fin - a.fin));
   const activos = todos.filter((s) => s.estado === "activo").length;
-  $("sucesos-nota").textContent = `${activos} activo${activos === 1 ? "" : "s"} · 24 h: ${todos.length}`;
+  $("sucesos-nota").textContent = activos ? `${activos} en marcha` : todos.length ? `${todos.length} en las últimas 24 h` : "";
   const caja = $("sucesos");
   if (!todos.length) {
     caja.replaceChildren(el("div", { className: "vacio", textContent: E.aprendiendo && !E.aprendiendo.listo
-      ? "Nada fuera de lo normal. (La sala aún está aprendiendo cómo es cada barrio a cada hora: con pocos días de histórico solo salta lo muy claro.)"
+      ? "Nada fuera de lo normal. La sala aún está aprendiendo cómo es cada barrio a cada hora: con pocos días de histórico solo salta lo muy claro."
       : "Nada fuera de lo normal en las últimas 24 horas." }));
     return;
   }
   caja.replaceChildren(...todos.map((s) => {
-    const color = COLOR_TIPO[s.tipo] || C.cian;
-    const fila = el("div", { className: `suceso ${s.estado === "activo" ? "activo" : "cerrado"}`, onclick: () => abrirSuceso(s.id) },
-      el("span", { className: "marca-s" }), el("span", { className: "t", textContent: s.titulo || "Suceso" }), el("span", { className: "p", textContent: cifra(s.puntuacion) }),
+    const activo = s.estado === "activo";
+    const color = COLOR_TIPO[s.tipo] || C.magenta;
+    const fuerza = el("div", { className: "fuerza", title: `Fuerza ${cifra(s.puntuacion)} (cuántas fuentes y cuánto se salen de lo normal)` }, el("i"));
+    fuerza.firstChild.style.width = `${Math.min(100, (s.puntuacion || 0) * 7)}%`;
+    const fila = el("div", { className: `suceso ${activo ? "activo" : "cerrado"}`, onclick: () => abrirSuceso(s.id) },
+      icono(DIBUJO_TIPO[s.tipo] || "gente", color, true), el("div", { className: "t", textContent: s.titulo || "Suceso" }),
       el("div", { className: "s" },
-        el("span", { className: "etiqueta", style: `color:${color}`, textContent: s.tipo_nombre || s.tipo }),
-        el("span", { className: "mono", textContent: s.estado === "activo" ? `desde ${hora(s.inicio)} · ${duracion(ahoraSeg() - s.inicio)}` : `${hora(s.inicio)}–${hora(s.fin)}` }),
-        el("span", { className: s.explicado ? "con-causa" : "sin-causa", textContent: s.explicado ? "explicado" : "sin causa conocida" })));
+        el("span", { textContent: s.tipo_nombre || s.tipo }),
+        el("span", { textContent: activo ? `desde las ${hora(s.inicio)} (${duracion(ahoraSeg() - s.inicio)})` : `de ${hora(s.inicio)} a ${hora(s.fin)}` }),
+        el("span", { className: s.explicado ? "con-causa" : "sin-causa", textContent: s.explicado ? "con causa probable" : "sin causa conocida" })),
+      fuerza);
     fila.style.setProperty("--c", color);
     return fila;
   }));
@@ -435,16 +712,16 @@ for (const [id, nombre] of PESTANAS_FEED) {
   pestanasFeed.append(b);
 }
 function filaTexto(it) {
-  const color = COLOR_CATEGORIA[it.categoria] || C.gris;
-  const s = el("div", { className: "s" }, el("span", { textContent: it.medio || NOMBRE_FUENTE[it.fuente] || it.fuente }));
-  if (it.categoria && it.categoria !== "otros") s.append(el("span", { className: "etiqueta", style: `color:${color}`, textContent: it.categoria }));
-  if (it.barrio) s.append(el("span", { textContent: nombreBarrio(it.barrio) }));
-  if (it.lat != null) s.append(el("span", { className: "ir", textContent: "⌖ ver", title: "Ver en el mapa", onclick: () => { ponerVista("mapa"); mapa.flyTo([it.lat, it.lon], 16); } }));
+  const color = colorDeTexto(it);
   const reciente = ahoraSeg() - it.t < 20 * 3600;
   const d = new Date(it.t * 1000);
+  const s = el("div", { className: "s" }, el("span", { title: `${fecha(it.t)} ${hora(it.t)}`, textContent: reciente ? hora(it.t) : `${d.getDate()}/${d.getMonth() + 1}` }),
+    el("span", { textContent: it.medio || NOMBRE_FUENTE[it.fuente] || it.fuente }));
+  if (NOMBRE_CATEGORIA[it.categoria]) s.append(el("span", { style: `color:${color}`, textContent: NOMBRE_CATEGORIA[it.categoria] }));
+  if (it.barrio) s.append(el("span", { textContent: nombreBarrio(it.barrio) }));
+  if (it.lat != null) s.append(el("span", { className: "ir", textContent: "Ver en el mapa", onclick: () => { ponerVista("mapa"); mapa.flyTo([it.lat, it.lon], 16); } }));
   return el("div", { className: `texto${(it.urgencia || 0) >= 2 ? " urgente" : ""}` },
-    el("span", { className: "h", title: `${fecha(it.t)} ${hora(it.t)}`, textContent: reciente ? hora(it.t) : `${d.getDate()}/${d.getMonth() + 1}` }),
-    el("div", { className: "t" }, enlace(it.titulo || "(sin título)", it.url)), s);
+    icono(dibujoDeTexto(it), color), el("div", { className: "t" }, enlace(it.titulo || "(sin título)", it.url)), s);
 }
 function pintarFeed() {
   const caja = $("feed");
@@ -452,14 +729,14 @@ function pintarFeed() {
   if (ajustes.feed === "avisos") lista = E.avisos || [];
   const TEMAS_SALA = ["emergencia", "accidente", "seguridad", "protesta", "trafico", "transporte", "meteo", "evento", "deporte"];
   if (ajustes.feed !== "avisos") lista = (E.feed || []).filter((it) => ajustes.feed === "todo"
-    ? it.fuente === "prensa" || (["bluesky", "mastodon"].includes(it.fuente) && it.barrio && TEMAS_SALA.includes(it.categoria))
-    : ajustes.feed === "prensa" ? it.fuente === "prensa" : ["bluesky", "mastodon"].includes(it.fuente));
+    ? it.fuente === "prensa" || (REDES.includes(it.fuente) && it.barrio && TEMAS_SALA.includes(it.categoria))
+    : ajustes.feed === "prensa" ? it.fuente === "prensa" : REDES.includes(it.fuente));
   const filas = lista.slice(0, 80).map(filaTexto);
   if (ajustes.feed === "redes" && E.publico) {
     const c = E.conversacion || {};
-    filas.unshift(el("div", { className: "aviso-web", textContent: `En la web solo se cuentan las publicaciones de redes (en el ordenador se ven enteras): ${c.publicaciones || 0} sobre la ciudad en las últimas dos horas.` }));
+    filas.unshift(el("div", { className: "aviso-web", textContent: `En la web las publicaciones de redes solo se cuentan (en el ordenador se ven enteras): ${c.publicaciones || 0} sobre la ciudad en las últimas dos horas.` }));
   }
-  caja.replaceChildren(...(filas.length ? filas : [el("div", { className: "vacio", textContent: "Nada todavía." })]));
+  caja.replaceChildren(...(filas.length ? filas : [el("div", { className: "vacio", textContent: "Aún no ha llegado nada." })]));
 }
 
 /* ====================== Cargar ====================== */
@@ -473,6 +750,7 @@ async function cargar() {
       geo = await pedirJSON(servidor ? "vivo/sala/barrios" : `${BASE}sala-barrios.json`).catch(() => null);
       for (const f of geo?.features || []) props[f.properties.codigo] = f.properties;
     }
+    if (!tramos && E.hay) cargarTramos();
     pintarTodo();
   } catch (err) {
     ultimoError = err;
@@ -484,11 +762,25 @@ async function cargar() {
   }
   relojCarga = setTimeout(cargar, servidor ? 30000 : 120000);
 }
+let pidiendoTramos = false;
+async function cargarTramos() {
+  if (pidiendoTramos) return;
+  pidiendoTramos = true;
+  try {
+    const d = await pedirJSON(servidor ? "vivo/sala/tramos" : `${BASE}sala-tramos.json`);
+    tramos = d.tramos || [];
+    pintarTrafico();
+    if (E) pintarTejas();
+  } catch { /* sin trazado: se vuelve a pedir en la próxima carga */ }
+  pidiendoTramos = false;
+}
 function pintarTodo() {
   if (!E) return;
+  traficoDelPrograma();
   pintarCabecera(); pintarReloj();
   pintarTejas(); pintarListaBarrios(); pintarParte(); pintarHoy(); pintarSucesos(); pintarFeed();
   pintarBarrios(); pintarCapas(); pintarLeyenda();
+  capas.calor.ponerPuntos(E.calor?.puntos || []);
 }
 
 /* ====================== La ficha ====================== */
@@ -528,7 +820,7 @@ function resaltarBarrios(codigos, color = C.magenta) {
   if (!geo) return;
   const set = new Set(codigos);
   const elegidos = geo.features.filter((f) => set.has(f.properties.codigo));
-  if (elegidos.length) L.geoJSON({ type: "FeatureCollection", features: elegidos }, { pane: "barrios", interactive: false,
+  if (elegidos.length) L.geoJSON({ type: "FeatureCollection", features: elegidos }, { pane: "foco", interactive: false,
     style: { color, weight: 3, opacity: 1, fill: false, dashArray: "6 4" } }).addTo(capas.foco);
   return elegidos;
 }
@@ -684,7 +976,7 @@ function pintarSucesoEntero(cont, d, color) {
   if (textos.length) cont.append(seccion("Lo que se ha publicado de la zona", ...textos.map((t) => filaTexto({ ...t, medio: NOMBRE_FUENTE[t.fuente] }))));
   const helis = Object.entries(d.helicopteros || {});
   if (helis.length) {
-    for (const [, h] of helis) L.polyline(h.p.map((x) => [x[1], x[2]]), { color: C.rojo, weight: 2.2, opacity: 0.9 }).addTo(capas.foco);
+    for (const [, h] of helis) L.polyline(h.p.map((x) => [x[1], x[2]]), { pane: "foco", interactive: false, color: C.rojo, weight: 2.2, opacity: 0.9 }).addTo(capas.foco);
     cont.append(seccion("Helicópteros sobre la zona", el("p", { textContent: helis.map(([id, h]) => `${h.nombre || id} (${hora(h.p[0][0])}–${hora(h.p[h.p.length - 1][0])})`).join(" · ") }),
       el("p", { className: "pie", textContent: "Su recorrido está dibujado en rojo en el mapa. Son aeronaves que emiten su posición (ADS-B)." })));
   }
@@ -776,8 +1068,8 @@ async function abrirLugar(lat, lon) {
   const clave = `lugar=${lat.toFixed(5)},${lon.toFixed(5)}`;
   const cont = abrirFicha({ tipo: "Inmueble · punto", color: C.magenta, titulo: `${lat.toFixed(5)}, ${lon.toFixed(5)}`, clave });
   capas.foco.clearLayers();
-  L.circleMarker([lat, lon], { radius: 9, color: C.magenta, weight: 2, fill: false }).addTo(capas.foco);
-  L.circleMarker([lat, lon], { radius: 2.5, color: C.magenta, weight: 0, fillColor: C.magenta, fillOpacity: 1 }).addTo(capas.foco);
+  L.circleMarker([lat, lon], { pane: "foco", interactive: false, radius: 9, color: C.magenta, weight: 2, fill: false }).addTo(capas.foco);
+  L.circleMarker([lat, lon], { pane: "foco", interactive: false, radius: 2.5, color: C.magenta, weight: 0, fillColor: C.magenta, fillOpacity: 1 }).addTo(capas.foco);
   const visor = el("a", { className: "boton-fino", href: `./#mapa=19/${lat.toFixed(6)}/${lon.toFixed(6)}`, textContent: "Ver en el mapa completo ↗",
     title: "El mapa completo: fotos aéreas de otros años, Catastro, la historia del sitio" });
   if (!servidor) {
@@ -1015,7 +1307,7 @@ async function pintarFlujos(caja) {
       const a = d.zonas[o], b = d.zonas[de], f = v / max;
       // Un poco curvadas, siempre hacia el mismo lado: la ida y la vuelta no se pisan.
       const medio = [(a.lat + b.lat) / 2 + (b.lon - a.lon) * 0.16, (a.lon + b.lon) / 2 - (b.lat - a.lat) * 0.16];
-      L.polyline([[a.lat, a.lon], medio, [b.lat, b.lon]], { color: C.cian, weight: 1 + 7 * f, opacity: 0.2 + 0.65 * f, interactive: false }).addTo(capas.foco);
+      L.polyline([[a.lat, a.lon], medio, [b.lat, b.lon]], { pane: "foco", color: C.cian, weight: 1 + 7 * f, opacity: 0.2 + 0.65 * f, interactive: false }).addTo(capas.foco);
     }
     const llegan = {}, salen = {};
     let total = 0, dentro = 0;
@@ -1027,7 +1319,7 @@ async function pintarFlujos(caja) {
     for (const [z, v] of Object.entries(llegan)) {
       const zona = d.zonas[z];
       if (zona?.lat == null) continue;
-      L.circleMarker([zona.lat, zona.lon], { radius: 4 + 14 * Math.sqrt(v / Math.max(...Object.values(llegan))), color: C.cian, weight: 1.5, fillColor: C.cian, fillOpacity: 0.15, interactive: false }).addTo(capas.foco);
+      L.circleMarker([zona.lat, zona.lon], { pane: "foco", radius: 4 + 14 * Math.sqrt(v / Math.max(...Object.values(llegan))), color: C.cian, weight: 1.5, fillColor: C.cian, fillOpacity: 0.15, interactive: false }).addTo(capas.foco);
     }
     resumen.textContent = `${dos(h)}:00 del ${d.dias.find((x) => x.dia === d.dia)?.nombre || d.dia}: ${cifra(total)} viajes con origen o destino en València, ${cifra(dentro)} dentro de la ciudad. Las líneas, los 45 trayectos más usados entre distritos; los círculos, lo que llega a cada uno.`;
     const balance = Object.keys(d.zonas).filter((z) => z !== "fuera").map((z) => [z, (llegan[z] || 0) - (salen[z] || 0), llegan[z] || 0, salen[z] || 0]).sort((x, y) => y[1] - x[1]);
@@ -1079,15 +1371,31 @@ $("b-tiempo").addEventListener("click", () => {
   $("b-tiempo").setAttribute("aria-pressed", String(!abierto));
   if (!abierto) ponerVista("mapa");
 });
-window.OSINT_SALA = { estado: () => E, abrirSuceso, abrirBarrio, abrirLugar, abrirComparar, abrirMovilidad, cerrarFicha, modo: () => modo, servidor: () => servidor };
+window.OSINT_SALA = { estado: () => E, abrirSuceso, abrirBarrio, abrirLugar, abrirComparar, abrirMovilidad, cerrarFicha, modo: () => modo, servidor: () => servidor,
+  capas: () => ({ barrios: capas.barrios ? capas.barrios.getLayers().length : 0, tramos: capas.trafico.getLayers().length, calor: (E?.calor?.puntos || []).length,
+    sucesos: capas.sucesos.getLayers().length, textos: capas.textos.getLayers().length, avisos: capas.avisos.getLayers().length, agenda: capas.agenda.getLayers().length,
+    trafico: traficoDe.origen }) };
 
 /* ====================== Arranque ====================== */
 pintarLeyenda();
 pintarReloj();
+function vigilarHistorico() {
+  const caja = $("pulso");
+  if (!caja) return;
+  new MutationObserver(() => {
+    const abierto = !caja.hidden;
+    $("b-tiempo").setAttribute("aria-pressed", String(abierto));
+    for (const id of ["trafico", "calor"]) if (ajustes.capas[id]) (abierto ? mapa.removeLayer(capas[id]) : capas[id].addTo(mapa));
+    if (!abierto) pintarTrafico();
+  }).observe(caja, { attributes: true, attributeFilter: ["hidden"] });
+}
 hayServidor.then(async (si) => {
   servidor = si;
   document.documentElement.classList.toggle("sin-servidor", !si);
+  montarCapas();
+  vigilarHistorico();
   await cargar();
+  pedirTraficoVivo();
   if (servidor && ajustes.capas.helis) pedirCielo();
   // Lo que pide la dirección: #suceso=..., #barrio=..., #lugar=lat,lon, #comparar, #movilidad
   const [clave, valor] = decodeURIComponent(location.hash.slice(1)).split("=");
@@ -1097,5 +1405,9 @@ hayServidor.then(async (si) => {
   else if (clave === "comparar") abrirComparar();
   else if (clave === "movilidad") abrirMovilidad();
 });
-document.addEventListener("visibilitychange", () => { if (!document.hidden && E && ahoraSeg() - E.generado > (servidor ? 45 : 600)) cargar(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  if (E && ahoraSeg() - E.generado > (servidor ? 45 : 600)) cargar();
+  if (ahoraSeg() - traficoDe.t > 240) pedirTraficoVivo();
+});
 })();
