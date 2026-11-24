@@ -349,7 +349,7 @@ def test_la_agenda_del_parte_dice_si_ya_ha_empezado():
     partido = {"desde": T0 + 3600, "hasta": T0 + 3600 + 8100}
     hora = time.strftime("%H:%M", time.localtime(T0 + 3600))
     assert sala._cuando(partido, T0) == f"a las {hora}, aún no ha empezado"
-    assert sala._cuando(partido, T0 + 4000) == f"en marcha ahora (empezó a las {hora})"
+    assert sala._cuando(partido, T0 + 4000) == f"ya en marcha (empezó a las {hora})"
     assert sala._cuando(partido, T0 + 20000) == f"ya acabado (empezó a las {hora})"
     assert sala._cuando({"desde": T0 - 19 * 3600, "hasta": T0 + 5 * 3600}, T0) == "todo el día"
     assert sala._lluvia([{"clave": "meteo_temperatura", "valor": 15.6}, {"clave": "meteo_lluvia", "valor": 0.0}]) is None
@@ -377,7 +377,7 @@ def test_el_parte_de_la_ia_se_retira_cuando_cambia_la_situacion(pulso, ollama, m
     reloj[0] = T0 + 3600 + 60
     pulso.sala._cache.clear()
     otro = pulso.sala.datos_del_parte()
-    assert otro["agenda_hoy"][0]["cuando"].startswith("en marcha") and IA_.firma_del_parte(otro) != IA_.firma_del_parte(d)
+    assert otro["agenda_hoy"][0]["cuando"].startswith("ya en marcha") and IA_.firma_del_parte(otro) != IA_.firma_del_parte(d)
     assert "ia" not in pulso.sala.parte() and pulso.sala.parte()["texto"]
     assert not ia._toca_parte(otro, 60) and ia._toca_parte(otro, IA_.MIN_ENTRE_PARTES + 1)
     ia._escribir_parte(otro)

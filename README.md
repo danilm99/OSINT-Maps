@@ -722,10 +722,12 @@ tiempo, que luego ya no crecen.
 (por ejemplo `ollama pull qwen3:8b`), la sala lo usa para afinar la
 categoría y el sitio de las noticias, resumir cada suceso y escribir el parte.
 Solo recibe cifras de conjunto y textos públicos (titulares y publicaciones, sin
-autor), y del parte, solo lo que importa y dicho con su sentido: cada cifra con
-lo que significa y frente a qué se compara. El parte se reescribe cada media
-hora, o antes si cambia lo que cuenta (un suceso, una cifra fuera de lo normal,
-un partido que empieza); mientras lo escrito no vale, se ve solo el de reglas.
+autor). Lo que dice el parte lo eligen las reglas, punto por punto y cada cifra
+con lo que significa y frente a qué se compara; el modelo solo lo cuenta con sus
+palabras (con más libertad, un modelo de este tamaño confunde cifras y fuentes).
+Se reescribe cada media hora, o antes si cambia lo que cuenta (un suceso, una
+cifra fuera de lo normal, un partido que empieza); mientras lo escrito no vale,
+se ve solo el de reglas.
 El modelo ocupa unos 6 GB de la gráfica mientras trabaja y sale de ella tras
 cinco minutos sin nada que hacer. Para tener la gráfica libre (vídeo, 3D), se
 arranca con `--sin-ia`: todo funciona con reglas, igual que sin Ollama.

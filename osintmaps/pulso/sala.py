@@ -676,7 +676,7 @@ def _cuando(cita: dict, ahora: int) -> str:
     if cita["desde"] > ahora:
         return f"a las {hora}, aún no ha empezado"
     if (cita["hasta"] or 0) > ahora:
-        return f"en marcha ahora (empezó a las {hora})"
+        return f"ya en marcha (empezó a las {hora})"          # «en marcha ahora» lo leía el modelo como «empieza ahora»
     return f"ya acabado (empezó a las {hora})"
 
 
