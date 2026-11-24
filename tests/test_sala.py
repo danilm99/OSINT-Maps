@@ -101,6 +101,37 @@ def test_estado_y_parte(pulso, monkeypatch):
     assert "suceso en marcha" in e["parte"]["texto"].lower() or "sucesos en marcha" in e["parte"]["texto"].lower()
 
 
+def test_trafico_por_tramos_y_calor_de_gente(pulso, monkeypatch):
+    """Cada tramo con su trazado (simplificado) y su último estado; el calor, con lo que se ha movido en la última hora."""
+    preparar(pulso)
+    almacen, s = pulso.almacen, pulso.sala
+    recta = [[LAT0 + 0.5 * PASO + k * 0.000001, LON0 + k * 0.001] for k in range(21)]          # casi recta: se queda en dos puntos
+    almacen.guardar_toma("trafico", T0 - 300, Toma(valores={"trafico": {"t1": 0, "t2": 2}}, puntos={"trafico": {
+        "t1": Punto("Av. del Port", *recta[10], None, recta), "t2": Punto("Colón", LAT0, LON0, None, [[LAT0, LON0], [LAT0 + 0.001, LON0 + 0.001]])}}))
+    almacen.guardar_toma("trafico", T0, Toma(valores={"trafico": {"t1": 3, "t2": 2}}))
+    tramos = s.tramos()["tramos"]
+    assert [t[0] for t in tramos] == ["t1", "t2"] and tramos[0][1] == "Av. del Port"
+    assert tramos[0][2] == [[round(recta[0][0], 5), round(recta[0][1], 5)], [round(recta[-1][0], 5), round(recta[-1][1], 5)]]
+    assert s._trafico(T0 + 60) == {"t": T0, "estados": {"t1": 3, "t2": 2}}
+
+    calor = s.calor(T0 + 60)
+    pesos = sorted(w for *_, w in calor["puntos"])
+    # En la estación del barrio E han salido o llegado 9 bicis; en cada aparcamiento hay 40 coches (95 en el de E).
+    assert calor["cuenta"] == {"bicis": 1, "parking": 9} and pesos[-1] == 0.9 and pesos.count(0.1) == 8
+    assert all(len(p) == 3 for p in calor["puntos"])
+    s._cache.clear()
+    assert s.calor(T0 + 3 * 3600)["puntos"] == []          # fuentes calladas más de dos horas: no cuentan
+
+    monkeypatch.setattr(sala.time, "time", lambda: T0 + 60)
+    s._cache.clear()
+    web = json.loads(s.ficheros_web()["sala-tramos.json"])
+    assert [t[0] for t in web["tramos"]] == ["t1", "t2"]
+    estado = json.loads(s.ficheros_web()["sala.json"])
+    assert estado["trafico"]["estados"] == {"t1": 3, "t2": 2} and estado["calor"]["cuenta"]["bicis"] == 1
+    codigo, cuerpo = sala.atender(s, "/vivo/sala/tramos", "")
+    assert codigo == 200 and json.loads(cuerpo)["tramos"][1][0] == "t2"
+
+
 def test_en_la_web_no_van_los_textos_de_redes(pulso, monkeypatch):
     preparar(pulso)
     monkeypatch.setattr(sala.time, "time", lambda: T0 + 30)

@@ -176,7 +176,7 @@ def simular(datos, dias=3, ahora=None):
         a.guardar_toma("bicis", t, Toma(valores={"bicis": bic}, puntos={"bicis": {k: Punto(f"Estación {k}", la, lo, 20) for k, (i, la, lo) in est.items()}} if g else {}))
         a.guardar_toma("parking", t, Toma(valores={"parking": parq}, puntos={"parking": {k: Punto(f"Parking {NOMBRES[i].title()}", la, lo, 400) for k, (i, la, lo) in par.items()}} if g else {},
                                           indicadores={"parking_ocupacion": round(100 * (1 - sum(parq.values()) / (400 * 16)), 1)}))
-        a.guardar_toma("trafico", t, Toma(valores={"trafico": traf}, puntos={"trafico": {k: Punto(f"Tramo {k}", la, lo) for k, (i, la, lo) in tra.items()}} if g else {},
+        a.guardar_toma("trafico", t, Toma(valores={"trafico": traf}, puntos={"trafico": {k: Punto(f"Tramo {k}", la, lo, None, [[la, lo - 0.005], [la + 0.0004, lo], [la, lo + 0.005]]) for k, (i, la, lo) in tra.items()}} if g else {},
                                           indicadores={"trafico_indice": round(100 * sum(x for x in traf.values() if x < 3) / (2 * len(traf)), 1),
                                                        "trafico_cortado": sum(1 for x in traf.values() if x == 3)}))
         a.guardar_toma("aforo", t, Toma(valores={"aforo": afor}, puntos={"aforo": {k: Punto(f"Punto de aforo {k}", la, lo) for k, (i, la, lo) in afo.items()}} if g else {},
@@ -267,18 +267,28 @@ with sync_playwright() as p:
     pg.wait_for_function("window.OSINT_SALA && window.OSINT_SALA.estado() && document.querySelectorAll('.suceso').length > 0", timeout=20000)
     pg.wait_for_timeout(800)
     e = pg.evaluate("window.OSINT_SALA.estado()")
-    print("nivel:", e["nivel"], "| sucesos:", len(e["sucesos"]), "| tejas:", pg.evaluate("document.querySelectorAll('.teja').length"),
-          "| barrios en el mapa:", pg.evaluate("document.querySelectorAll('.leaflet-barrios-pane path').length"),
-          "| marcas de suceso:", pg.evaluate("document.querySelectorAll('.icono-suceso').length"))
-    if pg.evaluate("document.querySelectorAll('.leaflet-barrios-pane path').length") < 16: errores.append("faltan barrios en el mapa")
+    pg.wait_for_function("window.OSINT_SALA.capas().tramos > 0", timeout=10000)
+    cap = pg.evaluate("window.OSINT_SALA.capas()")
+    print("nivel:", e["nivel"], "| sucesos:", len(e["sucesos"]), "| tejas:", pg.evaluate("document.querySelectorAll('.teja').length"), "| capas:", cap,
+          "| marcas de suceso:", pg.evaluate("document.querySelectorAll('.marca-suceso').length"))
+    if cap["barrios"] < 16: errores.append("faltan barrios en el mapa")
+    if cap["tramos"] < 40: errores.append("faltan tramos de tráfico en el mapa")
+    if cap["calor"] < 10: errores.append("sin calor de gente")
+    if modo != "movil" and not pg.evaluate("document.querySelector('.capa-calor') && document.querySelector('.capa-calor').width > 0"): errores.append("el calor no se pinta")
     if modo != "movil" and pg.evaluate("document.querySelectorAll('.teja').length") < 5: errores.append("pocas tejas de ciudad")
     if modo == "web":
         if "ambientazo" in pg.content(): errores.append("la web enseña texto de redes")
         if pg.evaluate("window.OSINT_SALA.servidor()"): errores.append("la web cree que hay servidor")
     pg.screenshot(path=str(CAPTURAS / f"{modo}-1.png"))
     if modo == "movil":
+        pg.click("#b-capas"); pg.wait_for_timeout(300)
+        pg.screenshot(path=str(CAPTURAS / f"{modo}-1c.png"))
+        pg.click("#capas .cab button"); pg.wait_for_timeout(200)
         pg.click("#pestanas button[data-vista=sucesos]"); pg.wait_for_timeout(300)
         pg.screenshot(path=str(CAPTURAS / f"{modo}-1b.png"))
+        pg.click("#pestanas button[data-vista=ciudad]"); pg.wait_for_timeout(300)
+        pg.screenshot(path=str(CAPTURAS / f"{modo}-1d.png"))
+        pg.click("#pestanas button[data-vista=mapa]"); pg.wait_for_timeout(300)
     # El suceso del incendio: su ficha.
     pg.evaluate("(() => { const s = window.OSINT_SALA.estado().sucesos.find((x) => x.tipo === 'incidente') || window.OSINT_SALA.estado().sucesos[0]; window.OSINT_SALA.abrirSuceso(s.id); })()")
     pg.wait_for_function("!document.getElementById('ficha').hidden && document.querySelectorAll('#ficha section').length > 1", timeout=10000)
@@ -325,7 +335,7 @@ with sync_playwright() as p:
     pg.wait_for_function("[...document.querySelectorAll('#ficha h4')].some((h) => h.textContent.includes('distritos'))", timeout=10000)
     pg.wait_for_timeout(700)
     print("movilidad:", pg.evaluate("[...document.querySelectorAll('#ficha .pie')].map((p) => p.textContent).find((t) => t.includes('viajes con origen'))"))
-    if not pg.evaluate("document.querySelectorAll('.leaflet-overlay-pane path, .leaflet-barrios-pane path').length"): errores.append("sin líneas de viajes")
+    if not pg.evaluate("document.querySelectorAll('.leaflet-foco-pane path').length"): errores.append("sin líneas de viajes")
     pg.screenshot(path=str(CAPTURAS / f"{modo}-6.png"))
     pg.evaluate("window.OSINT_SALA.cerrarFicha()")
     # La máquina del tiempo.

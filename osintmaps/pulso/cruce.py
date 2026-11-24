@@ -839,10 +839,12 @@ class Cruce:
                           "senales": [_senal_dict(s, b, t) for s in e["senales"][:5]],
                           "valores": por_barrio.get(b, {}),
                           "normal": {r: c["normal"] for r, c in comparaciones.get(b, {}).items()}}
-        primera = self.almacen._filas("SELECT MIN(semana) FROM muestras")[0][0]
+        primera, franja0 = self.almacen._filas("SELECT semana, MIN(franja) FROM muestras WHERE semana=(SELECT MIN(semana) FROM muestras)")[0]
         semanas = 0 if primera is None else (semana_local(t) - primera)
+        # Los días desde la primera media hora aprendida (para decir «día 2 de 28» mientras no hay ni una semana).
+        dias = 0.0 if primera is None else max(0.0, (semanas * 336 + franja(t) - (franja0 or 0)) / 48)
         return {"t": t, "barrios": barrios, "desplazamiento": desplazamiento, "activos": [e["id"] for e in eventos],
-                "aprendiendo": {"semanas": semanas, "listo": semanas >= 4}}
+                "aprendiendo": {"semanas": semanas, "dias": round(dias, 1), "listo": semanas >= 4}}
 
     def reconstruir(self, desde: int, hasta: int, sucesos_desde: int | None = None, por_tanda: int = 72) -> int:
         """Calcula lo que falte de un rato pasado (al arrancar con histórico de antes): los rasgos, las muestras

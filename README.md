@@ -658,6 +658,25 @@ para hoy. Con el programa abierto (`osintmaps servir --pulso`) se pide al
 ordenador cada medio minuto; en la web, el ordenador sube cada cuarto de hora
 `datos/sala.json` y la pantalla lo lee.
 
+En el mapa, cada color dice una sola cosa:
+
+- **Tráfico**: cada tramo de calle del color de su estado (verde fluido, ámbar
+  denso, rojo atasco, blanco a rayas cortado). El estado se pide al geoportal
+  del Ajuntament desde el navegador cada tres minutos, también en la web, y el
+  trazado sale del histórico (`sala-tramos.json`).
+- **Gente**: mapa de calor, de azul a cian y blanco, de dónde se mueve más gente
+  en la última hora. No hay contadores de personas en la calle, así que se
+  estima con las bicis de Valenbisi que salen y llegan en cada estación, las
+  espiras del carril bici y los coches dentro de los aparcamientos públicos.
+- **Magenta**: lo que se sale de lo normal (sucesos y, si se enciende la capa,
+  los barrios fuera de lo normal). Los incidentes, en rojo.
+- **Marcas con dibujo**: noticias por tema, incidencias de carretera en rombo,
+  avisos de Renfe, partidos y fiestas. Lo que cae en el mismo sitio va en una
+  sola marca con el número de cosas.
+
+Cada capa lleva su leyenda en el propio interruptor. En el móvil, el parte va
+en una tira sobre el mapa y las capas en una hoja que se abre con «Capas».
+
 **Fuentes nuevas** (se recogen con `--pulso`, además de las del pulso):
 
 | Qué | Cada cuánto | De dónde |
