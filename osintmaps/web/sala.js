@@ -153,7 +153,7 @@ function estiloBarrio(f) {
   const color = COLOR_FAMILIA[familiaDominante(b)] || C.cian;
   const activo = enSuceso.has(c);
   return { pane: "barrios", color: activo ? color : "#1d4655", weight: activo ? 2.2 : 0.8, opacity: activo ? 1 : 0.75,
-    fillColor: color, fillOpacity: n < 1.5 ? 0.02 : Math.min(0.6, 0.1 + (n - 1.5) * 0.075) };
+    fillColor: color, fillOpacity: n < 2 ? 0.02 : Math.min(0.6, 0.1 + (n - 2) * 0.08) };
 }
 function tooltipBarrio(c) {
   const b = E?.barrios?.[c];
@@ -165,8 +165,8 @@ function tooltipBarrio(c) {
   }
   if (!b) { caja.append(el("div", { className: "tt-s", textContent: "Sin datos aún" })); return caja; }
   const s = b.senales?.[0];
-  caja.append(el("div", { className: "tt-s", textContent: b.nivel >= 1.5 ? `Nivel ${cifra(b.nivel)} · ${NOMBRE_FAMILIA[familiaDominante(b)] || ""}` : "Dentro de lo normal" }));
-  if (s && b.nivel >= 1.5) caja.append(el("div", { className: "tt-s", textContent: `${E.rasgos?.[s.rasgo]?.nombre || s.rasgo}: ${cifra(s.valor)} (normal ${cifra(s.normal)})` }));
+  caja.append(el("div", { className: "tt-s", textContent: b.nivel >= 2 ? `Nivel ${cifra(b.nivel)} · ${NOMBRE_FAMILIA[familiaDominante(b)] || ""}` : "Dentro de lo normal" }));
+  if (s && b.nivel >= 2) caja.append(el("div", { className: "tt-s", textContent: `${E.rasgos?.[s.rasgo]?.nombre || s.rasgo}: ${cifra(s.valor)} (normal ${cifra(s.normal)})` }));
   return caja;
 }
 function pintarBarrios() {
@@ -357,7 +357,7 @@ function pintarTejas() {
 }
 
 function pintarListaBarrios() {
-  const filas = Object.entries(E.barrios || {}).filter(([c, b]) => c !== "VLC" && b.nivel >= 1.5).sort((a, b) => b[1].nivel - a[1].nivel).slice(0, 10);
+  const filas = Object.entries(E.barrios || {}).filter(([c, b]) => c !== "VLC" && b.nivel >= 2).sort((a, b) => b[1].nivel - a[1].nivel).slice(0, 10);
   const caja = $("lista-barrios");
   if (!filas.length) { caja.replaceChildren(el("div", { className: "vacio", textContent: E.t ? "Todos los barrios dentro de lo normal." : "Calculando…" })); return; }
   caja.replaceChildren(...filas.map(([c, b]) => {
@@ -440,14 +440,17 @@ function filaTexto(it) {
   if (it.categoria && it.categoria !== "otros") s.append(el("span", { className: "etiqueta", style: `color:${color}`, textContent: it.categoria }));
   if (it.barrio) s.append(el("span", { textContent: nombreBarrio(it.barrio) }));
   if (it.lat != null) s.append(el("span", { className: "ir", textContent: "⌖ ver", title: "Ver en el mapa", onclick: () => { ponerVista("mapa"); mapa.flyTo([it.lat, it.lon], 16); } }));
+  const reciente = ahoraSeg() - it.t < 20 * 3600;
+  const d = new Date(it.t * 1000);
   return el("div", { className: `texto${(it.urgencia || 0) >= 2 ? " urgente" : ""}` },
-    el("span", { className: "h", textContent: fechaHora(it.t) }), el("div", { className: "t" }, enlace(it.titulo || "(sin título)", it.url)), s);
+    el("span", { className: "h", title: `${fecha(it.t)} ${hora(it.t)}`, textContent: reciente ? hora(it.t) : `${d.getDate()}/${d.getMonth() + 1}` }),
+    el("div", { className: "t" }, enlace(it.titulo || "(sin título)", it.url)), s);
 }
 function pintarFeed() {
   const caja = $("feed");
   let lista;
   if (ajustes.feed === "avisos") lista = E.avisos || [];
-  else lista = (E.feed || []).filter((it) => ajustes.feed === "todo" ? !["dgt", "renfe", "meteoalarm"].includes(it.fuente)
+  else lista = (E.feed || []).filter((it) => ajustes.feed === "todo" ? it.fuente === "prensa" || (["bluesky", "mastodon"].includes(it.fuente) && it.barrio)
     : ajustes.feed === "prensa" ? it.fuente === "prensa" : ["bluesky", "mastodon"].includes(it.fuente));
   const filas = lista.slice(0, 80).map(filaTexto);
   if (ajustes.feed === "redes" && E.publico) {
@@ -798,6 +801,11 @@ function pintarLugar(cont, d, visor) {
     if (cat.inmuebles) caja.append(dato("Inmuebles en la parcela", cifra(cat.inmuebles)));
     if (cat.superficie || cat.superficie_total) caja.append(dato("Superficie construida", `${cifra(cat.superficie_total || cat.superficie)} m²`));
     if (cat.usos?.length > 1) caja.append(dato("Usos", cat.usos.map(([u, n]) => `${u} (${n})`).join(", ")));
+    if (cat.parcela) caja.append(dato("Parcela", cat.parcela));
+    if (cat.suelo) caja.append(dato("Suelo", `${cifra(cat.suelo)} m²`));
+    if (cat.tipologia) caja.append(dato("Tipología", cat.tipologia));
+    if (cat.construcciones?.length) caja.append(dato("Construcción", cat.construcciones.map(([u, m]) => `${u} ${cifra(m)} m²`).join(" · ")));
+    if (cat.plano) caja.append(dato("Plano", enlace("cartografía catastral ↗", cat.plano)));
     if (cat.error) caja.append(dato("Catastro", `no ha contestado (${cat.error})`));
     cont.append(seccion("Catastro (datos no protegidos)", caja));
   }

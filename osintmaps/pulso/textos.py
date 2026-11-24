@@ -258,7 +258,7 @@ def leer_dgt(contenido: bytes, caja: tuple[float, float, float, float] = CAJA_AR
         nodo.clear()
         if lat is None or lon is None or not (sur <= lat <= norte and oeste <= lon <= este):
             continue
-        etiqueta, cat, urgencia = TIPOS_DGT.get(tipo, (tipo or "Incidencia", "trafico", 1))
+        etiqueta, cat, urgencia = TIPOS_DGT.get(tipo, ("Incidencia", "trafico", 1))
         titulo = f"{etiqueta}{' en ' + carretera if carretera else ''}"
         items.append(Item(f"dgt:{ident}", "dgt", inicio or int(time.time()), titulo[:200], " ".join(textos)[:MAX_TEXTO],
                           "https://infocar.dgt.es/etraffic/", round(lat, 5), round(lon, 5), categoria=cat, urgencia=urgencia,

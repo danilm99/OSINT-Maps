@@ -320,7 +320,11 @@ class Zonas:
         vistos: set[str] = set()
         # 1. Cruces y direcciones: «calle X con calle Y», «C/ X cruce C/ Y», «calle X, 23»
         patron_tipo = "|".join(re.escape(x) for x in sorted({normalizar(v) for v in TIPOS_VIA}, key=len, reverse=True))
+        de_empleo = any(p in t for p in (" oposicion", " convocatoria", " bolsa de ", " optar ", " agente", " funcionari", " empleo",
+                                         " proceso selectivo", " interin", " plazas "))
         for m in re.finditer(rf" (?:{patron_tipo}) ((?:[a-z0-9]+ ){{1,6}})", t):
+            if de_empleo and m.group(0).split()[0] in ("plaza", "placa", "pl"):
+                continue
             fragmento = m.group(1).strip()
             mejor = self._mejor_calle(fragmento)
             if not mejor:

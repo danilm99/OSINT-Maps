@@ -26,7 +26,7 @@ CATEGORIAS: dict[str, tuple[str, ...]] = {
     "transporte": ("metro", "metrovalencia", "fgv", "emt", "autobus", "tranvia", "tramvia", "cercanias", "renfe", "valenbisi",
                    "aeropuerto", "taxi", "estacion del nord", "linea "),
     "meteo": ("lluvia", "pluja", "tormenta", "granizo", "viento", "vent ", "aviso amarillo", "aviso naranja", "aviso rojo", "dana",
-              "calor", "temperatura", "aemet", "temporal", "niebla", "calima", "ola de frio"),
+              "calor", "temperatura", "aemet", "temporal de", "temporal marit", "niebla", "calima", "ola de frio"),
     "evento": ("concierto", "concert", "festival", "partido", "mestalla", "falla", "mascleta", "procesi", "cabalgata", "feria",
                "fiesta", "festa", "maraton", "carrera popular", "exposici", "espectaculo", "roig arena", "verbena", "nit de",
                "cremà", "crema", "ofrenda", "fuegos artificiales", "castillo de fuegos"),

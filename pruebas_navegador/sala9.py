@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from osintmaps import cli
 from osintmaps.pulso import cruce as C, fichas
-from osintmaps.pulso.almacen import Almacen
+from osintmaps.pulso.almacen import Almacen, semana_local
 from osintmaps.pulso.fuentes import Cita, Item, Objeto, Punto, Toma
 from osintmaps.pulso.servidor import Pulso
 from playwright.sync_api import sync_playwright
@@ -109,10 +109,10 @@ def simular(datos, dias=3, ahora=None):
             t = lunes - semana * 7 * 86400 + fr * 1800 + 900
             for i, cod in enumerate(codigos):
                 for r, v in normales(t, i).items():
-                    filas.append((r, cod, C.franja(t), t // C.SEMANA, round(v + random.gauss(0, 1.2), 2), 0))
+                    filas.append((r, cod, C.franja(t), semana_local(t), round(v + random.gauss(0, 1.2), 2), 0))
             for r in ("bici_ocupacion", "parking", "trafico", "aforo", "metro"):
                 vals = [normales(t, i)[r] for i in range(16)]
-                filas.append((r, C.CIUDAD, C.franja(t), t // C.SEMANA, round(sum(vals) / 16 if r != "metro" else sum(vals) / 16, 2), 0))
+                filas.append((r, C.CIUDAD, C.franja(t), semana_local(t), round(sum(vals) / 16 if r != "metro" else sum(vals) / 16, 2), 0))
     a._bd.executemany("INSERT OR REPLACE INTO muestras VALUES (?,?,?,?,?,?)", filas)
     # Tres días de tomas cada diez minutos.
     est = {f"b{i}{k}": (i, centro_de(i)[0] + (k - 1) * 0.002, centro_de(i)[1] + (k - 1) * 0.002) for i in range(16) for k in range(3)}
@@ -284,6 +284,10 @@ with sync_playwright() as p:
         pg.evaluate("window.OSINT_SALA.cerrarFicha()")
         caja = pg.evaluate("(() => { const r = document.getElementById('mapa').getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; })()")
         pt = pg.evaluate(f"window.mapa.latLngToContainerPoint([{CENTRO[0] + 0.00005}, {CENTRO[1] + 0.0002}])")
+        if not (0 < pt["x"] < caja[2] and 0 < pt["y"] < caja[3]):
+            pg.evaluate(f"window.mapa.setView([{CENTRO[0]}, {CENTRO[1]}], 16, {{animate: false}})"); pg.wait_for_timeout(300)
+            pt = pg.evaluate(f"window.mapa.latLngToContainerPoint([{CENTRO[0] + 0.00005}, {CENTRO[1] + 0.0002}])")
+        print("clic derecho sobre:", pg.evaluate(f"(document.elementFromPoint({caja[0] + pt['x']}, {caja[1] + pt['y']}) || {{}}).className"), pt)
         pg.mouse.click(caja[0] + pt["x"], caja[1] + pt["y"], button="right")
     pg.wait_for_function("document.querySelector('#ficha .tipo') && document.querySelector('#ficha .tipo').textContent.includes('Inmueble')", timeout=10000)
     pg.wait_for_timeout(1200)

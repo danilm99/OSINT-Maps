@@ -23,6 +23,7 @@ import json
 import sqlite3
 import threading
 import time
+from datetime import date
 from pathlib import Path
 
 from .fuentes import Objeto, Punto
@@ -57,6 +58,13 @@ CREATE TABLE IF NOT EXISTS eventos (id TEXT PRIMARY KEY, tipo TEXT, estado TEXT,
     lat REAL, lon REAL, barrios TEXT, titulo TEXT, resumen TEXT, causa TEXT, evidencias TEXT, actualizado INTEGER);
 CREATE INDEX IF NOT EXISTS eventos_por_fecha ON eventos (fin, inicio);
 """
+
+
+def semana_local(t: float) -> int:
+    """Número de semana de lunes a domingo en hora local (la 0 empieza el lunes 5 de enero de 1970). Dentro de una
+    semana, la media hora de la semana («franja») crece con el tiempo: así se sabe qué muestras son de antes."""
+    lt = time.localtime(t)
+    return (date(lt.tm_year, lt.tm_mon, lt.tm_mday) - date(1970, 1, 5)).days // 7
 
 
 class Almacen:
@@ -195,7 +203,7 @@ class Almacen:
             # El texto de las redes se guarda 30 días; los titulares de prensa y los avisos, siempre.
             self._bd.execute("UPDATE items SET texto=NULL WHERE t<? AND fuente IN ('bluesky','mastodon') AND texto IS NOT NULL", (ahora - 30 * 86400,))
             self._bd.execute("DELETE FROM rasgos WHERE t<?", (ahora - 45 * 86400,))
-            self._bd.execute("DELETE FROM muestras WHERE semana<?", (ahora // (7 * 86400) - 26,))
+            self._bd.execute("DELETE FROM muestras WHERE semana<?", (semana_local(ahora) - 26,))
 
     def _transaccion(self):
         return _Transaccion(self._bd)

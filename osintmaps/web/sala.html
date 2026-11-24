@@ -76,8 +76,8 @@
   .bloque > h2::before { content: "▸"; color: var(--magenta); }
   .bloque > h2 .nota { margin-left: auto; color: var(--tenue); font-weight: 500; letter-spacing: .1em; }
   .cuerpo { overflow: auto; padding: 0 12px 10px; min-height: 0; }
-  #b-estado .cuerpo { max-height: 46vh; }
-  #b-barrios .cuerpo { max-height: 24vh; }
+  #b-estado .cuerpo { max-height: 36vh; }
+  #b-barrios .cuerpo { max-height: 20vh; }
   #b-sucesos { max-height: 46%; }
 
   /* Tejas de la ciudad */
@@ -118,7 +118,7 @@
   .pestanas button { border: 1px solid var(--borde); background: transparent; padding: 3px 7px; font: 600 10px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase;
     color: var(--suave); cursor: pointer; }
   .pestanas button[aria-pressed=true] { color: var(--fondo); background: var(--cian); border-color: var(--cian); }
-  .texto { padding: 7px 0; border-bottom: 1px solid #0f2530; display: grid; grid-template-columns: 40px 1fr; gap: 1px 8px; }
+  .texto { padding: 7px 0; border-bottom: 1px solid #0f2530; display: grid; grid-template-columns: 42px 1fr; gap: 1px 8px; }
   .texto .h { font: 400 11px/1.6 var(--mono); color: var(--suave); }
   .texto .t { font-size: 13px; line-height: 1.35; } .texto .t a { color: var(--texto); } .texto .t a:hover { color: var(--cian); }
   .texto .s { grid-column: 2; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 11px; color: var(--suave); margin-top: 2px; }
@@ -281,7 +281,7 @@
       <div class="bloque fijo" id="b-estado"><h2>Ciudad <span class="nota" id="estado-nota"></span></h2><div class="cuerpo"><div id="tejas"></div></div></div>
       <div class="bloque fijo" id="b-barrios"><h2>Barrios <span class="nota">fuera de lo normal</span></h2><div class="cuerpo" id="lista-barrios"></div></div>
       <div class="bloque crece" id="b-parte"><h2>Parte <span class="nota" id="parte-nota"></span></h2><div class="cuerpo" id="parte"></div></div>
-      <div class="bloque fijo" id="b-hoy"><h2>Hoy <span class="nota" id="hoy-nota"></span></h2><div class="cuerpo" id="hoy" style="max-height: 22vh"></div></div>
+      <div class="bloque fijo" id="b-hoy"><h2>Hoy <span class="nota" id="hoy-nota"></span></h2><div class="cuerpo" id="hoy" style="max-height: 18vh"></div></div>
     </section>
 
     <section id="centro" aria-label="Mapa">

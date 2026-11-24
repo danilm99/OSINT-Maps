@@ -8,6 +8,7 @@ from datetime import datetime
 import pytest
 
 from osintmaps.pulso import cruce as C
+from osintmaps.pulso.almacen import semana_local
 from osintmaps.pulso import fichas, sala, servidor
 from osintmaps.pulso.fuentes import Cita, Item, Punto, Toma
 
@@ -57,8 +58,8 @@ def preparar(p):
         base = T0 - semana * C.SEMANA
         for slot in range(48):
             for b in list(CODIGOS.values()) + [C.CIUDAD]:
-                filas.append(("bici_ocupacion", b, 96 + slot, base // C.SEMANA, 50 + azar.uniform(-2, 2), 0))
-                filas.append(("parking", b, 96 + slot, base // C.SEMANA, 40 + azar.uniform(-2, 2), 0))
+                filas.append(("bici_ocupacion", b, 96 + slot, semana_local(base), 50 + azar.uniform(-2, 2), 0))
+                filas.append(("parking", b, 96 + slot, semana_local(base), 40 + azar.uniform(-2, 2), 0))
     almacen._bd.executemany("INSERT OR REPLACE INTO muestras VALUES (?,?,?,?,?,?)", filas)
 
     def toma(t, bicis_e=10, libres_e=60, items=(), agenda=()):
@@ -176,3 +177,25 @@ def test_catastro_se_lee_venga_como_venga():
     varios = fichas.leer_dnprc({"consulta_dnprcResult": {"lrcdnp": {"rcdnp": [
         {"debi": {"luso": "Residencial", "sfc": "90", "ant": "1900"}}, {"debi": {"luso": "Comercial", "sfc": "60", "ant": "1900"}}]}}})
     assert varios["inmuebles"] == 2 and varios["usos"][0][0] in ("Residencial", "Comercial") and varios["superficie_total"] == 150
+
+
+def test_catastro_con_respuestas_de_verdad():
+    """Las respuestas tal como las da el Catastro (Mercado Central y un almacén de la calle Cádiz)."""
+    rc = fichas.leer_rccoor({"Consulta_RCCOORResult": {"control": {"cucoor": 1}, "coordenadas": {"coord": [
+        {"pc": {"pc1": "5629101", "pc2": "YJ2752H"}, "geo": {"xcen": "-0.37854", "ycen": "39.47437", "srs": "EPSG:4326"}, "ldt": "PZ MERCADO 30 VALENCIA (VALENCIA)"}]}}})
+    assert rc == {"rc": "5629101YJ2752H", "direccion": "PZ MERCADO 30 VALENCIA (VALENCIA)"}
+    error = fichas.leer_rccoor({"Consulta_RCCOORResult": {"control": {"cuerr": 1}, "lerr": [{"cod": "76", "des": "LA COORDENADA X OBLIGATORIA"}]}})
+    assert error["rc"] is None and "COORDENADA" in error["error"]
+    datos = fichas.leer_dnprc({"consulta_dnprcResult": {"control": {"cudnp": 1, "cucons": 1}, "bico": {"bi": {
+        "idbi": {"cn": "UR", "rc": {"pc1": "6014930", "pc2": "YJ2761E", "car": "0001", "cc1": "F", "cc2": "D"}},
+        "ldt": "CL CADIZ 52(A) 46006 VALENCIA (VALENCIA)", "debi": {"luso": "Industrial", "sfc": "390", "cpt": "100,000000", "ant": "1943"}},
+        "finca": {"ldt": "CL CADIZ 52(A)  VALENCIA (VALENCIA)", "ltp": "Parcela construida sin división horizontal", "dff": {"ss": "400"},
+                  "infgraf": {"igraf": "https://www1.sedecatastro.gob.es/Cartografia/mapa.aspx?del=46&mun=900&refcat=6014930YJ2761E"}},
+        "lcons": [{"lcd": "ALMACEN", "dfcons": {"stl": "390"}, "dvcons": {"dtip": "INDUSTRIA NO FABRIL"}}]}}})
+    assert datos["uso"] == "Industrial" and datos["año"] == 1943 and datos["superficie"] == 390 and datos["suelo"] == 400
+    assert datos["parcela"].startswith("Parcela construida") and datos["construcciones"] == [["Almacen", 390]]
+    assert datos["tipologia"] == "Industria no fabril" and datos["plano"].startswith("https://")
+    pisos = fichas.leer_dnprc({"consulta_dnprcResult": {"lrcdnp": {"rcdnp": [
+        {"rc": {"pc1": "5628402", "pc2": "YJ2752H", "car": "0001", "cc1": "X", "cc2": "Y"}, "dt": {}},
+        {"rc": {"pc1": "5628402", "pc2": "YJ2752H", "car": "0002", "cc1": "Z", "cc2": "W"}, "dt": {}}]}}})
+    assert pisos["inmuebles"] == 2 and pisos["primero"] == "5628402YJ2752H0001XY"

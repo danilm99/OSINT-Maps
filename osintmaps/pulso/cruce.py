@@ -45,7 +45,7 @@ from datetime import date, datetime
 from typing import NamedTuple
 
 from . import agenda as _agenda
-from .almacen import Almacen
+from .almacen import Almacen, semana_local
 from .catalogo import POR_ID
 
 log = logging.getLogger("osintmaps.pulso")
@@ -402,7 +402,7 @@ class Cruce:
             self.almacen._bd.execute(
                 "INSERT OR REPLACE INTO muestras SELECT rasgo, barrio, ?, ?, AVG(v), ? FROM rasgos "
                 "WHERE t>? AND t<=? AND rasgo!='nivel' GROUP BY rasgo, barrio",
-                (franja(inicio), inicio // SEMANA, festivo, inicio, fin_franja))
+                (franja(inicio), semana_local(inicio), festivo, inicio, fin_franja))
 
     def _muestras_hasta(self, t: int) -> None:
         """Las muestras de las medias horas cerradas desde la última vez (aunque algún paso se haya saltado)."""
@@ -415,8 +415,9 @@ class Cruce:
     # ------------------------------------------------------------ lo normal
 
     def muestras(self, rasgo: str, barrio: str, t: int) -> list[float]:
-        """Lo que valió este rasgo en este barrio otras veces a esta media hora."""
-        fr, actual = franja(t - 1), (t - 1) // SEMANA
+        """Lo que valió este rasgo en este barrio otras veces a esta media hora. Nunca de hoy ni de después: lo que
+        está pasando no puede ser su propio «normal» (ni lo de mañana, al reconstruir el histórico)."""
+        fr, actual = franja(t - 1), semana_local(t - 1)
         festivo = _agenda.es_festivo(_dia(t - 1))
         if not festivo:
             filas = self.almacen._filas(
@@ -434,8 +435,8 @@ class Cruce:
             if tipo == "D":
                 condicion += f" OR (festivo=1 AND franja % 48 IN ({','.join(str(s) for s in slots)}))"
             filas = self.almacen._filas(
-                f"SELECT v FROM muestras WHERE rasgo=? AND barrio=? AND ({condicion}) AND NOT (franja=? AND semana=?) "
-                "ORDER BY semana DESC, franja DESC LIMIT 15", (rasgo, barrio, *franjas, fr, actual))
+                f"SELECT v FROM muestras WHERE rasgo=? AND barrio=? AND ({condicion}) AND (semana<? OR (semana=? AND franja/48<?)) "
+                "ORDER BY semana DESC, franja DESC LIMIT 15", (rasgo, barrio, *franjas, actual, actual, fr // 48))
             if len(filas) >= MIN_MUESTRAS:
                 break
         return [f[0] for f in filas]
@@ -446,7 +447,11 @@ class Cruce:
         muestras = self.muestras(rasgo, barrio, t)
         if info["tipo"] == "conteo":
             prior = info.get("ciudad", info["prior"]) if barrio == CIUDAD else info["prior"]
-            z, normal = z_conteo(valor, muestras, prior, info.get("r"))
+            r = info.get("r")
+            if len(muestras) < MIN_MUESTRAS:
+                # Mientras no hay histórico, lo esperado es casi una suposición: se le da mucho margen.
+                r = min(r or 1.5, 1.5)
+            z, normal = z_conteo(valor, muestras, prior, r)
             return {"z": round(z, 2), "normal": round(normal, 2), "n": len(muestras)}
         if len(muestras) < MIN_MUESTRAS:
             return None
@@ -517,8 +522,9 @@ class Cruce:
             tipos.append(("servicio", g("servicio")))
         if not tipos and g("atencion") >= 4:
             tipos.append(("conversacion", g("atencion")))
+        # Un incidente suele traer cortes y atascos: si lo hay, es lo principal (lo demás son sus consecuencias).
         return {"puntos": puntos, "nivel": round(max(puntos.values(), default=0.0), 2),
-                "tipos": sorted(((t, round(p, 2)) for t, p in tipos), key=lambda x: -x[1]),
+                "tipos": sorted(((t, round(p, 2)) for t, p in tipos), key=lambda x: (x[0] != "incidente", -x[1])),
                 "senales": sorted(senales, key=lambda s: -s.fuerza)[:8]}
 
     def paso(self, t: int | None = None) -> dict:
@@ -820,7 +826,7 @@ class Cruce:
                           "valores": por_barrio.get(b, {}),
                           "normal": {r: c["normal"] for r, c in comparaciones.get(b, {}).items()}}
         primera = self.almacen._filas("SELECT MIN(semana) FROM muestras")[0][0]
-        semanas = 0 if primera is None else (t // SEMANA - primera)
+        semanas = 0 if primera is None else (semana_local(t) - primera)
         return {"t": t, "barrios": barrios, "desplazamiento": desplazamiento, "activos": [e["id"] for e in eventos],
                 "aprendiendo": {"semanas": semanas, "listo": semanas >= 4}}
 

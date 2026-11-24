@@ -207,9 +207,15 @@ class Fichas:
             ficha["barrio_nombre"] = self.zonas.nombre(ficha["barrio"])
             ficha["calle"] = self.zonas.calle_cercana(lat, lon)
         patrimonio = self._capa("patrimonio").cerca(lat, lon, 25)
-        ficha["patrimonio"] = [{"metros": d, "codigo": p.get("codigo"), "nombre": p.get("denominaci"), "proteccion": p.get("grado_prot"),
-                                "categoria": p.get("categoria"), "elemento": p.get("t_elemento"), "tramitacion": p.get("estado_tra")}
-                               for d, p in patrimonio[:5]]
+        vistos, ficha["patrimonio"] = set(), []
+        for d, p in patrimonio:
+            if p.get("denominaci") in vistos:
+                continue
+            vistos.add(p.get("denominaci"))
+            ficha["patrimonio"].append({"metros": d, "codigo": p.get("codigo"), "nombre": p.get("denominaci"), "proteccion": p.get("grado_prot"),
+                                        "categoria": p.get("categoria"), "elemento": p.get("t_elemento"), "tramitacion": p.get("estado_tra")})
+            if len(ficha["patrimonio"]) == 6:
+                break
         registro = self._capa("registro_edificios").cerca(lat, lon, 15) + self._capa("registro_solares").cerca(lat, lon, 15)
         ficha["registro"] = [{"metros": d, "seccion": p.get("seccion"), "refcat": p.get("refcat"),
                               "direccion": f"{p.get('tipo_via') or ''} {p.get('emplazamie') or ''} {p.get('numero') or ''}".strip()}
@@ -232,14 +238,24 @@ class Fichas:
             return hecho[1]
         sesion = sesion or requests.Session()
         try:
-            r = sesion.get(CATASTRO_RC, params={"SRS": "EPSG:4326", "Coordenada_X": f"{lon:.6f}", "Coordenada_Y": f"{lat:.6f}"}, timeout=15)
+            r = sesion.get(CATASTRO_RC, params={"SRS": "EPSG:4326", "CoorX": f"{lon:.6f}", "CoorY": f"{lat:.6f}"}, timeout=15)
             r.raise_for_status()
             datos = leer_rccoor(r.json())
             if datos.get("rc"):
                 r2 = sesion.get(CATASTRO_DATOS, params={"RefCat": datos["rc"]}, timeout=20)
                 r2.raise_for_status()
                 datos.update(leer_dnprc(r2.json()))
+                # Un edificio dividido en pisos da la lista de inmuebles sin sus datos: el primero dice el año y el uso.
+                if datos.get("primero") and not datos.get("año"):
+                    r3 = sesion.get(CATASTRO_DATOS, params={"RefCat": datos["primero"]}, timeout=20)
+                    if r3.ok:
+                        uno = leer_dnprc(r3.json())
+                        datos.setdefault("uso", uno.get("uso"))
+                        datos["año"] = uno.get("año")
+                datos.pop("primero", None)
                 datos["enlace"] = CATASTRO_FICHA.format(a=datos["rc"][:7], b=datos["rc"][7:14])
+            elif datos.get("error"):
+                pass
         except Exception as exc:  # noqa: BLE001
             datos = {"error": f"{type(exc).__name__}: {exc}"[:200]}
         if len(self._catastro) > 500:
@@ -267,10 +283,14 @@ def _buscar(obj, clave: str):
 
 
 def leer_rccoor(datos: dict) -> dict:
-    """Respuesta de Consulta_RCCOOR -> {rc, direccion}."""
+    """Respuesta de Consulta_RCCOOR -> {rc, direccion} (o {error} si el Catastro dice que no)."""
     pc = _buscar(datos, "pc") or {}
     rc = f"{pc.get('pc1') or ''}{pc.get('pc2') or ''}".strip()
-    return {"rc": rc if len(rc) == 14 else None, "direccion": _buscar(datos, "ldt") or ""}
+    salida = {"rc": rc if len(rc) == 14 else None, "direccion": _buscar(datos, "ldt") or ""}
+    errores = _buscar(datos, "lerr")
+    if not salida["rc"] and errores:
+        salida["error"] = "; ".join(str(e.get("des", "")) for e in (errores if isinstance(errores, list) else [errores]))[:200]
+    return salida
 
 
 def leer_dnprc(datos: dict) -> dict:
@@ -282,6 +302,8 @@ def leer_dnprc(datos: dict) -> dict:
     lista = _buscar(datos, "lrcdnp")
     if isinstance(lista, dict):
         lista = lista.get("rcdnp")
+    if isinstance(lista, dict):
+        lista = [lista]
     if isinstance(lista, list):
         inmuebles = []
         for x in lista[:400]:
@@ -291,6 +313,30 @@ def leer_dnprc(datos: dict) -> dict:
         años = [i["año"] for i in inmuebles if i["año"]]
         salida.update({"inmuebles": len(lista), "usos": usos.most_common(), "año": min(años) if años else salida.get("año"),
                        "superficie_total": round(sum(i["superficie"] or 0 for i in inmuebles)) or None})
+        rc = (lista[0].get("rc") or {}) if lista else {}
+        if rc.get("pc1"):
+            salida["primero"] = "".join(str(rc.get(k) or "") for k in ("pc1", "pc2", "car", "cc1", "cc2"))
+    finca = _buscar(datos, "finca")
+    if isinstance(finca, dict):
+        if finca.get("ltp"):
+            salida["parcela"] = finca["ltp"]
+        suelo = _numero((finca.get("dff") or {}).get("ss"))
+        if suelo:
+            salida["suelo"] = suelo
+        plano = (finca.get("infgraf") or {}).get("igraf")
+        if plano:
+            salida["plano"] = plano
+    construcciones = _buscar(datos, "lcons")
+    if isinstance(construcciones, dict):
+        construcciones = [construcciones]
+    if isinstance(construcciones, list):
+        partes = Counter()
+        for c in construcciones:
+            partes[(c.get("lcd") or "").strip().capitalize() or "Otros"] += _numero((c.get("dfcons") or {}).get("stl")) or 0
+        salida["construcciones"] = [[k, round(v)] for k, v in partes.most_common(8)]
+        tipo = next((c.get("dvcons", {}).get("dtip") for c in construcciones if c.get("dvcons", {}).get("dtip")), None)
+        if tipo:
+            salida["tipologia"] = tipo.capitalize()
     elif "inmuebles" not in salida and salida:
         salida["inmuebles"] = 1
     clase = _buscar(datos, "cn")

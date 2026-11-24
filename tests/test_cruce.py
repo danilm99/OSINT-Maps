@@ -8,7 +8,7 @@ from datetime import datetime
 import pytest
 
 from osintmaps.pulso import cruce as C
-from osintmaps.pulso.almacen import Almacen
+from osintmaps.pulso.almacen import Almacen, semana_local
 from osintmaps.pulso.fuentes import Cita, Item, Objeto, Punto, Toma
 
 # Cuadrícula 3x3 de barrios de 0,01° alrededor de la plaza del Ayuntamiento. «E» es el del centro.
@@ -61,8 +61,8 @@ def ciudad():
         for slot in range(48):
             fr = 2 * 48 + slot          # miércoles
             for b in list(LETRAS) + [C.CIUDAD]:
-                filas.append(("bici_ocupacion", b, fr, base // C.SEMANA, 50 + azar.uniform(-2, 2), 0))
-                filas.append(("parking", b, fr, base // C.SEMANA, 40 + azar.uniform(-2, 2), 0))
+                filas.append(("bici_ocupacion", b, fr, semana_local(base), 50 + azar.uniform(-2, 2), 0))
+                filas.append(("parking", b, fr, semana_local(base), 40 + azar.uniform(-2, 2), 0))
     almacen._bd.executemany("INSERT OR REPLACE INTO muestras VALUES (?,?,?,?,?,?)", filas)
     return almacen, motor
 
@@ -204,7 +204,7 @@ def test_reconstruir_lo_que_falta(ciudad):
     # Lo que ya está hecho no se repite.
     assert motor.reconstruir(T0 - 3600, T0, sucesos_desde=T0 - 600) == 0
     # Las muestras de las medias horas cerradas ya están para mañana.
-    assert almacen._filas("SELECT COUNT(*) FROM muestras WHERE semana=?", (T0 // C.SEMANA,))[0][0] > 0
+    assert almacen._filas("SELECT COUNT(*) FROM muestras WHERE semana=?", (semana_local(T0),))[0][0] > 0
 
 
 def test_perfiles_para_comparar_dias(ciudad):
@@ -240,3 +240,16 @@ def test_lo_que_se_mueve_sigue_siendo_el_mismo_suceso(ciudad):
     assert len(eventos) == 1
     # Ahora está sobre todo en E (D, de donde salen las bicis, puede seguir al lado con señales más flojas).
     assert eventos[0]["barrios"] == ["D", "E"] and eventos[0]["evidencias"]["ahora"][0] == "E"
+
+
+def test_lo_normal_nunca_es_de_hoy(ciudad):
+    """Con poco histórico, lo normal sale de otros días; nunca de hoy (lo que está pasando no es su propio normal)."""
+    almacen, motor = ciudad
+    hoy, fr = semana_local(T0 - 1), C.franja(T0 - 1)
+    almacen._bd.executemany("INSERT INTO muestras VALUES (?,?,?,?,?,?)", [
+        ("urgentes", "G", fr - 1, hoy, 2.0, 0),                  # hoy, media hora antes: el propio suceso
+        ("urgentes", "G", fr - 48, hoy, 0.0, 0), ("urgentes", "G", fr - 49, hoy, 0.0, 0), ("urgentes", "G", fr - 47, hoy, 0.0, 0),   # ayer
+        ("urgentes", "G", fr + 1, hoy - 1, 0.0, 0),              # la semana pasada, media hora después
+        ("urgentes", "G", fr + 48, hoy, 5.0, 0),                 # mañana (al reconstruir): tampoco
+    ])
+    assert sorted(motor.muestras("urgentes", "G", T0)) == [0.0, 0.0, 0.0, 0.0]
