@@ -10,7 +10,7 @@ parte de reglas con los mismos hechos. Al acabar borra la copia.
 
 Por defecto la carpeta de datos es la de OSINT-Maps en la carpeta del usuario, y dos partes por situación.
 """
-import json, shutil, sqlite3, sys, tempfile, time
+import shutil, sqlite3, sys, tempfile, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from osintmaps.pulso import ia as IA_
@@ -56,7 +56,7 @@ try:
             {"nombre": "Retraso medio de Cercanías", "valor": 9.5, "unidad": "min", "normal": 1.5, "z": 3.4, "nota": None}]},
     }
     for nombre, datos in situaciones.items():
-        print(f"\n== {nombre}\nhechos para el modelo:", json.dumps(IA_.hechos_del_parte(datos), ensure_ascii=False, indent=1))
+        print(f"\n== {nombre}\npuntos para el modelo:\n" + "\n".join(f"- {p}" for p in IA_.puntos_del_parte(datos)))
         print("\nreglas:", parte_por_reglas(datos), flush=True)
         for _ in range(veces):
             ia.parte = None

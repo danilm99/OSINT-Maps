@@ -52,15 +52,10 @@ ESQUEMA_SUCESO = {"type": "object", "properties": {
     "resumen": {"type": "string"}, "confianza": {"type": "string", "enum": ["alta", "media", "baja"]}}, "required": ["resumen", "confianza"]}
 ESQUEMA_PARTE = {"type": "object", "properties": {"parte": {"type": "string"}}, "required": ["parte"]}
 PEDIDO_PARTE = (
-    "Escribe el parte de la ciudad para ahora mismo, como un parte de radio: como mucho cinco frases cortas, en prosa y "
-    "con tus palabras. Empieza por el «titular», dicho a tu manera, con los detalles de los sucesos en marcha y de lo que "
-    "está fuera de lo normal si los hay. Después, lo que hay hoy en la agenda: qué, dónde y si aún no ha empezado, sigue "
-    "o ya acabó. Luego, si los hay, la lluvia y los avisos. Al final, en pocas palabras, de qué se habla.\n"
-    "Lo que está fuera de lo normal, dilo como «por encima» o «por debajo de lo normal para la hora», con su cifra y la "
-    "normal, sin calificarlo de otra manera (ni moderado, ni alto, ni bajo). De cada suceso, cuenta lo que dice su resumen "
-    "sin dar por hecho lo que solo se publica: si habla de lo que dicen las publicaciones o de una causa sin confirmar, "
-    "dilo así. No le atribuyas a una fuente lo que es de otra, no añadas causas ni previsiones y no copies los nombres de "
-    "los datos ni empieces frases con «La situación:», «La agenda:» o parecidas.\nDatos:\n")
+    "Convierte estos puntos en el parte de la ciudad, como un parte de radio: un solo párrafo de frases cortas, en el "
+    "mismo orden y con tus palabras, juntando lo que vaya bien junto. Di todos los puntos y nada más: no añadas cifras, "
+    "causas, previsiones ni valoraciones (nada de «moderado», «alto» o «bajo» si el punto no lo dice), y lo que un punto "
+    "da como publicado o sin confirmar, sigue siéndolo.\n\nPuntos:\n")
 
 
 class IA:
@@ -195,7 +190,7 @@ class IA:
             if not self.preparar_parte:
                 return
             datos = self.preparar_parte()
-        respuesta = self.chat(PEDIDO_PARTE + json.dumps(hechos_del_parte(datos), ensure_ascii=False, indent=1), ESQUEMA_PARTE, 350)
+        respuesta = self.chat(PEDIDO_PARTE + "\n".join(f"- {p}" for p in puntos_del_parte(datos)), ESQUEMA_PARTE, 350)
         texto = (respuesta.get("parte") or "").strip()
         if texto:
             self.parte = {"texto": texto[:1500], "t": int(time.time()), "modelo": self.modelo, "firma": firma_del_parte(datos)}
@@ -248,39 +243,33 @@ def _frente_a_lo_normal(c: dict) -> str:
             f"cuando lo normal es {_num(c.get('normal'))}{unidad}{nota}")
 
 
-def hechos_del_parte(d: dict) -> dict:
-    """Los hechos del parte (los de `Sala.datos_del_parte`) tal como se le dan al modelo: solo lo que importa, y cada
-    cifra con lo que significa y frente a qué se compara. Un modelo pequeño cuenta todo lo que recibe y lee mal las
-    lecturas sueltas: con «tráfico 0 sobre 100» escribía «tráfico muy bajo» (el 0 solo dice que ningún tramo está
-    congestionado) y le ponía al metro el retraso de Cercanías. Así que no van las lecturas dentro de lo normal, ni
-    cuántas noticias o incidencias de carretera hay (sin saber cuántas son lo normal, no dicen nada), ni los barrios
-    más movidos, que cambian cada diez minutos: el parte de reglas, al lado, lo dice todo."""
+def puntos_del_parte(d: dict) -> list[str]:
+    """Lo que tiene que decir el parte (con los hechos de `Sala.datos_del_parte`), punto por punto, en orden y ya
+    escrito con su sentido: lo eligen las reglas y el modelo solo lo cuenta bien. Probado con qwen3:8b y datos de
+    verdad, un modelo pequeño cuenta todo lo que recibe y lee mal las lecturas sueltas («tráfico 0 sobre 100» acababa
+    en «tráfico muy bajo», cuando el 0 solo dice que ningún tramo está congestionado; le ponía al metro el retraso de
+    Cercanías), confunde las condiciones («si no hay sucesos, di que todo es normal» lo decía también con un suceso)
+    y se inventa cifras. Así que no van las lecturas dentro de lo normal, ni cuántas noticias o incidencias de carretera
+    hay (sin saber cuántas son lo normal no dicen nada), ni los barrios más movidos, que cambian cada diez minutos:
+    el parte de reglas, al lado, lo dice todo."""
     activos = d.get("sucesos_activos") or []
     fuera = d.get("ciudad_fuera_de_lo_normal") or []
+    puntos = []
     if not activos and not fuera:
-        titular = "La ciudad está dentro de lo normal para la hora."
-    else:
-        partes = [f"suceso en marcha, {s.get('titulo')} (desde las {s.get('desde')})" for s in activos[:3]]
-        partes += [f"{c['nombre']} {'por encima' if (c.get('z') or 0) > 0 else 'por debajo'} de lo normal para la hora" for c in fuera[:3]]
-        titular = "Fuera de lo normal: " + "; ".join(partes) + "."
-    # El titular lo ponen las reglas: un modelo pequeño confunde «si no hay sucesos, di que todo es normal» y lo
-    # dice también con un suceso en marcha.
-    h: dict = {"momento": d.get("momento"), "titular": titular}
-    if activos:
-        h["sucesos_en_marcha"] = [{"que": s.get("titulo"), "desde_las": s.get("desde"), **({"resumen": s["resumen"]} if s.get("resumen") else {})}
-                                  for s in activos]
-    if fuera:
-        h["fuera_de_lo_normal"] = [_frente_a_lo_normal(c) for c in fuera]
-    if d.get("agenda_hoy"):
-        h["agenda_de_hoy"] = [f"{a['que']}: {a['cuando']}" for a in d["agenda_hoy"][:5]]
+        puntos.append("La ciudad está dentro de lo normal para la hora.")
+    for s in activos[:3]:
+        resumen = f" {s['resumen']}" if s.get("resumen") else ""
+        puntos.append(f"Suceso en marcha desde las {s.get('desde')}: {s.get('titulo')}.{resumen}")
+    puntos += [_frente_a_lo_normal(c) + "." for c in fuera[:4]]
+    puntos += [f"Hoy: {a['que']}, {a['cuando']}." for a in (d.get("agenda_hoy") or [])[:4]]
     if d.get("lluvia"):
-        h["lluvia"] = d["lluvia"]
+        puntos.append(f"Está {d['lluvia']}.")
     if d.get("avisos"):
-        h["avisos_meteorologicos_en_vigor"] = d["avisos"]
+        puntos.append("En vigor: " + "; ".join(d["avisos"]) + ".")
     temas = (d.get("conversacion_2h") or {}).get("temas")
     if temas:
-        h["temas_de_los_que_mas_se_habla"] = temas
-    return h
+        puntos.append("En las últimas dos horas se habla sobre todo de " + ", ".join(temas) + ".")
+    return puntos
 
 
 def firma_del_parte(d: dict) -> str:
