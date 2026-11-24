@@ -74,6 +74,16 @@ EQUIVALENCIAS = {
     "ramon": "ramon", "guillem": "guillermo", "berenguer": "berenguer", "arxiduc": "archiduque", "reina": "reina",
     "infanta": "infanta", "princep": "principe", "princesa": "princesa", "cavallers": "caballeros", "historiador": "historiador",
     "llibertat": "libertad", "pau": "paz", "mercat": "mercado", "plata": "plata", "fusters": "carpinteros",
+    "lleida": "lerida", "sagunt": "sagunto", "enginyer": "ingeniero", "carles": "carlos", "creus": "cruces",
+    "maristes": "maristas", "font": "fuente", "equador": "ecuador", "alacant": "alicante", "castello": "castellon",
+    "catedratic": "catedratico", "escriptor": "escritor", "professor": "profesor", "president": "presidente",
+    "mossen": "mosen", "nueve": "nuevo", "dos": "dos", "germanies": "germanias", "regne": "reino", "illes": "islas",
+    "balears": "baleares", "albereda": "alameda", "orxata": "horchata", "llotja": "lonja", "valencia": "valencia",
+    "angel": "angel", "sants": "santos", "apostol": "apostol", "fra": "fray", "frare": "fraile", "monestir": "monasterio",
+    "arquitecte": "arquitecto", "advocat": "abogado", "notari": "notario", "jutge": "juez", "musico": "musico",
+    "tenor": "tenor", "compositor": "compositor", "actor": "actor", "actriu": "actriz", "cardenal": "cardenal",
+    "illa": "isla", "camp": "campo", "horta": "huerta", "molí": "molino", "moli": "molino", "sequia": "acequia",
+    "barca": "barca", "ermita": "ermita", "torre": "torre", "portal": "portal", "porta": "puerta", "murs": "muros",
 }
 # Nombres de barrio que son también palabras corrientes: solo cuentan si delante pone «barrio» o «barri».
 BARRIOS_AMBIGUOS = {"la seu", "el mercat", "sant francesc", "la roqueta", "el pilar", "el botanic", "la petxina", "la raiosa",
@@ -98,7 +108,8 @@ def clave_nombre(texto: str) -> str:
     while palabras and palabras[0] in _TIPOS_SUELTOS:        # el tipo de vía delante no cuenta
         palabras = palabras[1:]
     salida = [EQUIVALENCIAS.get(p, p) for p in palabras if p not in PARTICULAS]
-    return " ".join(salida)
+    # «Venezuela» y «Veneçuela» (sin acento, «venecuela»): la z y la c suave se escriben igual aquí.
+    return re.sub(r"z", "c", " ".join(salida))
 
 
 _TIPOS_SUELTOS = {"calle", "carrer", "cl", "c", "avenida", "avda", "av", "avinguda", "plaza", "pl", "placa", "paseo", "pg",
@@ -150,6 +161,7 @@ class Zonas:
                     if j != i:
                         self.vecinos[codigos[i]].add(codigos[int(j)])
         self._calles: dict[str, list] | None = None
+        self._por_inicial: dict[str, list[str]] | None = None
         self._indice_nombres: dict[str, tuple[str, str]] | None = None
 
     @property
@@ -286,7 +298,7 @@ class Zonas:
                 continue
             despues = t[m.start(1) + len(" ".join(fragmento.split()[:usadas])):][:60]
             numero = re.match(r"\s*(?:n|num|numero)?\s*(\d{1,4})\b", despues)
-            otra = re.match(rf"\s*(?:con|cruce|cruz|amb|esquina|y|i)\s+(?:(?:{patron_tipo})\s+)?((?:[a-z0-9]+ ){{1,6}})", despues + " ")
+            otra = re.match(rf"\s*(?:(?:con|cruce|cruz|amb|esquina|y|i|a|al|en)\s+)+(?:(?:{patron_tipo})\s+)?((?:[a-z0-9]+ ){{1,6}})", despues + " ")
             punto, tipo, conf, nombre = None, "calle", 0.55, self._indice_nombres[clave_calle][0]
             if otra:
                 mejor_b = self._mejor_calle(otra.group(1).strip())
@@ -327,12 +339,25 @@ class Zonas:
         return None
 
     def _mejor_calle(self, fragmento: str) -> tuple[str, int] | None:
-        """La calle cuyo nombre coincide con el principio más largo del fragmento: (clave, palabras usadas)."""
+        """La calle cuyo nombre coincide con el principio más largo del fragmento: (clave, palabras usadas).
+        Si no hay ninguna exacta, la más parecida (para «Lleida»/«Lérida», «Maristes»/«Maristas»...)."""
         palabras = fragmento.split()
         for n in range(min(6, len(palabras)), 0, -1):
             clave = clave_nombre(" ".join(palabras[:n]))
             if len(clave) >= 4 and clave in self._indice_nombres:
                 return clave, n
+        import difflib
+        if self._por_inicial is None:
+            self._por_inicial = {}
+            for clave in self._indice_nombres:
+                self._por_inicial.setdefault(clave[:2], []).append(clave)
+        for n in range(min(5, len(palabras)), 0, -1):
+            clave = clave_nombre(" ".join(palabras[:n]))
+            if len(clave) < 6:
+                continue
+            parecidas = difflib.get_close_matches(clave, self._por_inicial.get(clave[:2], []), n=1, cutoff=0.86)
+            if parecidas:
+                return parecidas[0], n
         return None
 
 
