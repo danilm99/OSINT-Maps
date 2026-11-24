@@ -293,7 +293,7 @@ for (const id of ["trafico", "calor", "sucesos", "textos", "avisos", "agenda", "
 
 mapa.on("click", (ev) => { if (investigando) abrirLugar(ev.latlng.lat, ev.latlng.lng); else if (movil()) cerrarCapas(); });
 mapa.on("contextmenu", (ev) => abrirLugar(ev.latlng.lat, ev.latlng.lng));
-mapa.on("zoomend", () => { pintarNombres(); if (ajustes.capas.trafico) pintarTrafico(); });
+mapa.on("zoomend", () => { pintarNombres(); if (ajustes.capas.trafico) pintarTrafico(); if (E) pintarCapas(); });
 
 /* ---------- Barrios: un contorno tenue que se puede pulsar; relleno solo si están fuera de lo normal ---------- */
 function familiaDominante(b) {
@@ -439,7 +439,13 @@ function popupLista(lista, cita = false) {
 function pintarCapas() {
   capas.sucesos.clearLayers();
   const ordenados = [...(E?.sucesos || [])].filter((s) => s.lat != null).sort((a, b) => (a.estado === "activo") - (b.estado === "activo") || (a.puntuacion || 0) - (b.puntuacion || 0));
-  const conRotulo = new Set(ordenados.filter((s) => s.estado === "activo").slice(-3).map((s) => s.id));
+  const conRotulo = new Set(), ocupado = [];
+  for (const s of [...ordenados].reverse()) {
+    if (s.estado !== "activo" || conRotulo.size >= 3) continue;
+    const p = mapa.latLngToContainerPoint([s.lat, s.lon]);
+    if (ocupado.some((q) => Math.abs(q.y - p.y) < 34 && p.x > q.x - 60 && p.x < q.x + 250)) continue;
+    conRotulo.add(s.id); ocupado.push(p);
+  }
   for (const s of ordenados) {
     const activo = s.estado === "activo";
     const d = Math.round(Math.max(28, Math.min(44, 22 + (s.puntuacion || 0) * 1.6)));
@@ -552,7 +558,7 @@ function pintarCabecera() {
   caja.style.setProperty("--c", color);
   caja.classList.toggle("provisional", aprendiendo);
   $("nivel-valor").textContent = nombre;
-  $("nivel-detalle").textContent = aprendiendo ? `aprendiendo, ${Math.min(4, ap.semanas || 0)} de 4 semanas` : "";
+  $("nivel-detalle").textContent = !aprendiendo ? "" : ap.dias != null && ap.dias < 7 ? `aprendiendo, día ${Math.floor(ap.dias) + 1} de 28` : `aprendiendo, semana ${Math.min(4, (ap.semanas || 0) + 1)} de 4`;
   caja.title = `${E.nivel?.frase || ""}${aprendiendo ? ". Con menos de cuatro semanas de histórico lo normal aún no es fiable, así que la sala no pasa de «atención»." : ""}`;
   $("nivel-barras").replaceChildren(...[1, 2, 3, 4].map((k) => { const s = el("span"); if (k <= barras) { s.style.background = color; s.style.boxShadow = `0 0 6px ${color}`; } return s; }));
   const fuentes = E.fuentes || [];
@@ -1397,11 +1403,12 @@ hayServidor.then(async (si) => {
   await cargar();
   pedirTraficoVivo();
   if (servidor && ajustes.capas.helis) pedirCielo();
-  // Lo que pide la dirección: #suceso=..., #barrio=..., #lugar=lat,lon, #comparar, #movilidad
+  // Lo que pide la dirección: #suceso=..., #barrio=..., #lugar=lat,lon, #vista=lat,lon,zoom, #comparar, #movilidad
   const [clave, valor] = decodeURIComponent(location.hash.slice(1)).split("=");
   if (clave === "suceso" && valor) abrirSuceso(valor);
   else if (clave === "barrio" && valor) abrirBarrio(valor);
   else if (clave === "lugar" && valor) { const [la, lo] = valor.split(",").map(Number); if (Number.isFinite(la) && Number.isFinite(lo)) abrirLugar(la, lo); }
+  else if (clave === "vista" && valor) { const [la, lo, z] = valor.split(",").map(Number); if (Number.isFinite(la) && Number.isFinite(lo)) mapa.setView([la, lo], Number.isFinite(z) ? z : 15); }
   else if (clave === "comparar") abrirComparar();
   else if (clave === "movilidad") abrirMovilidad();
 });

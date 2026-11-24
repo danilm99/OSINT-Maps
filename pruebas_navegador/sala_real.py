@@ -120,7 +120,7 @@ chrome = next((c for c in (os.environ.get("CHROME", ""), r"C:\Program Files\Goog
 if chrome:
     activos = [ev for ev in sala.cruce.eventos(ahora - 24 * 3600, ahora + 1)]
     russafa = next((c for c, b in sala.zonas.barrios.items() if b["nombre"] == "Russafa"), "")
-    vistas = [("real-escritorio", "sala.html", "1600,960"), ("real-movil", "sala.html", "390,844"),
+    vistas = [("real-escritorio", "sala.html", "1600,960"), ("real-centro", "sala.html#vista=39.4699,-0.3763,15", "1600,960"), ("real-movil", "sala.html", "390,844"),
               ("real-lugar", "sala.html#lugar=39.47437,-0.37854", "1600,960"), ("real-comparar", "sala.html#comparar", "1600,960"),
               ("real-movilidad", "sala.html#movilidad", "1600,960"), ("real-barrio", f"sala.html#barrio={russafa}", "1600,960")]
     if activos:
