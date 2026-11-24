@@ -609,8 +609,12 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
 
     def _pulso(self, ruta: str) -> None:
         """El histórico de la ciudad. Un trozo grande son cientos de KB de cifras: va comprimido."""
-        from .pulso.servidor import atender
-        codigo, cuerpo = atender(self.pulso, ruta, urlparse(self.path).query)
+        if ruta.startswith("/vivo/sala/"):
+            from .pulso.sala import atender as atender_sala
+            codigo, cuerpo = atender_sala(getattr(self.pulso, "sala", None), ruta, urlparse(self.path).query)
+        else:
+            from .pulso.servidor import atender
+            codigo, cuerpo = atender(self.pulso, ruta, urlparse(self.path).query)
         comprimir = "gzip" in self.headers.get("Accept-Encoding", "") and len(cuerpo) >= 1024
         if comprimir:
             cuerpo = gzip.compress(cuerpo, compresslevel=5)
@@ -643,7 +647,7 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         if ruta == "/vivo/noticias":
             self._noticias()
             return
-        if ruta.startswith("/vivo/pulso/"):
+        if ruta.startswith("/vivo/pulso/") or ruta.startswith("/vivo/sala/"):
             self._pulso(ruta)
             return
         # Si el fichero aún no existe se responde con un objeto vacío en vez de un
@@ -862,7 +866,8 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
 # --------------------------------------------------------------------------
 
 # Lo que se copia de la carpeta de datos a la web. Las notas (marcas y marcadores propios) solo si se pide.
-DATOS_DEL_SITIO = ("candidatos.geojson", "huellas.geojson", "camaras.geojson", *(f"capa-{n}.geojson" for n in CAPAS_EXTRA), "revision.json", historia.FICHERO, "pulso.json")
+DATOS_DEL_SITIO = ("candidatos.geojson", "huellas.geojson", "camaras.geojson", *(f"capa-{n}.geojson" for n in CAPAS_EXTRA), "revision.json", historia.FICHERO, "pulso.json",
+                   "sala.json", "sala-barrios.json", "sala-perfiles.json")
 # Lo que un programa aparte ha visto en la foto aérea alrededor de cada sitio (experimentos/vision):
 # revision.json es el resumen y en esta subcarpeta va un fichero de líneas por sitio.
 CARPETA_VISION = "vision"
@@ -885,14 +890,14 @@ def crear_sitio(destino: Path, carpeta_datos: Path | None, con_notas: bool = Fal
     # programa de la anterior. Para evitarlo, la página pide cada programa con una marca de su
     # contenido (capas.js?v=1a2b3c4d): si el contenido cambia, la dirección cambia y se baja de nuevo.
     import hashlib
-    indice = destino / "index.html"
-    pagina = indice.read_text(encoding="utf-8")
-    for guion in sorted(destino.glob("*.js")):
-        etiqueta = f'<script src="{guion.name}"></script>'
-        if etiqueta in pagina:
-            marca = hashlib.sha256(guion.read_bytes()).hexdigest()[:10]
-            pagina = pagina.replace(etiqueta, f'<script src="{guion.name}?v={marca}"></script>')
-    indice.write_text(pagina, encoding="utf-8")
+    for html in sorted(destino.glob("*.html")):        # el visor y la sala de control
+        pagina = html.read_text(encoding="utf-8")
+        for guion in sorted(destino.glob("*.js")):
+            etiqueta = f'<script src="{guion.name}"></script>'
+            if etiqueta in pagina:
+                marca = hashlib.sha256(guion.read_bytes()).hexdigest()[:10]
+                pagina = pagina.replace(etiqueta, f'<script src="{guion.name}?v={marca}"></script>')
+        html.write_text(pagina, encoding="utf-8")
     copiados = []
     if carpeta_datos is not None:
         (destino / "datos").mkdir(exist_ok=True)

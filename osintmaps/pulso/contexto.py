@@ -104,11 +104,12 @@ def bajar_tabla(sesion: requests.Session, nombre: str, ruta: Path) -> int:
         raise ValueError(f"sin recurso descargable en {identificador}")
     resp = sesion.get(url, timeout=120, stream=True)
     resp.raise_for_status()
-    contenido = b""
+    contenido = bytearray()
     for trozo in resp.iter_content(1 << 16):
         contenido += trozo
         if len(contenido) > MAX_BYTES_TABLA:
             raise ValueError(f"{nombre}: demasiado grande")
+    contenido = bytes(contenido)
     _escribir(ruta, contenido)
     return contenido.count(b"\n")
 

@@ -219,6 +219,38 @@ class Zonas:
         self._cargar_calles()
         return self._calles.get(clave_nombre(nombre), []) if self._calles else []
 
+    def calle_cercana(self, lat: float, lon: float, max_metros: float = 60.0) -> dict | None:
+        """La calle más cercana a un punto y el número de portal que le tocaría (por los rangos de cada tramo)."""
+        self._cargar_calles()
+        if not self._calles:
+            return None
+        if getattr(self, "_arbol_tramos", None) is None:
+            self._tramos = [(g, clave, p) for clave, tramos in self._calles.items() for g, p in tramos]
+            self._arbol_tramos = STRtree([g for g, _, _ in self._tramos])
+        punto = Point(lon, lat)
+        i = self._arbol_tramos.nearest(punto)
+        if i is None:
+            return None
+        g, clave, p = self._tramos[int(i)]
+        metros = g.distance(punto) * 111_000
+        if metros > max_metros:
+            return None
+        nombre = self._indice_nombres.get(clave, (clave, ""))[0]
+        numero = None
+        linea = g.geoms[0] if hasattr(g, "geoms") else g
+        f = linea.project(punto, normalized=True)
+        # A qué lado del tramo cae el punto: izquierda o derecha según el sentido en que está dibujado.
+        a = linea.interpolate(max(0.0, f - 0.01), normalized=True)
+        b = linea.interpolate(min(1.0, f + 0.01), normalized=True)
+        izquierda = (b.x - a.x) * (punto.y - a.y) - (b.y - a.y) * (punto.x - a.x) > 0
+        desde, hasta = (p.get("lf_add"), p.get("lt_add")) if izquierda else (p.get("rf_add"), p.get("rt_add"))
+        if isinstance(desde, (int, float)) and isinstance(hasta, (int, float)) and (desde or hasta):
+            n = round(desde + f * (hasta - desde))
+            if desde % 2 != n % 2:
+                n += 1 if hasta >= desde else -1
+            numero = int(max(min(desde, hasta), min(max(desde, hasta), n)))
+        return {"nombre": nombre, "numero": numero, "metros": round(metros)}
+
     def centro_de_calle(self, nombre: str) -> tuple[float, float] | None:
         tramos = self.calle(nombre)
         if not tramos:

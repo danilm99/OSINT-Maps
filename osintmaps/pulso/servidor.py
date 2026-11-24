@@ -4,6 +4,8 @@
     /vivo/pulso/resumen     un trozo del histórico (ver resumen.py): ?desde=&hasta=&paso=&puntos=&rastros=
     /vivo/pulso/punto       la historia de un punto: ?serie=bicis&id=12&desde=&hasta=
 
+La sala de control (sala.py) contesta a /vivo/sala/... con lo que monta encima de esto.
+
 Las horas van en segundos desde 1970. Sin `desde` y `hasta` se dan las últimas 48 horas.
 """
 
@@ -22,6 +24,7 @@ from .catalogo import FUENTES, INDICADORES, SERIES
 from .publicar import Publicador, repositorio_de
 from .recolector import Recolector
 from .resumen import crear_resumen, paso_para, resumen_para_la_web
+from .sala import Sala
 
 MAX_DIAS = 400                  # lo más que se deja pedir de una vez
 
@@ -39,6 +42,8 @@ class Pulso:
         self.publicador: Publicador | None = None
         self._estado: tuple[float, dict] = (0.0, {})
         self._candado = threading.Lock()
+        # La sala de control: barrios, cruce y sucesos. Sin recoger, solo consulta lo guardado.
+        self.sala = Sala(self, recoger=recoger)
 
     @classmethod
     def si_hay(cls, carpeta_datos: Path) -> "Pulso | None":
@@ -48,6 +53,7 @@ class Pulso:
     def arrancar(self) -> None:
         if self.recolector:
             self.recolector.arrancar()
+            self.sala.arrancar()
 
     def publicar_cada(self, minutos: float, repo: str | None, carpeta_trabajo: Path, carpeta_programa: Path) -> Publicador:
         """Activa la publicación de los datos en la web. `repo` es la dirección del repositorio; si
@@ -62,11 +68,20 @@ class Pulso:
         temporal = self.carpeta_datos / (FICHERO_RESUMEN + ".parcial")
         temporal.write_bytes(contenido)
         temporal.replace(self.carpeta_datos / FICHERO_RESUMEN)
-        return {FICHERO_RESUMEN: contenido}
+        ficheros = {FICHERO_RESUMEN: contenido}
+        try:
+            for nombre, datos in self.sala.ficheros_web().items():
+                ficheros[nombre] = datos
+                (self.carpeta_datos / nombre).write_bytes(datos)
+        except Exception:  # noqa: BLE001  (sin sala se publica al menos el pulso)
+            import logging
+            logging.getLogger("osintmaps.pulso").warning("No se han podido preparar los datos de la sala", exc_info=True)
+        return ficheros
 
     def parar(self) -> None:
         if self.publicador:
             self.publicador.parar()
+        self.sala.parar()
         if self.recolector:
             self.recolector.parar()
         self.almacen.cerrar()

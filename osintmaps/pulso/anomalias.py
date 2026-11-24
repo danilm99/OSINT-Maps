@@ -30,7 +30,8 @@ DIA, SEMANA = 86400, 7 * 86400
 
 # Los indicadores que se vigilan. El tiempo no entra: que llueva no es una anomalía de la ciudad.
 VIGILADOS = ("bicis_fuera", "parking_ocupacion", "trafico_indice", "trafico_cortado", "aforo", "aforo_bici",
-             "aire_no2", "aire_pm25", "aviones_bajos", "trenes")
+             "aire_no2", "aire_pm25", "aviones_bajos", "trenes", "trenes_retraso", "helicopteros", "metro_salidas",
+             "metro_sin_servicio", "ora_ocupacion")
 
 
 def _laborable(t: int) -> bool:

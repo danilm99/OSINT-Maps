@@ -33,6 +33,8 @@ PRENSA: dict[str, str] = {
     "20minutos Valencia": "https://www.20minutos.es/rss/valencia/",
     "El Mundo CV": "https://e00-elmundo.uecdn.es/elmundo/rss/valencia.xml",
 }
+# Secciones que son solo de la ciudad: lo que publican es de aquí aunque no nombre València.
+PRENSA_DE_LA_CIUDAD = {"Las Provincias"}
 BLUESKY = "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts"
 BLUESKY_BUSQUEDAS = (("València", None), ("Valencia", "es"), ("Valencia", "ca"))
 MASTODON = ("mastodon.social", "masto.es", "mastodon.uno", "tkz.one")
@@ -276,21 +278,26 @@ def tomar_dgt(sesion: requests.Session, geometria: bool = True) -> Toma:
 
 def enriquecer(items: list[Item], zonas) -> list[Item]:
     """Sitúa cada texto, le pone categoría y tira lo que no es de la ciudad. Los avisos que ya traen
-    sitio (DGT) o que son de toda la ciudad (meteo, Renfe) se quedan como vienen."""
+    sitio (DGT) o que son de toda la ciudad (meteo, Renfe) se quedan como vienen. Sin nomenclátor
+    (los primeros minutos tras arrancar) no se sitúa nada, pero lo que no es de València se tira igual."""
+    hay_mapa = zonas is not None and zonas.hay
     salida = []
     for it in items:
         texto = f"{it.titulo}. {it.texto}"
-        if it.lat is None and it.fuente not in ("meteoalarm", "renfe") and zonas is not None and zonas.hay:
-            lugares = zonas.buscar(texto)
-            en_ciudad = [l for l in lugares if l.barrio]
+        situado = False
+        if it.lat is None and it.fuente not in ("meteoalarm", "renfe") and hay_mapa:
+            en_ciudad = [l for l in zonas.buscar(texto) if l.barrio]
             if en_ciudad:
                 l = en_ciudad[0]
                 it.lat, it.lon, it.barrio, it.lugar = l.lat, l.lon, l.barrio, l.nombre
                 it.extra["confianza_lugar"] = l.confianza
-            if it.fuente in ("prensa", "bluesky", "mastodon") and not clasificar.es_de_valencia(texto, bool(en_ciudad)):
-                continue
-        elif it.lat is not None and zonas is not None and zonas.hay and not it.barrio:
+                situado = True
+        elif it.lat is not None and hay_mapa and not it.barrio:
             it.barrio = zonas.barrio_de(it.lat, it.lon)
+        if it.fuente in ("prensa", "bluesky", "mastodon"):
+            de_la_ciudad = it.extra.get("medio") in PRENSA_DE_LA_CIUDAD and not any(o in texto.lower() for o in clasificar.OTRAS_VALENCIAS)
+            if not (de_la_ciudad or clasificar.es_de_valencia(texto, situado)):
+                continue
         if not it.categoria:
             it.categoria, it.urgencia = clasificar.categoria(texto)
         salida.append(it)

@@ -56,8 +56,11 @@ def categoria(texto: str) -> tuple[str, int]:
         if n > aciertos:
             mejor, aciertos = cat, n
     urgencia = 0
-    if mejor in ("emergencia", "accidente", "seguridad"):
-        urgencia = 2 + any(u in t for u in URGENTES)
+    graves = any(u in t for u in URGENTES)
+    if mejor == "emergencia":
+        urgencia = 2 + graves
+    elif mejor in ("accidente", "seguridad"):
+        urgencia = 1 + graves + any(u in t for u in ("muere", "fallec", "mortal"))
     elif mejor in ("protesta", "trafico", "transporte", "meteo"):
         urgencia = 1 + (mejor == "meteo" and ("naranja" in t or "rojo" in t))
     return mejor or "otros", min(3, urgencia)

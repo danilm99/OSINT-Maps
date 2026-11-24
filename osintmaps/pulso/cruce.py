@@ -327,8 +327,8 @@ class Cruce:
         """Publicaciones (30 min), noticias (2 h), incidencias activas y textos urgentes (1 h). La ciudad cuenta
         también lo que no se ha podido situar en un barrio."""
         desde = instantes[0] - 7200
-        filas = self.almacen._filas("SELECT fuente, t, barrio, urgencia, visto FROM items WHERE (t>? OR visto>?) AND t<=?",
-                                    (desde, desde, instantes[-1]))
+        filas = self.almacen._filas("SELECT fuente, t, barrio, urgencia, visto FROM items WHERE (t>? OR visto>?) AND t<=? "
+                                    "AND (categoria IS NULL OR categoria!='fuera')", (desde, desde, instantes[-1]))
         cub = {"social": self._cubierto("bluesky", instantes), "prensa": self._cubierto("prensa", instantes),
                "alertas": self._cubierto("dgt", instantes), "urgentes": self._cubierto("prensa", instantes)}
         for k, t in enumerate(instantes):
