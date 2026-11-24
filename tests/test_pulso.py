@@ -13,6 +13,7 @@ import time
 import pytest
 
 from osintmaps import cli
+from osintmaps import aviones as servicio_aviones
 from osintmaps.pulso import anomalias, fuentes, publicar, resumen, servidor
 from osintmaps.pulso.almacen import Almacen
 from osintmaps.pulso.fuentes import Fuente, Objeto, Punto, Toma
@@ -26,8 +27,8 @@ T0 = 1_795_000_000 - 1_795_000_000 % 86400      # medianoche (hora universal) de
 # --------------------------------------------------------------------------
 
 class _Respuesta:
-    def __init__(self, datos, codigo=200):
-        self._datos, self.status_code = datos, codigo
+    def __init__(self, datos, codigo=200, cabeceras=None):
+        self._datos, self.status_code, self.headers = datos, codigo, cabeceras or {}
 
     def json(self):
         return self._datos
@@ -46,8 +47,8 @@ class Red:
 
     def get(self, url, timeout=None, params=None):
         self.pedidos.append((url, dict(params or {})))
-        if url.startswith(fuentes.ADSB):
-            return _Respuesta({"ac": self.aviones or []})
+        if "adsb." in url:
+            return _Respuesta({"aircraft" if "adsb.fi" in url else "ac": self.aviones or []})
         if url == fuentes.RENFE:
             return _Respuesta({"entity": self.trenes or []})
         tema, _, numero = url.removeprefix(fuentes.GEOPORTAL + "/").removesuffix("/query").split("/")
@@ -158,6 +159,50 @@ def test_aviones_y_trenes():
     assert aviones.indicadores == {"aviones": 2, "aviones_bajos": 1}
     trenes = fuentes.tomar_trenes(red)
     assert trenes.objetos["trenes"] == [Objeto("24601", 39.46, -0.38, "C2-24601")] and trenes.indicadores == {"trenes": 1}
+
+
+@pytest.fixture(autouse=True)
+def _aviones_como_recien_arrancado(monkeypatch):
+    """Cada prueba empieza sin pausas ni esperas entre peticiones a los servicios de aviones."""
+    servicio_aviones._olvidar()
+    monkeypatch.setattr(servicio_aviones, "MIN_ENTRE", 0)
+    yield
+    servicio_aviones._olvidar()
+
+
+def test_si_un_servicio_de_aviones_pide_parar_se_usa_el_otro_y_se_le_deja_en_paz():
+    pedidas = []
+
+    def get(url, timeout=None):
+        pedidas.append(url.split("/")[2])
+        if "adsb.fi" in url:
+            return _Respuesta({}, 429, {"Retry-After": "120"})
+        return _Respuesta({"ac": [{"hex": "abc"}]})
+
+    assert servicio_aviones.pedir(39.47, -0.38, 40, get=get) == {"ac": [{"hex": "abc"}], "fuente": "adsb.lol"}
+    assert servicio_aviones.estado()["adsb.fi"] in range(115, 121)          # dos minutos, lo que pidió
+    servicio_aviones.pedir(39.47, -0.38, 40, get=get)
+    assert pedidas == ["opendata.adsb.fi", "api.adsb.lol", "api.adsb.lol"]  # en pausa no se le pregunta
+
+
+def test_sin_retry_after_la_pausa_es_de_diez_minutos_y_si_todos_fallan_se_dice():
+    def get(url, timeout=None):
+        if "adsb.fi" in url:
+            raise ConnectionError("sin red")
+        return _Respuesta({}, 429)
+
+    with pytest.raises(servicio_aviones.SinServicio, match="adsb.fi: ConnectionError; adsb.lol: 429"):
+        servicio_aviones.pedir(39.47, -0.38, 40, get=get)
+    assert servicio_aviones.estado() == {"adsb.lol": 600}                   # un fallo de red no pausa; un 429 sí
+
+
+def test_entre_dos_peticiones_al_mismo_servicio_se_espera(monkeypatch):
+    monkeypatch.setattr(servicio_aviones, "MIN_ENTRE", 0.3)
+    get = lambda url, timeout=None: _Respuesta({"aircraft": []})
+    inicio = time.monotonic()
+    for _ in range(3):
+        assert servicio_aviones.pedir(39.47, -0.38, 40, get=get) == {"ac": [], "fuente": "adsb.fi"}
+    assert time.monotonic() - inicio >= 0.6
 
 
 def test_cada_indicador_y_cada_serie_tienen_su_fuente():
