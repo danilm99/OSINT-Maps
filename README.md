@@ -674,6 +674,46 @@ En el mapa, cada color dice una sola cosa:
   avisos de Renfe, partidos y fiestas. Lo que cae en el mismo sitio va en una
   sola marca con el número de cosas.
 
+**Cuánto fiarse de cada suceso.** Cada suceso lleva un grado de confianza, como
+se gradúa una información: de cuántas clases de fuente viene (sensores, fuente
+oficial, lo que se publica, la agenda) y cuánto dura. Alta: dos clases
+distintas, una de ellas sensores o una fuente oficial, y veinte minutos. Baja:
+una sola clase, o solo sensores mientras lo normal aún se aprende; con
+confianza baja la ciudad no pasa de «atención». Además:
+
+- Un incidente necesita algo físico u oficial (helicóptero, incidencia de la
+  DGT, cortes, sensores que callan) o dos textos urgentes de emergencia. Un
+  solo texto que suena urgente es «se habla de».
+- Una noticia solo es la causa si es del tema y habla de algo que pasa.
+- En la ficha, **Confirmado** o **Falso positivo**: lo parecido a un falso
+  positivo (ese tipo, en esos barrios, a esa hora y sin más fuerza) no vuelve
+  a saltar durante 60 días.
+- Sensores de un barrio que dejan de contestar a la vez con su fuente viva
+  cuentan como señal de alerta.
+- Las noticias del mismo hecho van en un hilo, con los medios que lo cuentan.
+
+**Línea de 24 horas**, bajo el mapa: lo fuera de lo normal que ha estado la
+ciudad y los sucesos del día. Arrastrando se ve el mapa de ese momento.
+
+**Informes** (botón de la cabecera; todos se imprimen o se copian):
+
+| Informe | Qué trae |
+|---|---|
+| Relevo de turno | Lo abierto, lo cerrado en las últimas 4 a 24 horas, noticias urgentes, avisos, fuentes que fallan y lo que viene, con aforos |
+| Informe del suceso | Cronología: cuándo empezó, cada señal, lo publicado, hasta dónde llegó y cuándo se cerró |
+| Algo previsto (al pulsarlo en «Hoy») | Cómo se llena y se vacía el barrio frente a otras veces en el mismo sitio |
+| Calidad de la semana | Sucesos por tipo y confianza, aciertos y falsos positivos, barrios que más saltan, fuentes que fallan |
+| Riesgo de accidente ahora | Cruces con más accidentes a esta hora en días como hoy (capa «Accidentes a esta hora») |
+
+**Alertas al móvil**, apagadas de entrada. Para encenderlas: instalar ntfy en
+el móvil, suscribirse a un tema con un nombre difícil de adivinar y escribirlo
+en `datos/alertas.json`: `{"ntfy": "tu-tema"}`. Llega un aviso por suceso, solo
+con confianza alta (o un posible incidente con confianza media), con el
+titular, la hora y el enlace: lo mismo que ya se ve en la web.
+
+**Modo pared** (tecla P, o desde Informes): pantalla completa sin paneles de
+trabajo, que recorre sola los sucesos en marcha.
+
 Cada capa lleva su leyenda en el propio interruptor. En el móvil, el parte va
 en una tira sobre el mapa y las capas en una hoja que se abre con «Capas».
 

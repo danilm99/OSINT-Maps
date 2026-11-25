@@ -107,6 +107,21 @@ for nombre, lat, lon in (("Plaza del Ayuntamiento", 39.46975, -0.37683), ("Lonja
     print(f"   {nombre}: calle={f.get('calle')} barrio={f.get('barrio_nombre')} catastro={json.dumps(f.get('catastro'), ensure_ascii=False)[:300]} "
           f"patrimonio={[p['nombre'] for p in f['patrimonio']]} registro={len(f['registro'])} accidentes={len(f['accidentes'])} ({time.time() - t0:.1f} s)")
 
+paso("Sucesos de las últimas 24 h con su confianza, relevo y calidad")
+for ev in sala.cruce.eventos(ahora - 24 * 3600, ahora + 1):
+    conf = ev["evidencias"].get("confianza") or {}
+    print(f"   {time.strftime('%H:%M', time.localtime(ev['inicio']))}-{time.strftime('%H:%M', time.localtime(ev['fin']))} [{ev['tipo']}, {ev['puntuacion']:g}, "
+          f"confianza {conf.get('grado')}: {sorted(conf.get('clases') or {})}] {ev['titulo'][:110]}")
+print(sala.informes.relevo(8)["texto"])
+calidad = sala.informes.calidad(7)
+print("calidad:", {k: calidad[k] for k in ("sucesos", "por_tipo", "por_confianza", "valoraciones")}, "| peores fuentes:", [(f["nombre"], f["bien"]) for f in calidad["fuentes"][:4]])
+riesgo = sala.informes.riesgo()
+print("riesgo:", riesgo["n"], "accidentes", riesgo.get("franja"), riesgo.get("dias"), "| cruces:", [(c["ubicacion"], c["n"]) for c in riesgo["cruces"][:4]])
+linea = sala.informes.linea()
+print("línea: barrios con algo:", len(linea["barrios"]), "| máximo del día:", max(linea["maximo"]), "| sucesos:", len(linea["sucesos"]))
+hilos_ = [x for x in sala._feed(ahora, False) if x.get("mas")]
+print("hilos:", len(hilos_), [(x["titulo"][:60], len(x["mas"])) for x in hilos_[:4]])
+
 paso(f"Sala en http://127.0.0.1:{PUERTO}/sala.html")
 for nombre, contenido in sala.ficheros_web().items():
     print(f"   {nombre}: {len(contenido) / 1000:.0f} KB")
@@ -122,7 +137,7 @@ if chrome:
     russafa = next((c for c, b in sala.zonas.barrios.items() if b["nombre"] == "Russafa"), "")
     vistas = [("real-escritorio", "sala.html", "1600,960"), ("real-centro", "sala.html#vista=39.4699,-0.3763,15", "1600,960"), ("real-movil", "sala.html", "390,844"),
               ("real-lugar", "sala.html#lugar=39.47437,-0.37854", "1600,960"), ("real-comparar", "sala.html#comparar", "1600,960"),
-              ("real-movilidad", "sala.html#movilidad", "1600,960"), ("real-barrio", f"sala.html#barrio={russafa}", "1600,960")]
+              ("real-movilidad", "sala.html#movilidad", "1600,960"), ("real-relevo", "sala.html#relevo", "1600,960"), ("real-riesgo", "sala.html#riesgo", "1600,960"), ("real-barrio", f"sala.html#barrio={russafa}", "1600,960")]
     if activos:
         vistas.append(("real-suceso", f"sala.html#suceso={activos[0]['id']}", "1600,960"))
     for nombre, ruta, tam in vistas:

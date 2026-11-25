@@ -58,7 +58,8 @@ def categoria(texto: str) -> tuple[str, int]:
     urgencia = 0
     graves = any(u in t for u in URGENTES)
     if mejor == "emergencia":
-        urgencia = 2 + graves
+        # Hablar de inundaciones o de bomberos no es una emergencia en marcha: hace falta algo que suene a ahora.
+        urgencia = 1 + graves + any(u in t for u in ("muere", "fallec", "mortal", "evacua", "atrapad", "explosi"))
     elif mejor in ("accidente", "seguridad"):
         urgencia = 1 + graves + any(u in t for u in ("muere", "fallec", "mortal"))
     elif mejor in ("protesta", "trafico", "transporte", "meteo"):

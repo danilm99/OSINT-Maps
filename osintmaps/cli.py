@@ -647,6 +647,9 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         if ruta == "/vivo/noticias":
             self._noticias()
             return
+        if ruta == "/vivo/sala/valorar":           # cambia datos: solo por POST
+            self.send_error(405)
+            return
         if ruta.startswith("/vivo/pulso/") or ruta.startswith("/vivo/sala/"):
             self._pulso(ruta)
             return
@@ -673,14 +676,21 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         móvil no se pisan aunque uno tenga datos viejos. Con un candado para que
         dos guardados simultáneos no se mezclen.
         """
+        # Una página de otro sitio web no debe poder cambiar los datos: los
+        # navegadores indican en "Origin" desde dónde se hace la petición.
+        origen = self.headers.get("Origin")
+        de_fuera = bool(origen) and urlparse(origen).netloc != self.headers.get("Host")
+        if urlparse(self.path).path == "/vivo/sala/valorar":      # «confirmado» o «falso positivo» de un suceso de la sala
+            if de_fuera:
+                self.send_error(403)
+            else:
+                self._pulso("/vivo/sala/valorar")
+            return
         nombre = self._fichero_editable()
         if nombre is None:
             self.send_error(405)
             return
-        # Una página de otro sitio web no debe poder cambiar los datos: los
-        # navegadores indican en "Origin" desde dónde se hace la petición.
-        origen = self.headers.get("Origin")
-        if origen and urlparse(origen).netloc != self.headers.get("Host"):
+        if de_fuera:
             self.send_error(403)
             return
         try:
@@ -871,7 +881,8 @@ def crear_paquete(carpeta_datos: Path, min_puntuacion: float = 0.0) -> str:
 
 # Lo que se copia de la carpeta de datos a la web. Las notas (marcas y marcadores propios) solo si se pide.
 DATOS_DEL_SITIO = ("candidatos.geojson", "huellas.geojson", "camaras.geojson", *(f"capa-{n}.geojson" for n in CAPAS_EXTRA), "revision.json", historia.FICHERO, "pulso.json",
-                   "sala.json", "sala-barrios.json", "sala-perfiles.json", "sala-movilidad.json", "sala-tramos.json")
+                   "sala.json", "sala-barrios.json", "sala-perfiles.json", "sala-movilidad.json", "sala-tramos.json",
+                   "sala-linea.json", "sala-riesgo.json", "sala-relevo.json", "sala-calidad.json")
 # Lo que un programa aparte ha visto en la foto aérea alrededor de cada sitio (experimentos/vision):
 # revision.json es el resumen y en esta subcarpeta va un fichero de líneas por sitio.
 CARPETA_VISION = "vision"

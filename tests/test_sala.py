@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from osintmaps.pulso import cruce as C
+from osintmaps.pulso import informes
 from osintmaps.pulso.almacen import semana_local
 from osintmaps.pulso import fichas, sala, servidor
 from osintmaps.pulso import ia as IA_
@@ -455,3 +456,115 @@ def test_avisos_en_castellano_y_redes_de_aqui():
         {"uri": "at://did:plc:b/app.bsky.feed.post/2", "record": {"text": "Cola enorme en el Mercado Central", "langs": ["es"], "createdAt": "2026-11-24T18:00:00Z"}},
         {"uri": "at://did:plc:c/app.bsky.feed.post/3", "record": {"text": "Bon dia, València", "createdAt": "2026-11-24T18:00:00Z"}}]}
     assert [i.texto for i in textos.leer_bluesky(posts)] == ["Cola enorme en el Mercado Central", "Bon dia, València"]
+
+
+# --------------------------------------------------------------------------
+# Fiabilidad, informes y alertas
+# --------------------------------------------------------------------------
+
+def test_confianza_valorar_y_aprendiendo(pulso, monkeypatch):
+    preparar(pulso)
+    monkeypatch.setattr(sala.time, "time", lambda: T0 + 30)
+    e = json.loads(sala.atender(pulso.sala, "/vivo/sala/estado", "")[1])
+    s = e["sucesos"][0]
+    assert s["confianza"] == "media" and s["valoracion"] is None and e["aprendiendo"]["listo"]
+    assert e["agenda"]["destacado"][0]["recinto"] == "Mestalla" and e["agenda"]["destacado"][0]["aforo"] == 49000
+    ficha = json.loads(sala.atender(pulso.sala, "/vivo/sala/evento", f"id={s['id']}")[1])
+    assert set(ficha["confianza"]["clases"]) == {"sensor", "previsto"} and ficha["alcance"] == []
+    # Marcado como falso positivo: confianza baja, y la ciudad no pasa de «atención» por él.
+    codigo, cuerpo = sala.atender(pulso.sala, "/vivo/sala/valorar", f"id={s['id']}&valor=falso")
+    assert codigo == 200 and json.loads(cuerpo)["valoracion"] == "falso" and json.loads(cuerpo)["confianza"] == "baja"
+    e = json.loads(sala.atender(pulso.sala, "/vivo/sala/estado", "")[1])
+    assert e["nivel"]["clase"] == "atencion" and e["sucesos"][0]["valoracion"] == "falso"
+    assert sala.atender(pulso.sala, "/vivo/sala/valorar", "id=no-existe&valor=falso")[0] == 400
+    assert json.loads(sala.atender(pulso.sala, "/vivo/sala/valorar", f"id={s['id']}&valor=")[1])["valoracion"] is None
+    # Recién arrancado, antes de la primera vuelta del cruce, también se sabe cuánto lleva aprendiendo.
+    pulso.sala.cruce.estado = {}
+    pulso.sala._cache.clear()
+    assert json.loads(sala.atender(pulso.sala, "/vivo/sala/estado", "")[1])["aprendiendo"]["semanas"] == 6
+
+
+def test_las_noticias_del_mismo_hecho_van_en_un_hilo():
+    from osintmaps.pulso.textos import hilos, palabras_clave
+    assert palabras_clave("Incendio en un edificio de la calle Sueca de València") == {"incendio", "edificio", "calle", "sueca"}
+    textos = [{"id": 1, "fuente": "prensa", "t": 1000, "titulo": "Incendio en un edificio de la calle Sueca", "medio": "A", "urgencia": 1, "barrio": None},
+              {"id": 2, "fuente": "prensa", "t": 900, "titulo": "Los bomberos sofocan el incendio de un edificio en la calle Sueca", "medio": "B", "urgencia": 2,
+               "barrio": "022", "url": "https://b"},
+              {"id": 3, "fuente": "prensa", "t": 800, "titulo": "El Valencia Basket gana en la Roig Arena", "medio": "C"},
+              {"id": 4, "fuente": "bluesky", "t": 700, "titulo": "Incendio en un edificio de la calle Sueca"}]
+    juntos = hilos(textos)
+    assert [x["id"] for x in juntos] == [1, 3, 4]                       # las redes no se juntan: cada publicación es de alguien distinto
+    assert juntos[0]["mas"] == [{"medio": "B", "titulo": textos[1]["titulo"], "url": "https://b", "t": 900}]
+    assert juntos[0]["urgencia"] == 2 and juntos[0]["barrio"] == "022" and "mas" not in juntos[1]
+
+
+def test_linea_previsto_cronologia_y_riesgo(pulso, monkeypatch):
+    motor = preparar(pulso)
+    monkeypatch.setattr(sala.time, "time", lambda: T0 + 30)
+    monkeypatch.setattr(informes.time, "time", lambda: T0 + 30)
+    linea = json.loads(sala.atender(pulso.sala, "/vivo/sala/linea", "")[1])
+    assert linea["n"] == 144 and linea["desde"] + 143 * linea["paso"] == T0 and linea["maximo"][-1] > 3 and linea["maximo"][0] == 0
+    assert linea["barrios"]["022"][-1] == linea["maximo"][-1] and linea["sucesos"][0]["confianza"] == "media"
+    previsto = json.loads(sala.atender(pulso.sala, "/vivo/sala/previsto", "id=partido:9")[1])
+    assert previsto["cita"]["recinto"]["nombre"] == "Mestalla" and previsto["barrios"][0]["codigo"] == "022"
+    aparcamiento = previsto["rasgos"]["parking"]
+    assert aparcamiento["esperado"] is None and aparcamiento["ahora"][(T0 - previsto["desde"]) // 600] is not None
+    assert previsto["frases"][0] == "Mestalla: caben unas 49.000 personas." and "Aún no hay otras veces" in previsto["frases"][-1]
+    assert sala.atender(pulso.sala, "/vivo/sala/previsto", "id=nada")[0] == 400
+    ident = motor.eventos(T0 - 3600, T0)[0]["id"]
+    crono = json.loads(sala.atender(pulso.sala, "/vivo/sala/cronologia", f"id={ident}")[1])
+    assert crono["hitos"][0]["que"] == "Empieza" and crono["causa"]["tipo"] == "partido"
+    assert {h["que"] for h in crono["hitos"]} >= {"Empieza", "Momento más fuerte", "Aparcamientos ocupados"}
+    assert [h["t"] for h in crono["hitos"]] == sorted(h["t"] for h in crono["hitos"])
+    # El accidente de la ciudad de juguete fue un domingo a las 10: no sale un miércoles a las 19, sí un domingo a las 11.
+    pulso.sala.fichas.situar_accidentes()
+    assert pulso.sala.informes.riesgo(T0)["n"] == 0
+    domingo = int(datetime(2026, 11, 22, 11, 0).timestamp())
+    riesgo = pulso.sala.informes.riesgo(domingo)
+    assert riesgo["n"] == 1 and riesgo["cruces"][0]["barrio"] == "022" and riesgo["dias"] == "domingos y festivos" and len(riesgo["puntos"][0]) == 3
+    web = pulso.sala.ficheros_web()
+    assert {"sala-linea.json", "sala-riesgo.json", "sala-relevo.json", "sala-calidad.json"} <= set(web)
+    assert "bluesky" not in web["sala-relevo.json"].decode("utf-8")
+
+
+def test_relevo_y_calidad(pulso, monkeypatch):
+    motor = preparar(pulso)
+    monkeypatch.setattr(sala.time, "time", lambda: T0 + 30)
+    monkeypatch.setattr(informes.time, "time", lambda: T0 + 30)
+    urgente = Item("prensa:u", "prensa", T0 - 60, "Grave accidente en la calle Colón", url="https://ejemplo.es/u", barrio="022", categoria="accidente", urgencia=2)
+    pulso.almacen.guardar_toma("prensa", T0 + 10, Toma(items=[urgente]))
+    relevo = json.loads(sala.atender(pulso.sala, "/vivo/sala/relevo", "horas=8")[1])
+    assert len(relevo["abiertos"]) == 1 and relevo["cerrados"] == [] and relevo["urgentes"][0]["barrio_nombre"] == "Barri E"
+    assert relevo["proximo"][0]["aforo"] == 49000 and not relevo["proximo"][0]["en_marcha"]
+    texto = relevo["texto"]
+    assert texto.startswith("RELEVO DE TURNO. València, miércoles 18, 19:00.") and "ABIERTO AHORA (1)" in texto
+    assert "Grave accidente en la calle Colón (Barri E)" in texto and "aforo 49.000" in texto and "confianza media" in texto
+    motor.valorar(relevo["abiertos"][0]["id"], "confirmado")
+    calidad = json.loads(sala.atender(pulso.sala, "/vivo/sala/calidad", "dias=7")[1])
+    assert calidad["sucesos"] == 1 and calidad["por_tipo"] == [["Afluencia", 1]] and calidad["por_confianza"] == {"alta": 1}
+    assert calidad["valoraciones"] == {"falsos": 0, "confirmados": 1, "sin_valorar": 0, "acierto": 100}
+    assert calidad["barrios"][0]["nombre"] == "Barri E" and {f["id"] for f in calidad["fuentes"]} >= {"bicis", "parking", "prensa"}
+
+
+def test_alertas_solo_con_confianza_y_una_vez(tmp_path):
+    from osintmaps.pulso.alertas import Alertas, merece_alerta
+
+    class Sesion:
+        def __init__(self):
+            self.enviado = []
+
+        def post(self, url, data=None, headers=None, timeout=None):
+            self.enviado.append((url, data.decode("utf-8"), headers))
+            return type("R", (), {"raise_for_status": lambda self: None})()
+
+    suceso = {"id": "s1", "tipo": "concentracion", "estado": "activo", "titulo": "Afluencia en Russafa — concierto", "inicio": T0, "confianza": "alta"}
+    assert merece_alerta(suceso) and not merece_alerta(suceso | {"confianza": "media"}) and merece_alerta(suceso | {"confianza": "media", "tipo": "incidente"})
+    assert not merece_alerta(suceso | {"valoracion": "falso"}) and not merece_alerta(suceso | {"estado": "cerrado"})
+    sesion = Sesion()
+    alertas = Alertas(tmp_path, sesion)
+    assert alertas.avisar([suceso]) == [] and not alertas.estado()["encendidas"]            # apagadas hasta que se elige un tema
+    (tmp_path / "alertas.json").write_text('{"ntfy": "osintmaps-prueba"}', encoding="utf-8")
+    assert alertas.avisar([suceso, suceso | {"id": "s2", "confianza": "baja"}]) == ["s1"]
+    url, cuerpo, cabeceras = sesion.enviado[0]
+    assert url == "https://ntfy.sh/osintmaps-prueba" and "Confianza alta" in cuerpo and cabeceras["Click"].endswith("#suceso=s1")
+    assert alertas.avisar([suceso]) == [] and Alertas(tmp_path, sesion).avisar([suceso]) == [] and len(sesion.enviado) == 1
