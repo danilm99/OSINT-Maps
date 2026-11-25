@@ -280,7 +280,7 @@ class Informes:
         cerrados = sorted((s for s in sucesos if s["estado"] != "activo"), key=lambda s: -s["fin"])
         urgentes = [dict(zip(("id", "fuente", "t", "titulo", "url", "barrio", "categoria"), f)) for f in self.almacen._filas(
             "SELECT id, fuente, t, titulo, url, barrio, categoria FROM items WHERE t>? AND urgencia>=2 AND fuente='prensa' "
-            "AND (categoria IS NULL OR categoria!='fuera') ORDER BY t DESC LIMIT 12", (desde,))]
+            "AND categoria IN ('emergencia','accidente','seguridad') ORDER BY t DESC LIMIT 12", (desde,))]
         for u in urgentes:
             u["barrio_nombre"] = self.sala._nombre(u["barrio"]) if u["barrio"] else None
         avisos = self.sala._avisos(ahora)
@@ -344,7 +344,7 @@ def relevo_en_texto(d: dict) -> str:
     lineas = [f"RELEVO DE TURNO. València, {_dia_hora(d['generado'])}. Últimas {d['horas']} horas y próximas {d['horas']}.", ""]
     ap = d.get("aprendiendo")
     if ap and not ap["listo"]:
-        lineas += [f"Aviso: la sala lleva {ap['dias']:g} días aprendiendo lo normal de cada barrio (necesita 28); lo de confianza baja puede no ser nada.", ""]
+        lineas += [f"Aviso: la sala lleva {str(ap['dias']).replace('.', ',')} días aprendiendo lo normal de cada barrio (necesita 28); lo de confianza baja puede no ser nada.", ""]
     lineas.append(f"ABIERTO AHORA ({len(d['abiertos'])})")
     for s in d["abiertos"]:
         lineas.append(f"- {s['titulo']} | desde las {_hora(s['inicio'])} | confianza {s.get('confianza') or 'baja'}")
