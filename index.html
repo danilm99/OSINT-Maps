@@ -1,0 +1,2681 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OSINT Maps</title>
+<script>
+/* El tema se decide antes de pintar nada, para que la página no parpadee en claro:
+   el que se eligió la última vez o, si nunca se ha elegido, el del sistema. */
+try {
+  const guardado = JSON.parse(localStorage.getItem("osintmaps.tema.v1"));
+  document.documentElement.dataset.tema = guardado === "oscuro" || guardado === "claro" ? guardado
+    : matchMedia("(prefers-color-scheme: dark)").matches ? "oscuro" : "claro";
+} catch { document.documentElement.dataset.tema = "claro"; }
+</script>
+<!--PRONTO-->
+<script>
+/* Los datos de la búsqueda se empiezan a pedir ya, sin esperar a que el navegador termine de
+   descargar el resto de la página: llegan unas décimas de segundo antes. (En el fichero
+   autónomo de «osintmaps paquete» los datos van dentro y este trozo se quita.) */
+if (/^https?:$/.test(location.protocol)) {
+  const base = new URLSearchParams(location.search).get("datos") || "datos/";
+  window.OSINT_PRONTO = {};
+  for (const nombre of ["candidatos", "huellas", "camaras"]) {
+    const p = fetch(`${base}${nombre}.geojson`, { cache: "no-cache" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))));
+    p.catch(() => { /* quien lo use decide qué hacer si falta */ });
+    window.OSINT_PRONTO[nombre] = p;
+  }
+}
+</script>
+<!--/PRONTO-->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2317242e'/%3E%3Cpath d='M16 6a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7z' fill='%23e5007d'/%3E%3Ccircle cx='16' cy='13' r='2.6' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#17242e">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="OSINT Maps">
+<link rel="apple-touch-icon" href="icono-180.png">
+<link rel="preconnect" href="https://unpkg.com" crossorigin>
+<!-- De aquí salen las ortofotos y las parcelas: se va abriendo la conexión mientras carga la página. -->
+<link rel="preconnect" href="https://www.ign.es">
+<link rel="preconnect" href="https://ovc.catastro.meh.es" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+      integrity="sha384-pmjIAcz2bAn0xukfxADbZIb3t8oRT9Sv0rvO+BR5Csr6Dhqq+nZs59P0pPKQJkEV" crossorigin="">
+<style>
+  /* Paleta sacada del oficio: tinta de plano, papel frío y el magenta
+     fluorescente de las marcas de topógrafo para lo que más puntúa. */
+  :root {
+    --tinta: #17242e;
+    --tinta-suave: #51626e;
+    --papel: #f2f4f3;
+    --blanco: #ffffff;
+    --linea: #cfd6d8;
+    --jalon: #e5007d;
+    --naranja: #f08a00;
+    --amarillo: #f2c200;
+    --gris: #8aa0ab;
+    --musgo: #3f7350;
+    --fondo-mapa: #dfe4e3;
+    --ancho-panel: 404px;
+  }
+  /* Modo oscuro: mismas piezas, tinta clara sobre papel de pizarra. Lo que va encima de las
+     fotos (rótulos, símbolos, visor) lleva sus colores fijos y no cambia. */
+  :root[data-tema=oscuro] {
+    color-scheme: dark;
+    --tinta: #e7edf0;
+    --tinta-suave: #9eb0ba;
+    --papel: #131a20;
+    --blanco: #1e2830;
+    --linea: #364652;
+    --gris: #6f8591;
+    --fondo-mapa: #0d1216;
+  }
+  [data-tema=oscuro] .leaflet-bar a, [data-tema=oscuro] .leaflet-bar a:hover { background: var(--blanco); color: var(--tinta); border-color: var(--linea); }
+  [data-tema=oscuro] .leaflet-bar { border-color: var(--linea); }
+  [data-tema=oscuro] .leaflet-control-attribution { background: rgba(19,26,32,.82); color: var(--tinta-suave); }
+  [data-tema=oscuro] .leaflet-control-attribution a { color: var(--tinta); }
+  [data-tema=oscuro] .leaflet-control-scale-line { background: rgba(19,26,32,.82); color: var(--tinta); border-color: var(--tinta-suave); text-shadow: none; }
+  [data-tema=oscuro] .leaflet-popup-content-wrapper, [data-tema=oscuro] .leaflet-popup-tip { background: var(--blanco); color: var(--tinta); }
+  [data-tema=oscuro] .leaflet-container a.leaflet-popup-close-button { color: var(--tinta-suave); }
+  [data-tema=oscuro] .leaflet-tooltip { background: var(--blanco); color: var(--tinta); border-color: var(--linea); }
+  [data-tema=oscuro] .leaflet-tooltip-top::before { border-top-color: var(--blanco); }
+  [data-tema=oscuro] .leaflet-tooltip-bottom::before { border-bottom-color: var(--blanco); }
+  /* Los mapas dibujados (callejero, topográfico, OpenStreetMap) se invierten para que no deslumbren; las fotos, no. */
+  [data-tema=oscuro] .fondo-dibujado .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.88); }
+  #tema { border: 1px solid var(--linea); background: var(--blanco); border-radius: 50%; width: 34px; height: 34px; padding: 0; margin-left: auto;
+          display: grid; place-items: center; align-self: center; flex: none; }
+  #tema:hover { border-color: var(--tinta); }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Barlow", system-ui, sans-serif;
+    font-size: 15px; line-height: 1.4; color: var(--tinta); background: var(--papel);
+    display: grid; grid-template-columns: var(--ancho-panel) minmax(0, 1fr); overflow: hidden;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 3px solid var(--jalon); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+  kbd { font: inherit; font-size: 12px; border: 1px solid var(--linea); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--blanco); }
+
+  /* ---------- Panel ---------- */
+  #panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; background: var(--papel);
+           border-right: 1px solid var(--linea); z-index: 2; }
+  #cabecera { display: flex; align-items: baseline; gap: 10px; padding: 14px 16px 10px; }
+  #cabecera h1 { font: 600 26px/1 "Barlow Condensed", sans-serif; margin: 0; letter-spacing: .01em; white-space: nowrap; }
+  #recuento { white-space: nowrap; color: var(--tinta-suave); font-size: 14px; }
+  /* (el recuento es de los sitios de la lista: con una ficha abierta o buscando otra cosa, despista) */
+  #panel:has(#contenido > article:not([hidden])) #recuento, #panel.con-resultados #recuento { visibility: hidden; }
+  #asa-hoja { display: none; flex: none; width: 100%; height: 20px; border: 0; background: none; padding: 0; touch-action: none; cursor: grab; }
+  #asa-hoja::before { content: ""; display: block; width: 40px; height: 4px; border-radius: 2px; background: var(--gris); margin: 8px auto; }
+
+  #filtros { padding: 0 16px 12px; border-bottom: 1px solid var(--linea); display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
+  #filtros-mas summary { font-weight: 600; cursor: pointer; padding: 2px 0; }
+  #filtros-mas .cuerpo { display: grid; gap: 10px; margin-top: 10px; grid-template-columns: minmax(0, 1fr); }
+  #buscar-texto { width: 100%; padding: 9px 11px; border: 1px solid var(--linea); border-radius: 6px; background: var(--blanco); }
+  .fila { display: flex; align-items: center; gap: 10px; }
+  .fila label { flex: 0 0 auto; font-size: 14px; color: var(--tinta-suave); }
+  .fila input[type=range] { flex: 1; accent-color: var(--jalon); min-width: 0; }
+  .fila output { flex: 0 0 34px; text-align: right; font: 600 17px "Barlow Condensed", sans-serif; }
+  .fila select { flex: 1; padding: 6px 8px; border: 1px solid var(--linea); border-radius: 6px; background: var(--blanco); min-width: 0; }
+  #categorias { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--linea); background: var(--blanco); border-radius: 999px; padding: 3px 10px; font-size: 13px; }
+  .chip[aria-pressed=true] { background: var(--tinta); border-color: var(--tinta); color: var(--blanco); }
+  .chip small { opacity: .65; margin-left: 3px; }
+  .casilla { display: flex; align-items: center; gap: 7px; font-size: 14px; }
+  .casilla input { accent-color: var(--jalon); width: 16px; height: 16px; }
+
+  #contenido { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  #lista { list-style: none; margin: 0; padding: 0; }
+  #lista li button {
+    display: grid; grid-template-columns: 46px 1fr; gap: 10px; align-items: center; width: 100%;
+    text-align: left; border: 0; border-bottom: 1px solid var(--linea); background: none; padding: 9px 16px;
+  }
+  #lista li button:hover { background: var(--blanco); }
+  .nota { font: 600 24px/1 "Barlow Condensed", sans-serif; text-align: center; padding: 7px 0 6px;
+          border-radius: 4px; color: #fff; background: #8aa0ab; }
+  .nota.n2 { background: var(--amarillo); color: #17242e; }
+  .nota.n3 { background: var(--naranja); color: #17242e; }
+  .nota.n4 { background: var(--jalon); }
+  .titulo { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sub { font-size: 13px; color: var(--tinta-suave); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .marca-fav { color: var(--jalon); } .marca-vis { color: var(--musgo); } .marca-des { text-decoration: line-through; }
+  #ver-mas { display: block; margin: 12px auto 20px; padding: 8px 16px; border: 1px solid var(--tinta); background: none; border-radius: 6px; }
+  #sin-coincidencias { padding: 20px 16px; margin: 0; color: var(--tinta-suave); }
+  #vacio { padding: 20px 16px; }
+  #vacio h2 { font: 600 20px/1.2 "Barlow Condensed", sans-serif; margin: 0 0 8px; }
+  #vacio code { background: var(--blanco); border: 1px solid var(--linea); border-radius: 4px; padding: 1px 5px; font-size: 13px; }
+  #vacio .cargar { display: inline-block; margin-top: 10px; padding: 9px 14px; background: var(--tinta); color: var(--blanco); border-radius: 6px; cursor: pointer; }
+
+  /* ---------- Ficha ---------- */
+  #ficha { padding: 0 16px 28px; }
+  .navegacion { display: flex; align-items: center; gap: 6px; position: sticky; top: 0; z-index: 3; background: var(--papel); padding: 8px 0; }
+  .navegacion button { border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 6px 12px; }
+  .navegacion button:disabled { opacity: .4; cursor: default; }
+  .navegacion .posicion { margin-left: auto; font-size: 13px; color: var(--tinta-suave); }
+  #volver { font-weight: 600; }
+  #ficha h2 { font: 600 24px/1.1 "Barlow Condensed", sans-serif; margin: 4px 0 2px; overflow-wrap: anywhere; }
+  #ficha .lugar { color: var(--tinta-suave); margin-bottom: 10px; }
+  .bloque { margin-top: 18px; }
+  .bloque h3 { font-size: 14px; font-weight: 600; margin: 0 0 7px; color: var(--tinta-suave); }
+
+  /* Lo distintivo de la ficha: el mismo encuadre aéreo a lo largo de los años,
+     como una tira de contactos de fotografía aérea. */
+  #aereo { position: relative; aspect-ratio: 4 / 3; background: #17242e; border-radius: 6px; overflow: hidden; }
+  #aereo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #aereo .cruz { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px;
+                 border: 2px solid var(--jalon); border-radius: 50%; pointer-events: none; }
+  #aereo .anio { position: absolute; left: 0; top: 0; padding: 3px 10px 4px; color: #fff; background: rgba(23,36,46,.82);
+                 font: 600 18px "Barlow Condensed", sans-serif; border-bottom-right-radius: 6px; }
+  #tira { display: flex; gap: 5px; margin-top: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+  #tira button { flex: 0 0 62px; padding: 0; border: 2px solid transparent; border-radius: 4px; background: #17242e; overflow: hidden; position: relative; height: 62px; }
+  #tira button img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #tira button span { position: absolute; inset: auto 0 0 0; color: #fff; background: rgba(23,36,46,.78);
+                      font: 600 13px/1.5 "Barlow Condensed", sans-serif; text-align: center; }
+  #tira button[aria-pressed=true] { border-color: var(--jalon); }
+  #comparar { margin-top: 6px; border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 6px 12px; width: 100%; }
+  #comparar:disabled { opacity: .5; cursor: default; }
+
+  .desglose { display: grid; grid-template-columns: auto 1fr 28px; gap: 5px 10px; align-items: center; font-size: 14px; }
+  .barra { height: 8px; background: var(--linea); border-radius: 4px; overflow: hidden; }
+  .barra i { display: block; height: 100%; background: var(--tinta); }
+  .desglose b { text-align: right; font: 600 16px "Barlow Condensed", sans-serif; }
+  dl.datos { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; font-size: 14px; }
+  dl.datos dt { color: var(--tinta-suave); } dl.datos dd { margin: 0; overflow-wrap: anywhere; }
+  .enlaces { display: flex; flex-wrap: wrap; gap: 6px; }
+  .enlaces a, .enlaces button { border: 1px solid var(--tinta); border-radius: 6px; padding: 5px 10px; color: var(--tinta); background: none; text-decoration: none; font-size: 14px; }
+  .enlaces a:hover, .enlaces button:hover { background: var(--tinta); color: var(--blanco); }
+  .fotos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .fotos img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 4px; display: block; }
+  #fachada img { width: 100%; border-radius: 6px; display: block; }
+  .marcas { display: flex; gap: 6px; margin-top: 12px; }
+  .marcas button { flex: 1; border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 8px 4px; }
+  .marcas button[aria-pressed=true] { background: var(--tinta); border-color: var(--tinta); color: var(--blanco); }
+
+  /* Lo que un programa ha visto en la foto aérea (vision.js). La leyenda va siempre sobre fondo
+     oscuro, como la foto: así los colores de las líneas se ven igual que en el mapa. */
+  .vision .veredicto { font: 600 20px/1.15 "Barlow Condensed", sans-serif; margin: 0 0 8px; }
+  .vision .sub-vision { margin: 10px 0 5px; font-size: 14px; color: var(--tinta-suave); }
+  .leyenda-vision { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 5px; }
+  .leyenda-vision li { display: flex; align-items: center; gap: 7px; padding: 3px 9px 3px 7px; border-radius: 4px;
+                     background: #17242e; border: 1px solid rgba(255,255,255,.16); color: #fff; font-size: 13px; }
+  .leyenda-vision svg { width: 30px; height: 8px; flex: none; }
+  #ver-vision { margin-top: 8px; border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 6px 12px; width: 100%; }
+  #ver-vision[aria-pressed=true] { background: var(--tinta); border-color: var(--tinta); color: var(--blanco); }
+  .fiar-vision { margin-top: 8px; font-size: 13px; color: var(--tinta-suave); }
+  .fiar-vision summary { cursor: pointer; }
+  .fiar-vision p { margin: 6px 0 0; }
+  .fiar-vision ul { margin: 4px 0 0; padding-left: 18px; }
+  #nota-personal { width: 100%; min-height: 58px; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--linea); border-radius: 6px; background: var(--blanco); resize: vertical; }
+
+  /* La historia del sitio (historia.js). Las fechas van como las cotas de un plano: el año a la
+     izquierda, en la condensada de los rótulos, y al lado el hecho con su fuente en pequeño. */
+  .historia .resumen { margin: 0; font-size: 15px; line-height: 1.45; }
+  .historia .resumen b { font-weight: 600; }
+  .historia .suave { margin: 6px 0 0; font-size: 13px; line-height: 1.4; color: var(--tinta-suave); }
+  .historia .resumen.suave { margin: 0; font-size: 14px; }
+  .historia h4 { margin: 14px 0 5px; font-size: 13px; font-weight: 600; color: var(--tinta-suave); }
+  .historia .cita { margin: 8px 0 0; padding: 1px 0 1px 10px; border-left: 3px solid var(--linea); font-size: 14px; line-height: 1.45; }
+  .historia .cita small, .historia .noticias small { display: block; margin-top: 3px; font-size: 13px; color: var(--tinta-suave); }
+  .historia a { color: var(--tinta); }
+  .historia dl.cronologia { gap: 6px 12px; align-items: baseline; }
+  .historia dl.cronologia dt { font: 600 17px/1.2 "Barlow Condensed", sans-serif; color: var(--tinta); white-space: nowrap; }
+  .historia dl.cronologia small { display: block; color: var(--tinta-suave); font-size: 13px; }
+  .historia .sueltas small { color: var(--tinta-suave); font-size: 13px; }
+  .historia .sueltas { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.4; }
+  .historia .sueltas li + li { margin-top: 4px; }
+  .historia .sueltas b { font-weight: 500; }
+  .historia .noticias { list-style: none; margin: 0; padding: 0; font-size: 14px; line-height: 1.35; }
+  .historia .noticias li { padding: 7px 0; border-top: 1px solid var(--linea); }
+  .historia .noticias li:first-child { border-top: 0; padding-top: 0; }
+  .historia .noticias a { font-weight: 500; text-decoration: none; }
+  .historia .noticias a:hover { text-decoration: underline; }
+  .historia .noticias .floja a { font-weight: 400; color: var(--tinta-suave); }
+  .fotos.fechadas a { position: relative; display: block; }
+  .fotos.fechadas span { position: absolute; inset: auto 0 0 0; border-radius: 0 0 4px 4px; color: #fff; background: rgba(23,36,46,.78);
+                         font: 600 13px/1.5 "Barlow Condensed", sans-serif; text-align: center; }
+  .boton-historia { display: block; width: 100%; margin-top: 10px; padding: 8px 12px; border: 1px solid var(--tinta); border-radius: 6px; background: var(--tinta); color: var(--blanco); font-weight: 600; }
+  .boton-historia.secundario { background: var(--blanco); color: var(--tinta); border-color: var(--linea); font-weight: 400; }
+  .boton-historia:disabled { opacity: .6; cursor: default; }
+  .historia .como-enlace { border: 0; padding: 0; background: none; color: var(--tinta); text-decoration: underline; font: inherit; cursor: pointer; }
+  .ajuste-historia { display: flex; align-items: center; gap: 7px; margin-top: 10px; font-size: 13px; color: var(--tinta-suave); }
+
+  #pie { padding: 12px 16px 16px; border-top: 1px solid var(--linea); font-size: 12.5px; color: var(--tinta-suave); display: flex; gap: 6px 12px; flex-wrap: wrap; }
+  #pie button, #pie label { border: 0; background: none; padding: 0; text-decoration: underline; cursor: pointer; color: inherit; font-size: inherit; }
+  #pie .atajos { flex-basis: 100%; }
+
+  /* ---------- Mapa ---------- */
+  #mapa-zona { position: relative; min-height: 0; display: grid; }
+  #mapa { min-height: 0; background: var(--fondo-mapa); }
+  .leaflet-container { font: inherit; }
+  /* Grupos de puntos: cuadrados los de sitios, redondos los de cámaras, como sus símbolos. */
+  .grupo { background: #17242e; color: #fff; border-radius: 30%; display: grid; place-items: center;
+           font: 600 15px "Barlow Condensed", sans-serif; border: 2px solid #fff; box-shadow: 0 0 0 1.5px rgba(23,36,46,.75); }
+  #capas { position: absolute; right: 10px; top: 10px; z-index: 800; background: var(--papel); border: 1px solid var(--linea);
+           border-radius: 8px; padding: 10px 12px; width: 240px; font-size: 14px; }
+  #capas summary { font-weight: 600; cursor: pointer; }
+  #capas select { width: 100%; padding: 5px 6px; border: 1px solid var(--linea); border-radius: 6px; background: var(--blanco); }
+  #capas input[type=range] { width: 100%; accent-color: var(--jalon); }
+  #capas .cuerpo { display: grid; gap: 8px; margin-top: 8px; }
+  #cerca { position: absolute; right: 10px; bottom: 96px; z-index: 800; border: 1px solid var(--linea); background: var(--papel);
+           border-radius: 8px; padding: 8px 12px; font-weight: 600; }
+  .yo { background: #1a73e8; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 2px #1a73e8; }
+
+  /* Marcadores propios: rombos, para no confundirlos con los puntos redondos de los sitios */
+  .chincheta { display: block; filter: drop-shadow(0 1px 2px rgba(23,36,46,.7)); }
+  .chincheta.abierta { filter: drop-shadow(0 0 3px #e5007d) drop-shadow(0 0 3px #e5007d); }
+  .grupo.grupo-camaras { background: #d90429; border-radius: 50%; }
+  .simbolo { flex: none; vertical-align: -4px; }
+  #anadir { position: absolute; right: 10px; bottom: 140px; z-index: 800; border: 1px solid var(--linea); background: var(--papel);
+            border-radius: 8px; padding: 8px 12px; font-weight: 600; }
+  #anadir[aria-pressed=true] { background: var(--jalon); border-color: var(--jalon); color: #fff; }
+  #boton-3d { position: absolute; right: 10px; bottom: 184px; z-index: 800; border: 1px solid var(--linea); background: var(--papel); border-radius: 8px; padding: 8px 12px; font-weight: 600; }
+  #boton-malla { position: absolute; right: 10px; bottom: 228px; z-index: 800; border: 1px solid var(--linea); background: var(--papel); border-radius: 8px; padding: 8px 12px; font-weight: 600;
+    display: inline-flex; align-items: center; box-shadow: 0 1px 3px rgba(23,36,46,.28); }
+  #mapa-zona:not(.en-3d) #boton-malla { display: none; }
+  #boton-3d[aria-pressed=true], #cerca[aria-pressed=true], #boton-malla[aria-pressed=true] { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+  #anadir, #cerca, #boton-3d { display: inline-flex; align-items: center; gap: 7px; box-shadow: 0 1px 3px rgba(23,36,46,.28); }
+  #anadir [data-icono], #cerca [data-icono], #boton-3d [data-icono] { display: inline-flex; flex: none; }
+  /* Vista en 3D: ocupa el sitio del mapa; los botones y el buscador siguen encima. */
+  #vista3d { position: absolute; inset: 0; z-index: 750; background: #0d1216; }
+  #mapa-zona.en-3d #mapa { visibility: hidden; }
+  #mapa-zona.en-3d :is(#anadir, #cortina, #cortina-etiqueta, #leyenda) { display: none; }
+  #vista3d .maplibregl-ctrl-top-left { top: 44px; }
+  #aviso-3d { position: absolute; left: 50%; top: 58px; transform: translateX(-50%); z-index: 760; background: rgba(23,36,46,.86); color: #fff; padding: 6px 12px; border-radius: 8px;
+    font-size: 13.5px; max-width: calc(100% - 24px); text-align: center; pointer-events: none; transition: opacity .6s; }
+  #aviso-3d.ido { opacity: 0; }
+  .yo-precision { pointer-events: none; }
+  #mapa.colocando { cursor: crosshair; }
+  #ficha-marcador { padding: 0 16px 28px; }
+  #ficha-marcador h2 { font: 600 24px/1.1 "Barlow Condensed", sans-serif; margin: 4px 0 2px; }
+  #ficha-marcador .lugar { color: var(--tinta-suave); margin-bottom: 10px; }
+  .tipos { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tipos button { flex: 1 1 30%; display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--linea);
+                  background: var(--blanco); border-radius: 6px; padding: 8px 4px; }
+  .tipos button[aria-pressed=true] { background: var(--tinta); border-color: var(--tinta); color: var(--blanco); }
+  #nota-marcador { width: 100%; min-height: 76px; margin-top: 10px; padding: 8px 10px; border: 1px solid var(--linea); border-radius: 6px; background: var(--blanco); resize: vertical; }
+  .acciones { display: flex; gap: 6px; margin-top: 10px; }
+  .acciones button { flex: 1; border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 8px 4px; }
+  .acciones button.peligro[aria-pressed=true] { background: #b3001b; border-color: #b3001b; color: var(--blanco); }
+  #capas button.accion { border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 6px 8px; font-size: 13.5px; }
+  .ficha-parcela dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 6px 0; }
+  .ficha-parcela dt { color: var(--tinta-suave); } .ficha-parcela dd { margin: 0; }
+  .ficha-parcela button { border: 1px solid var(--tinta); background: none; border-radius: 6px; padding: 5px 10px; margin-top: 4px; }
+
+  /* Buscador, siempre a la vista */
+  #buscador { padding: 0 16px 10px; }
+  #buscar-texto { width: 100%; padding: 10px 14px; border: 1px solid var(--linea); border-radius: 22px; background: var(--blanco);
+                  box-shadow: 0 1px 3px rgba(23,36,46,.12); }
+  /* Mientras hay resultados de búsqueda, ocupan el panel; al abrir una ficha se apartan y al volver siguen ahí. */
+  #resultados-extra { list-style: none; margin: 0; padding: 0 8px 10px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  #panel:has(#contenido > article:not([hidden])) #resultados-extra { display: none; }
+  #panel.con-resultados:not(:has(#contenido > article:not([hidden]))) :is(#pestanas, #filtros, #contenido) { display: none; }
+  #resultados-extra li { border-bottom: 1px solid var(--linea); }
+  #resultados-extra button { display: grid; grid-template-columns: 22px minmax(0,1fr); gap: 2px 10px; align-items: baseline; width: 100%; text-align: left;
+                             border: 0; background: none; padding: 8px; border-radius: 6px; }
+  #resultados-extra button:hover { background: var(--blanco); }
+  #resultados-extra .simbolo { grid-row: span 2; align-self: center; }
+  #resultados-extra b { font-weight: 600; overflow-wrap: anywhere; }
+  #resultados-extra small { grid-column: 2; color: var(--tinta-suave); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #resultados-extra .rotulo { padding: 8px 8px 2px; font-size: 13px; font-weight: 600; color: var(--tinta-suave); border: 0; }
+  #resultados-extra .rotulo.aviso { font-weight: 400; padding-bottom: 8px; }
+  #resultados-extra button { grid-template-columns: 22px minmax(0,1fr) auto; }
+  #resultados-extra button > svg { grid-row: span 2; align-self: center; color: var(--tinta-suave); }
+  #resultados-extra em { font-style: normal; font-size: 13px; color: var(--tinta-suave); white-space: nowrap; }
+  #resultados-extra small { grid-column: 2 / 4; }
+  #resultados-extra button.abierto small::first-line, .abierto { color: #15803d; }
+  #resultados-extra button.cerrado small, .cerrado { color: #b91c1c; }
+  [data-tema=oscuro] .abierto { color: #4ade80; } [data-tema=oscuro] .cerrado, [data-tema=oscuro] #resultados-extra button.cerrado small { color: #f87171; }
+  #resultados-extra .categorias { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px 4px 8px; }
+  #resultados-extra .categorias button { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 4px; padding: 8px 2px; border: 0; background: none;
+    border-radius: 8px; font-size: 12.5px; line-height: 1.15; text-align: center; }
+  #resultados-extra .categorias button span { overflow-wrap: anywhere; }
+  #resultados-extra .acciones { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 8px 8px; }
+  #resultados-extra .acciones button { display: inline-block; width: auto; border: 1px solid var(--linea); border-radius: 999px; padding: 4px 12px; font-size: 13px; background: var(--blanco); }
+  #resultados-extra .acciones button:disabled { opacity: .6; cursor: default; }
+  #panel.con-resultados #sin-coincidencias { display: none; }
+  /* Ficha de un negocio: horario, dirección, teléfono y web */
+  .negocio { margin: 0 0 10px; display: grid; gap: 4px; font-size: 14.5px; }
+  .negocio p { margin: 0; display: flex; align-items: baseline; gap: 6px; overflow-wrap: anywhere; }
+  .negocio p svg, .negocio summary svg { flex: none; align-self: center; color: var(--tinta-suave); }
+  .negocio a { color: inherit; }
+  .negocio .horario summary { cursor: pointer; }
+  .negocio .horario dl { margin: 6px 0 2px 22px; font-size: 14px; }
+  .negocio .ayuda { margin: 4px 0 0 22px; }
+  .acciones-ficha { margin: 8px 0 2px; }
+  .como-llegar { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; border: 0; border-radius: 8px; padding: 10px 12px; margin-bottom: 6px;
+    background: #1a73e8; color: #fff; font-weight: 600; font-size: 15px; }
+  .como-llegar:hover { background: #1765cc; }
+  .acciones-ficha .vistas { margin: 0; }
+  /* Próximos pasos por una parada y distintivos de línea */
+  .linea { display: inline-block; min-width: 26px; padding: 1px 7px; border-radius: 5px; font: 600 14px/1.35 "Barlow Condensed", "Barlow", sans-serif; text-align: center; white-space: nowrap; }
+  .salidas { list-style: none; margin: 0; padding: 0; }
+  .salidas li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--linea); }
+  .salidas .destino { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .salidas b { font: 600 17px/1.1 "Barlow Condensed", sans-serif; text-align: right; }
+  .salidas small { grid-column: 2 / 4; text-align: right; color: var(--tinta-suave); font-size: 12px; }
+  .salidas + .enlaces { margin-top: 8px; }
+  /* ---------- Cómo llegar ---------- */
+  #ficha-ruta { padding: 0 16px 28px; }
+  #ficha-ruta h2 { margin: 2px 0 10px; }
+  #ficha-ruta .navegacion button:last-child { margin-left: auto; }
+  .extremos-ruta { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 6px 6px; align-items: center; }
+  .extremos-ruta label { grid-column: 1; display: flex; align-items: center; gap: 8px; border: 1px solid var(--linea); border-radius: 8px; background: var(--blanco); padding: 0 10px; }
+  .extremos-ruta label:focus-within { border-color: var(--tinta); }
+  .extremos-ruta input { flex: 1; min-width: 0; border: 0; background: none; padding: 9px 0; outline: none; font-size: 15px; }
+  .punto-ruta { flex: none; width: 12px; height: 12px; border-radius: 50%; border: 3px solid #17242e; background: #fff; }
+  .punto-ruta.llegada { border-color: #d93025; background: #d93025; }
+  [data-tema=oscuro] .punto-ruta.salida { border-color: #e7edf0; background: none; }
+  .extremos-ruta .invertir { grid-column: 2; grid-row: 1 / 3; align-self: center; width: 38px; height: 38px; border: 1px solid var(--linea); border-radius: 50%; background: var(--blanco); padding: 0; display: grid; place-items: center; }
+  .sugerencias-ruta { grid-column: 1 / 3; list-style: none; margin: 0; padding: 4px 0; border: 1px solid var(--linea); border-radius: 8px; background: var(--blanco); max-height: 44vh; overflow-y: auto; }
+  .sugerencias-ruta button { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 10px; width: 100%; text-align: left; border: 0; background: none; padding: 7px 10px; }
+  .sugerencias-ruta button:hover, .sugerencias-ruta button:focus-visible { background: var(--papel); }
+  .sugerencias-ruta svg { grid-row: span 2; align-self: center; color: var(--tinta-suave); }
+  .sugerencias-ruta b { font-weight: 600; overflow-wrap: anywhere; }
+  .sugerencias-ruta small { grid-column: 2; color: var(--tinta-suave); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sugerencias-ruta small:empty { display: none; }
+  .modos-ruta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 12px 0 10px; }
+  .modos-ruta button { display: grid; justify-items: center; gap: 1px; border: 1px solid var(--linea); border-radius: 8px; background: var(--blanco); padding: 7px 2px 5px; font-size: 13px; }
+  .modos-ruta button small { font: 600 15px/1.1 "Barlow Condensed", sans-serif; min-height: 17px; color: var(--tinta-suave); }
+  .modos-ruta button[aria-selected=true] { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+  .modos-ruta button[aria-selected=true] small { color: #fff; }
+  .cuando-ruta { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .cuando-ruta select, .cuando-ruta input { border: 1px solid var(--linea); border-radius: 6px; background: var(--blanco); padding: 6px 8px; min-width: 0; }
+  .aviso-ruta { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--naranja) 16%, var(--papel)); }
+  .opcion-ruta { border: 1px solid var(--linea); border-radius: 10px; background: var(--blanco); margin-bottom: 8px; overflow: hidden; }
+  .opcion-ruta.elegida { border-color: #1a73e8; box-shadow: 0 0 0 1px #1a73e8; }
+  .opcion-ruta .cabeza { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; width: 100%; text-align: left; border: 0; background: none; padding: 10px 12px; }
+  .opcion-ruta .cabeza b { font: 600 20px/1.15 "Barlow Condensed", sans-serif; }
+  .opcion-ruta .cabeza em { font-style: normal; color: var(--tinta-suave); align-self: center; white-space: nowrap; }
+  .opcion-ruta .cabeza small { grid-column: 1 / 3; color: var(--tinta-suave); font-size: 13.5px; }
+  .opcion-ruta .tramos { grid-column: 1 / 3; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; margin: 3px 0 2px; }
+  .opcion-ruta .tramos i { font-style: normal; color: var(--tinta-suave); }
+  .a-pie { display: inline-flex; align-items: center; color: var(--tinta-suave); font-size: 13px; }
+  .pasos-ruta { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--linea); }
+  .pasos-ruta > li { border-bottom: 1px solid var(--linea); }
+  .pasos-ruta > li:last-child { border-bottom: 0; }
+  .pasos-ruta button { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 1px 8px; align-items: center; width: 100%; text-align: left; border: 0; background: none; padding: 8px 12px 8px 8px; }
+  .pasos-ruta button:hover { background: var(--papel); }
+  .pasos-ruta button > svg, .pasos-ruta button > .linea { justify-self: center; }
+  .pasos-ruta button > svg { color: var(--tinta-suave); }
+  .pasos-ruta em { font-style: normal; color: var(--tinta-suave); font-size: 13px; white-space: nowrap; }
+  .pasos-ruta small { grid-column: 2 / 4; color: var(--tinta-suave); font-size: 13px; }
+  .pasos-ruta details { padding: 0 12px 8px 50px; font-size: 13.5px; color: var(--tinta-suave); }
+  .pasos-ruta details ul { list-style: none; margin: 4px 0 0; padding: 0; }
+  #ruta-cuerpo .pendiente { display: flex; align-items: center; gap: 8px; }
+  .chincheta-lugar { background: none; border: 0; }
+  .chincheta-lugar svg { filter: drop-shadow(0 2px 3px rgba(23,36,46,.45)); }
+
+  /* Panel de capas */
+  #capas { width: 300px; max-height: calc(100% - 20px); overflow-y: auto; }
+  #capas:not([open]) { width: auto; }
+  #capas .grupo-capas.primero { border-top: 0; margin-top: 0; padding-top: 0; }
+  #capas-datos, #capas-superponer { display: grid; gap: 8px; }
+  #capas .casilla small { color: var(--tinta-suave); margin-left: auto; font-size: 12.5px; white-space: nowrap; }
+  #capas .casilla.lejos { opacity: .6; }
+  #aviso-capas { position: absolute; left: 50%; transform: translateX(-50%); bottom: 30px; z-index: 800; background: var(--tinta); color: var(--blanco);
+                 border-radius: 16px; padding: 6px 14px; font-size: 13.5px; max-width: min(70%, 520px); pointer-events: none; }
+  #mapa-zona:has(#tarjeta-mapa:not([hidden])) #aviso-capas { bottom: 88px; }
+
+  /* El aviso de carga dice qué se está pidiendo; si algo falla, deja reintentar. */
+  #aviso-capas { display: flex; align-items: center; gap: 8px; text-align: left; box-shadow: 0 2px 8px rgba(23,36,46,.3); }
+  #aviso-capas button { pointer-events: auto; border: 1px solid currentColor; background: none; color: inherit; border-radius: 12px; padding: 1px 10px; font-size: 13px; flex: none; }
+  .girando { flex: none; width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: giro .8s linear infinite; }
+  @keyframes giro { to { transform: rotate(360deg); } }
+
+  /* Tira de capas encendidas: hace de leyenda y deja ocultar o mostrar cada una de un toque. */
+  #tira-capas { position: absolute; top: 10px; left: 122px; right: 118px; z-index: 790; display: flex; flex-wrap: wrap; gap: 5px; pointer-events: none; }
+  #mapa-zona:has(#capas[open]) #tira-capas { right: 322px; }
+  #tira-capas button { pointer-events: auto; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--linea); background: var(--papel);
+                 border-radius: 999px; padding: 2px 9px 2px 3px; font-size: 13px; line-height: 1.25; white-space: nowrap; box-shadow: 0 1px 3px rgba(23,36,46,.28); }
+  #tira-capas button:hover { border-color: var(--tinta); }
+  #tira-capas button small { color: var(--tinta-suave); font-size: 12px; font-variant-numeric: tabular-nums; }
+  #tira-capas button[aria-pressed=false] { background: color-mix(in srgb, var(--papel) 72%, transparent); color: var(--tinta-suave); box-shadow: none; }
+  #tira-capas button[aria-pressed=false] .simbolo { filter: grayscale(1); opacity: .55; }
+  #tira-capas button[aria-pressed=false] span { text-decoration: line-through; }
+  #tira-capas button.falla small { color: #d90429; font-weight: 600; }
+  [data-tema=oscuro] #tira-capas button.falla small { color: #ff7a85; }
+  #tira-capas .girando { width: 10px; height: 10px; color: var(--tinta-suave); }
+
+  /* Asa para esconder el panel y dejar todo el ancho al mapa (en el móvil el panel ya se pliega con «Ocultar»). */
+  #asa-panel { position: absolute; left: 0; top: 50%; transform: translateY(-50%); z-index: 790; width: 20px; height: 58px; padding: 0; display: grid; place-items: center;
+               border: 1px solid var(--linea); border-left: 0; border-radius: 0 9px 9px 0; background: var(--papel); color: var(--tinta-suave); box-shadow: 2px 0 4px rgba(23,36,46,.18); }
+  #asa-panel:hover { color: var(--tinta); }
+  #asa-panel svg { transition: transform .15s; }
+  #asa-panel[aria-expanded=false] svg { transform: rotate(180deg); }
+  @media (min-width: 761px) {
+    body.sin-panel { grid-template-columns: minmax(0, 1fr); }
+    body.sin-panel #panel { display: none; }
+    /* Con el panel de capas abierto, que no tape los botones del mapa. */
+    #capas[open] { max-height: calc(100% - 196px); }
+  }
+
+  /* Mientras llegan los datos: el hueco de la lista, no la pantalla de «aún no hay resultados». */
+  #arranque { display: none; }
+  #panel.arrancando #vacio { display: none; }
+  #panel.arrancando #arranque { display: grid; }
+  #arranque i { display: block; height: 58px; border-bottom: 1px solid var(--linea);
+                background: linear-gradient(var(--linea), var(--linea)) 16px 50% / 46px 34px no-repeat,
+                            linear-gradient(var(--linea), var(--linea)) 72px 18px / 46% 11px no-repeat,
+                            linear-gradient(var(--linea), var(--linea)) 72px 37px / 30% 9px no-repeat;
+                opacity: .7; animation: latido 1.1s ease-in-out infinite alternate; }
+  @keyframes latido { to { opacity: .3; } }
+
+  /* Ajustes de la foto (brillo, contraste, color, enfoque): valen para el fondo, la foto antigua y el mapa del visor,
+     pero no para los mapas dibujados, que en modo oscuro llevan su propio filtro. */
+  #mapa:not(.fondo-dibujado) .leaflet-tile-pane, .leaflet-historico-pane, .mapa-visor .leaflet-tile-pane { filter: var(--ajuste-foto, none); }
+  html.enfocar #mapa:not(.fondo-dibujado) .leaflet-tile-pane img.leaflet-tile, html.enfocar .leaflet-historico-pane img.leaflet-tile,
+  html.enfocar .mapa-visor img.leaflet-tile { filter: url(#enfocar); }
+  #ajustes-foto summary { cursor: pointer; color: var(--tinta-suave); }
+  #ajustes-foto[open] summary { margin-bottom: 8px; }
+  #ajustes-foto label:not(.casilla) { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; font-size: 13.5px; margin-bottom: 6px; }
+  #ajustes-foto label:not(.casilla) input { grid-column: 1 / -1; }
+  #ajustes-foto output { color: var(--tinta-suave); font-variant-numeric: tabular-nums; }
+  #ajustes-foto .casilla { margin-bottom: 8px; }
+  #visor .lienzo img { transform-origin: 50% 50%; will-change: transform; user-select: none; }
+  .mapa-visor.leaflet-container { background: #0c1217; font: inherit; }
+
+  /* Panel de capas: buscador y datos guardados */
+  #buscar-capa { width: 100%; padding: 6px 10px; border: 1px solid var(--linea); border-radius: 16px; background: var(--blanco); }
+  #capas .nota-capas { margin: 0; font-size: 13px; color: var(--tinta-suave); }
+  #capas .oculta-por-busqueda { display: none; }
+  /* Mientras se busca una capa solo quedan las casillas que coinciden. */
+  #capas.buscando .cuerpo > :not(#buscar-capa):not(.casilla):not(#capas-datos):not(#capas-superponer) { display: none; }
+  #filtros-mas summary small { font-weight: 400; color: var(--tinta-suave); margin-left: 6px; }
+
+  /* Ficha de un elemento de cualquier capa */
+  #ficha-elemento { padding: 0 16px 28px; }
+  #ficha-elemento h2 { font: 600 24px/1.1 "Barlow Condensed", sans-serif; margin: 4px 0 2px; overflow-wrap: anywhere; }
+  #ficha-elemento .lugar { color: var(--tinta-suave); margin-bottom: 10px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+  #ficha-elemento .datos a { color: var(--tinta); }
+  #ficha-elemento details summary { cursor: pointer; color: var(--tinta-suave); font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+  .portada { position: relative; width: 100%; aspect-ratio: 16 / 10; background: #17242e; border-radius: 8px; overflow: hidden; border: 0; padding: 0; display: block; }
+  .portada img, .portada iframe { width: 100%; height: 100%; object-fit: cover; display: block; border: 0; }
+  .portada span { position: absolute; left: 8px; bottom: 8px; background: rgba(23,36,46,.78); color: #fff; border-radius: 5px; padding: 2px 8px; font-size: 13px; }
+  .vistas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 8px 0 2px; }
+  .vistas button { border: 1px solid var(--linea); background: var(--blanco); border-radius: 8px; padding: 8px 2px 6px; font-size: 13px;
+                   display: grid; justify-items: center; gap: 3px; }
+  .vistas button:hover { border-color: var(--tinta); }
+  .descripcion { margin: 10px 0 0; }
+  .portada.fachada { margin-top: 10px; aspect-ratio: 16 / 9; }
+
+  /* Pestañas del panel y sus listas */
+  #pestanas { display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--linea); }
+  #pestanas button { border: 0; background: none; padding: 7px 10px 8px; border-bottom: 3px solid transparent; margin-bottom: -1px; color: var(--tinta-suave); font-weight: 500; }
+  #pestanas button[aria-selected=true] { color: var(--tinta); border-bottom-color: var(--jalon); font-weight: 600; }
+  #pestanas small { margin-left: 5px; font-weight: 400; color: var(--tinta-suave); font-size: 12.5px; }
+  #panel:has(#contenido > article:not([hidden])) #pestanas { display: none; }
+  #panel:not([data-pestana=sitios]) :is(#filtros, #lista, #ver-mas, #sin-coincidencias, #vacio) { display: none !important; }
+  #panel:not([data-pestana=mapa]) #lista-capas, #panel:not([data-pestana=marcadores]) #lista-marcadores,
+  #contenido:has(> article:not([hidden])) .lista-simple { display: none; }
+  #filtros { padding-top: 10px; }
+  .lista-simple { list-style: none; margin: 0; padding: 0; }
+  .lista-simple li button { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 1px 10px; align-items: center; width: 100%; text-align: left;
+                            border: 0; border-bottom: 1px solid var(--linea); background: none; padding: 8px 16px; }
+  .lista-simple li button:hover { background: var(--blanco); }
+  .lista-simple .simbolo { grid-row: span 2; }
+  .lista-simple b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lista-simple small { grid-column: 2; color: var(--tinta-suave); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lista-simple .hueco { padding: 18px 16px; color: var(--tinta-suave); }
+  .lista-simple .cabecera-lista { display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--tinta-suave); font-size: 13.5px; border-bottom: 1px solid var(--linea); }
+  .lista-simple .cabecera-lista button { display: inline-flex; grid-template-columns: none; width: auto; margin-left: auto; gap: 5px; border: 1px solid var(--linea); border-radius: 6px;
+                                         padding: 4px 9px; background: var(--blanco); color: var(--tinta); }
+
+  /* Grupos del panel de capas */
+  .grupo-de-capas { border-top: 1px solid var(--linea); padding-top: 8px; }
+  .grupo-de-capas > summary { display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; list-style: none; }
+  .grupo-de-capas > summary::-webkit-details-marker { display: none; }
+  .grupo-de-capas > summary::before { content: "▸"; color: var(--tinta-suave); width: 12px; }
+  .grupo-de-capas[open] > summary::before { content: "▾"; }
+  .grupo-de-capas > summary small { margin-left: auto; font-weight: 400; color: var(--tinta-suave); font-size: 12.5px; }
+  .grupo-de-capas[open] > summary { margin-bottom: 8px; }
+  .grupo-de-capas .casilla + .casilla { margin-top: 8px; }
+  #capas > summary { display: flex; align-items: center; gap: 6px; }
+
+  /* Tarjeta sobre el mapa: ruta y medición */
+  #tarjeta-mapa { position: absolute; left: 50%; transform: translateX(-50%); bottom: 26px; z-index: 800; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+                  max-width: min(92%, 640px); background: var(--papel); color: var(--tinta); border: 1px solid var(--linea); border-radius: 12px; padding: 8px 12px;
+                  box-shadow: 0 6px 22px rgba(23,36,46,.3); }
+  #tarjeta-mapa b { font: 600 20px/1 "Barlow Condensed", sans-serif; }
+  #tarjeta-mapa span { color: var(--tinta-suave); font-size: 14px; }
+  #tarjeta-mapa button { border: 1px solid var(--linea); background: var(--blanco); border-radius: 6px; padding: 4px 10px; font-size: 14px; }
+  #tarjeta-mapa button[aria-pressed=true] { background: var(--tinta); border-color: var(--tinta); color: var(--blanco); }
+  #tarjeta-mapa .grupo-botones { display: inline-flex; gap: 4px; }
+  #menu-mapa button { display: flex; align-items: center; gap: 9px; }
+  #menu-mapa svg { color: var(--tinta-suave); flex: none; }
+  .datos { display: grid; grid-template-columns: minmax(84px, auto) minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+  .datos dt { color: var(--tinta-suave); } .datos dd { margin: 0; overflow-wrap: anywhere; }
+  .tira-fotos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+  .tira-fotos button { border: 0; padding: 0; background: #17242e; border-radius: 5px; overflow: hidden; aspect-ratio: 4 / 3; position: relative; }
+  .tira-fotos img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .tira-fotos span { position: absolute; left: 4px; bottom: 4px; background: rgba(23,36,46,.78); color: #fff; border-radius: 4px; padding: 0 6px; font-size: 12px; }
+  .pendiente { color: var(--tinta-suave); font-size: 14px; }
+
+  /* Menú del botón derecho */
+  #menu-mapa { position: absolute; z-index: 900; min-width: 210px; background: var(--blanco); border: 1px solid var(--linea); border-radius: 8px;
+               box-shadow: 0 6px 22px rgba(23,36,46,.28); padding: 5px; display: grid; }
+  #menu-mapa button { border: 0; background: none; text-align: left; padding: 8px 10px; border-radius: 5px; }
+  #menu-mapa button:hover, #menu-mapa button:focus-visible { background: var(--papel); }
+  #menu-mapa .coordenadas { font-size: 13px; color: var(--tinta-suave); padding: 4px 10px 6px; border-bottom: 1px solid var(--linea); margin-bottom: 4px; }
+
+  /* Visor a pantalla completa */
+  #visor { position: fixed; inset: 0; z-index: 2000; background: rgba(12,18,23,.96); color: #fff; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+  #visor header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
+  #visor h2 { font: 600 20px/1.1 "Barlow Condensed", sans-serif; margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #visor button { border: 1px solid rgba(255,255,255,.35); background: none; color: #fff; border-radius: 6px; padding: 6px 11px; }
+  #visor button[aria-pressed=true], #visor button[aria-selected=true] { background: #fff; color: #17242e; border-color: #fff; }
+  #visor .pestanas, #visor .opciones { display: flex; gap: 6px; padding: 0 14px 10px; overflow-x: auto; }
+  #visor .opciones { padding: 10px 14px; flex-wrap: wrap; justify-content: center; }
+  #visor .lienzo { position: relative; min-height: 0; display: grid; place-items: center; overflow: hidden; }
+  #visor .lienzo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  #visor .lienzo iframe, #visor .lienzo .mapa-visor { width: 100%; height: 100%; border: 0; background: #000; }
+  #visor .lienzo p { max-width: 520px; padding: 20px; text-align: center; color: #c9d3d8; }
+  #visor .pie-foto { font-size: 13px; color: #c9d3d8; padding: 0 14px; text-align: center; }
+  #visor .pie-foto a { color: #fff; }
+  #visor .miniaturas { display: flex; gap: 6px; overflow-x: auto; padding: 8px 14px; justify-content: safe center; }
+  #visor .miniaturas button { flex: none; width: 96px; height: 64px; padding: 0; overflow: hidden; border-width: 2px; }
+  #visor .miniaturas img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #visor .cruz { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; border: 2px solid var(--jalon); border-radius: 50%; pointer-events: none; }
+
+  /* Leyenda de la capa de acceso */
+  #capas .grupo-capas { font-weight: 600; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--linea); }
+  #leyenda { position: absolute; left: 10px; bottom: 34px; z-index: 800; background: var(--papel); border: 1px solid var(--linea);
+             border-radius: 8px; padding: 9px 12px; font-size: 13px; max-width: 290px; display: grid; gap: 4px; }
+  #leyenda .clave { display: flex; align-items: center; gap: 8px; }
+  #leyenda .clave i { flex: 0 0 26px; height: 12px; display: block; }
+  #leyenda .aviso { color: var(--tinta-suave); font-size: 12.5px; margin-top: 3px; }
+  #leyenda .estado { font-weight: 600; }
+  #leyenda .plegar-leyenda { border: 0; background: none; padding: 0; font-weight: 600; color: var(--tinta-suave); text-align: left; justify-self: start; }
+  #leyenda .plegar-leyenda:hover { color: var(--tinta); }
+  .ficha-parcela { font: 14px/1.4 "Barlow", system-ui, sans-serif; color: var(--tinta); min-width: 220px; max-width: 290px; }
+  .ficha-parcela h4 { font: 600 18px/1.15 "Barlow Condensed", sans-serif; margin: 0 0 4px; }
+  .ficha-parcela p { margin: 4px 0; }
+  .ficha-parcela .nota-legal { color: var(--tinta-suave); font-size: 12.5px; }
+  .ficha-parcela a { color: var(--tinta); font-weight: 600; }
+  .puerta { background: #fff; border: 2px solid #ff2d2d; }
+
+  /* Cortina: a la izquierda el fondo actual, a la derecha la ortofoto antigua. */
+  #cortina { position: absolute; top: 0; bottom: 0; width: 44px; margin-left: -22px; z-index: 700; cursor: ew-resize; touch-action: none; }
+  #cortina::before { content: ""; position: absolute; left: 21px; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 0 1px #17242e; }
+  #cortina::after { content: "‹ ›"; position: absolute; left: 4px; top: 78%; width: 36px; height: 36px; margin-top: -18px; border-radius: 50%;
+                    background: #fff; color: #17242e; border: 2px solid #17242e; display: grid; place-items: center; font-weight: 600; }
+  #cortina-etiqueta { position: absolute; top: 10px; z-index: 700; margin-left: 12px; padding: 2px 8px; border-radius: 4px; pointer-events: none;
+                      color: #fff; background: rgba(23,36,46,.82); font: 600 16px "Barlow Condensed", sans-serif; }
+
+  /* ---------- Móvil: el mapa arriba con el buscador encima, y el panel como hoja que sube desde abajo ---------- */
+  @media (max-width: 760px) {
+    body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+    #mapa-zona { grid-row: 1; }
+    /* La hoja tiene tres alturas: recogida (solo la cabecera), media y alta. Se cambia arrastrando el asa. */
+    #panel { grid-row: 2; border-right: 0; border-top: 0; border-radius: 14px 14px 0 0; margin-top: -12px; box-shadow: 0 -2px 10px rgba(23,36,46,.2); z-index: 900;
+             height: 46vh; height: 46dvh; padding-bottom: env(safe-area-inset-bottom); transition: height .18s ease; }
+    #panel.alta { height: calc(100vh - 58px); height: calc(100dvh - 58px); }
+    #panel.plegado { height: auto; }
+    #panel.arrastrando { transition: none; }
+    #panel.plegado :is(#filtros, #contenido, #pestanas, #resultados-extra) { display: none !important; }
+    #asa-hoja { display: block; }
+    #cabecera { padding: 0 14px 8px; align-items: center; touch-action: none; }
+    #cabecera h1 { font-size: 20px; }
+    #categorias { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+    #categorias .chip { flex: 0 0 auto; }
+    #asa-panel { display: none; }
+    .leaflet-bottom { bottom: 12px; }
+    .leaflet-top.leaflet-left { top: 100px; }
+    /* El crédito de las imágenes, en una sola línea que se corta: en una pantalla pequeña taparía los botones. */
+    .leaflet-control-attribution { font-size: 10px; max-width: 100vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Con la hoja en alto apenas queda una franja de mapa, la del buscador: lo demás que flota se aparta. */
+    #panel.alta ~ #mapa-zona :is(.leaflet-bottom, .leaflet-top, #tira-capas, #anadir, #cerca, #boton-3d, #boton-malla, #tarjeta-mapa, #aviso-capas, #leyenda, #aviso-3d, .maplibregl-control-container) { display: none !important; }
+    /* Con la ficha de la ruta a la vista en la hoja, sobra la tarjeta del mapa: dice lo mismo. */
+    #panel:not(.plegado):has(#ficha-ruta:not([hidden])) ~ #mapa-zona #tarjeta-mapa { display: none; }
+    #ficha-ruta h2 { display: none; }
+    #ficha-ruta, #ficha, #ficha-elemento, #ficha-marcador { padding-left: 12px; padding-right: 12px; }
+    /* El buscador flota sobre el mapa (herramientas.js lo cambia de sitio); a su derecha, el botón de capas. */
+    #mapa-zona > #buscador { position: absolute; top: 8px; left: 8px; right: 60px; z-index: 810; padding: 0; }
+    #mapa-zona > #buscador #buscar-texto { border-radius: 24px; padding: 11px 16px; border-color: transparent; box-shadow: 0 1px 5px rgba(23,36,46,.4); font-size: 16px; }
+    #panel > #buscador { display: none; }      /* hasta que se cambia de sitio */
+    #capas { right: 8px; top: 8px; }
+    #capas:not([open]) { width: 44px; height: 44px; border-radius: 22px; padding: 0; overflow: hidden; box-shadow: 0 1px 5px rgba(23,36,46,.4); }
+    #capas:not([open]) summary { width: 44px; height: 44px; display: grid; place-items: center; font-size: 0; list-style: none; }
+    #capas:not([open]) summary::-webkit-details-marker { display: none; }
+    #capas[open] { width: min(310px, calc(100% - 16px)); max-height: calc(100% - 16px); z-index: 820; }
+    /* La tira de capas encendidas va en una fila bajo el buscador, que se desliza con el dedo. */
+    #tira-capas, #mapa-zona:has(#capas[open]) #tira-capas { top: 60px; left: 8px; right: 8px; flex-wrap: nowrap; overflow-x: auto; pointer-events: auto; scrollbar-width: none; padding-bottom: 3px; }
+    #tira-capas::-webkit-scrollbar { display: none; }
+    #tira-capas button { flex: none; }
+    #aviso-capas, #mapa-zona:has(#tarjeta-mapa:not([hidden])) #aviso-capas { top: 100px; bottom: auto; max-width: calc(100% - 20px); }
+    #pestanas { padding: 0 12px; }
+    /* Abajo a la derecha, los botones redondos; abajo a la izquierda, la tarjeta de la ruta o de la medida. */
+    #tarjeta-mapa { top: auto; bottom: 34px; left: 8px; right: 62px; transform: none; max-width: none; padding: 8px 10px; }
+    #tarjeta-mapa b { font-size: 18px; }
+    .vistas button { font-size: 12.5px; }
+    #pie .atajos { display: none; }
+    #cerca { right: 8px; bottom: 36px; }
+    #anadir { right: 8px; bottom: 88px; }
+    #boton-3d { right: 8px; bottom: 140px; }
+    #boton-malla { right: 8px; bottom: 192px; padding: 11px; border-radius: 23px; min-width: 46px; justify-content: center; }
+    #anadir, #cerca, #boton-3d { padding: 11px; border-radius: 23px; min-width: 46px; justify-content: center; }
+    #anadir:not(.avisa) .rotulo, #cerca:not(.avisa) .rotulo { display: none; }
+    #boton-3d [data-icono] { display: none; }
+    #leyenda { left: 8px; right: auto; bottom: 34px; max-width: 200px; font-size: 12px; }
+    #mapa-zona:has(#tarjeta-mapa:not([hidden])) #leyenda { display: none; }
+    #leyenda .aviso { display: none; }
+    .leaflet-control-zoom { display: none; }   /* en táctil se amplía con dos dedos */
+    #aviso-3d { top: 104px; }
+    #vista3d .maplibregl-ctrl-top-left { top: 96px; }
+    #vista3d .maplibregl-ctrl-bottom-left { bottom: 12px; }
+    #mapa-zona.en-3d #tarjeta-mapa { bottom: 50px; }
+    #resultados-extra .categorias { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+
+<aside id="panel" class="arrancando" aria-label="Búsqueda, listas y fichas">
+  <button id="asa-hoja" type="button" aria-label="Subir o bajar el panel" title="Arrastra para subir o bajar el panel"></button>
+  <header id="cabecera">
+    <h1>OSINT Maps</h1>
+    <span id="recuento"></span>
+    <button id="tema" type="button" aria-pressed="false" title="Cambiar a modo oscuro"></button>
+  </header>
+
+  <div id="buscador">
+    <input id="buscar-texto" type="search" placeholder="Buscar un sitio, un negocio o una dirección" aria-label="Buscar un negocio, una dirección, un sitio abandonado, unas coordenadas o una referencia catastral" autocomplete="off" enterkeyhint="search">
+  </div>
+
+  <ul id="resultados-extra" aria-label="Resultados de la búsqueda" hidden></ul>
+
+  <nav id="pestanas" role="tablist" aria-label="Qué se lista"></nav>
+
+  <section id="filtros" aria-label="Filtros" hidden>
+    <details id="filtros-mas">
+    <summary>Filtros y orden<small id="resumen-filtros"></small></summary>
+    <div class="cuerpo">
+    <div class="fila">
+      <label for="f-nota">Nota mínima</label>
+      <input id="f-nota" type="range" min="0" max="90" step="5" value="40">
+      <output id="f-nota-valor">40</output>
+    </div>
+    <div class="fila">
+      <select id="f-sup" aria-label="Superficie mínima">
+        <option value="0">Cualquier superficie</option>
+        <option value="500">Más de 500 m²</option>
+        <option value="2000">Más de 2.000 m²</option>
+        <option value="10000">Más de 10.000 m²</option>
+      </select>
+      <select id="f-marca" aria-label="Mis marcas">
+        <option value="activos">Sin descartar</option>
+        <option value="todos">Todos</option>
+        <option value="pendientes">Sin revisar</option>
+        <option value="favorito">Favoritos</option>
+        <option value="visitado">Visitados</option>
+        <option value="descartado">Descartados</option>
+      </select>
+    </div>
+    <div class="fila">
+      <label for="f-orden">Ordenar por</label>
+      <select id="f-orden">
+        <option value="nota">Nota</option>
+        <option value="superficie">Superficie</option>
+        <option value="cercania">Cercanía a mí</option>
+        <option value="vista">Cercanía al centro del mapa</option>
+      </select>
+    </div>
+    <div class="fila" id="fila-vision" hidden>
+      <label for="f-vision">Desde el aire</label>
+      <select id="f-vision">
+        <option value="">Todo</option>
+        <option value="no-solar">Ocultar lo que ya no está en pie</option>
+        <option value="ruina">Solo ruinas en pie</option>
+        <option value="tejado">Solo con cubierta</option>
+        <option value="solar">Solo lo que ya no está en pie</option>
+      </select>
+    </div>
+    <label class="casilla"><input id="f-multi" type="checkbox"> Solo confirmados por varias fuentes</label>
+    <label class="casilla"><input id="f-vista" type="checkbox"> Solo lo que se ve en el mapa</label>
+    <div id="categorias" role="group" aria-label="Categorías"></div>
+    </div>
+    </details>
+  </section>
+
+  <div id="contenido">
+    <div id="arranque" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div id="vacio">
+      <h2>Aún no hay resultados cargados</h2>
+      <p>Genera los datos con <code>osintmaps buscar --provincia 46</code> y abre este mapa con <code>osintmaps servir</code>.</p>
+      <p>También puedes abrir aquí un <code>candidatos.geojson</code> que ya tengas.</p>
+      <label class="cargar">Abrir candidatos.geojson<input id="fichero" type="file" accept=".geojson,.json,application/geo+json" hidden></label>
+    </div>
+    <ul id="lista" hidden></ul>
+    <ul id="lista-capas" class="lista-simple" aria-label="Elementos de las capas encendidas"></ul>
+    <ul id="lista-marcadores" class="lista-simple" aria-label="Mis marcadores"></ul>
+    <p id="sin-coincidencias" hidden>Ningún candidato cumple estos filtros. Baja la nota mínima o quita alguno.</p>
+    <button id="ver-mas" type="button" hidden>Ver más</button>
+    <article id="ficha" hidden></article>
+    <article id="ficha-marcador" hidden></article>
+    <article id="ficha-elemento" hidden></article>
+    <article id="ficha-ruta" hidden></article>
+    <footer id="pie" hidden>
+      <button id="exportar-marcas" type="button">Guardar copia de marcas y marcadores</button>
+      <label>Recuperar una copia<input id="importar-marcas" type="file" accept=".json" hidden></label>
+      <span id="estado-marcas"></span>
+      <span class="atajos">Botón derecho sobre el mapa (o mantener pulsado en el móvil): qué hay ahí, marcador nuevo, vista de calle.</span>
+      <span class="atajos">Teclado: <kbd>/</kbd> buscar. Con una ficha abierta: <kbd>→</kbd> siguiente, <kbd>←</kbd> anterior, <kbd>F</kbd> favorito, <kbd>V</kbd> visitado, <kbd>X</kbd> descartar, <kbd>Esc</kbd> lista.</span>
+      <span>Datos: Catastro, © OpenStreetMap, Wikidata. Ortofotos PNOA CC BY 4.0 scne.es</span>
+    </footer>
+  </div>
+</aside>
+
+<!-- Filtro para «enfocar» las fotos: cada punto se compara con sus vecinos y se exagera la diferencia. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <filter id="enfocar" color-interpolation-filters="sRGB"><feConvolveMatrix order="3" kernelMatrix="0 -0.55 0 -0.55 3.2 -0.55 0 -0.55 0" preserveAlpha="true"/></filter>
+</svg>
+<div id="mapa-zona">
+  <div id="mapa"></div>
+  <div id="cortina" role="slider" aria-label="Posición de la cortina" tabindex="0" hidden></div>
+  <div id="cortina-etiqueta" hidden></div>
+  <div id="tira-capas" role="group" aria-label="Capas encendidas: pulsa una para ocultarla o volver a mostrarla"></div>
+  <button id="asa-panel" type="button" aria-expanded="true" aria-controls="panel" title="Ocultar el panel"></button>
+  <button id="anadir" type="button" aria-pressed="false" data-nombre="Añadir marcador" title="Añadir marcador"><span data-icono="marcador_nuevo"></span><span class="rotulo">Añadir marcador</span></button>
+  <button id="cerca" type="button" aria-pressed="false" data-nombre="Mi posición" title="Mi posición"><span data-icono="mi_posicion"></span><span class="rotulo">Mi posición</span></button>
+  <button id="boton-3d" type="button" aria-pressed="false" title="Ver en 3D: relieve, foto aérea y edificios"><span data-icono="tres_d"></span><span class="rotulo">3D</span></button>
+  <button id="boton-malla" type="button" aria-pressed="true" title="Quitar la maqueta fotográfica"><span class="rotulo">Real</span></button>
+  <div id="vista3d" hidden></div>
+  <div id="leyenda" hidden></div>
+  <div id="aviso-capas" role="status" hidden></div>
+  <div id="tarjeta-mapa" role="status" hidden></div>
+  <details id="capas">
+    <summary><span data-icono="capas"></span> Capas</summary>
+    <div class="cuerpo">
+      <input id="buscar-capa" type="search" placeholder="Buscar una capa" aria-label="Buscar una capa por su nombre" autocomplete="off">
+      <div class="grupo-capas primero">Mapa de fondo</div>
+      <select id="capa-fondo" aria-label="Mapa de fondo">
+        <option value="auto">La foto más nítida de cada sitio (automático)</option>
+        <option value="pnoa">Ortofoto de toda España (PNOA, 25 cm)</option>
+        <option value="mtn">Mapa topográfico (IGN)</option>
+        <option value="osm">OpenStreetMap</option>
+      </select>
+      <details id="ajustes-foto">
+        <summary>Ajustar la foto</summary>
+        <label>Brillo <output id="aj-brillo-valor"></output><input id="aj-brillo" type="range" min="50" max="200" step="5" value="100"></label>
+        <label>Contraste <output id="aj-contraste-valor"></output><input id="aj-contraste" type="range" min="50" max="200" step="5" value="100"></label>
+        <label>Color <output id="aj-color-valor"></output><input id="aj-color" type="range" min="0" max="200" step="5" value="100"></label>
+        <label class="casilla"><input id="aj-enfoque" type="checkbox"> Enfocar: remarca los bordes</label>
+        <label class="casilla" id="fila-nitidez"><input id="aj-nitidez" type="checkbox" checked> Doble detalle para esta pantalla</label>
+        <button id="aj-restablecer" type="button" class="accion">Dejarla como viene</button>
+      </details>
+      <div id="capas-superponer"></div>
+      <label>Comparar con la ortofoto de
+        <select id="capa-historica"><option value="">Ninguna</option></select>
+      </label>
+      <label class="casilla"><input id="usar-cortina" type="checkbox" checked> Con cortina deslizante</label>
+      <label id="fila-opacidad" hidden>Opacidad
+        <input id="opacidad-historica" type="range" min="0" max="100" value="100">
+      </label>
+      <div class="grupo-capas">Lo tuyo y lo ya buscado</div>
+      <label class="casilla"><input id="capa-sitios" type="checkbox" checked> <span data-icono="sitio" data-fondo="#e5007d" data-forma="cuadrado"></span> Sitios abandonados</label>
+      <label class="casilla"><input id="capa-camaras" type="checkbox" checked> <span data-icono="camaras" data-fondo="#d90429"></span> Cámaras (OpenStreetMap)</label>
+      <label class="casilla"><input id="capa-marcadores" type="checkbox" checked> <span data-icono="spray" data-fondo="#2fbf71"></span> Mis marcadores</label>
+      <label class="casilla"><input id="capa-huellas" type="checkbox" checked> Contornos al acercar</label>
+      <div id="capas-datos"></div>
+      <div class="grupo-capas">Terreno y accesos</div>
+      <label class="casilla"><input id="capa-parcelas" type="checkbox"> Parcelas y suelo público</label>
+      <label class="casilla"><input id="capa-vallas" type="checkbox"> Vallas, puertas y caminos</label>
+      <label class="casilla"><input id="capa-pecuarias" type="checkbox"> Vías pecuarias y senderos</label>
+      <label class="casilla"><input id="capa-montes" type="checkbox"> Montes y fincas públicas</label>
+      <label class="casilla"><input id="capa-catastro" type="checkbox"> Plano catastral (imagen)</label>
+      <div class="grupo-capas">Datos guardados en este navegador</div>
+      <p id="memoria-estado" class="nota-capas"></p>
+      <button id="memoria-vaciar" type="button" class="accion">Vaciar y volver a pedirlos</button>
+    </div>
+  </details>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin=""></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"
+        integrity="sha384-eXVCORTRlv4FUUgS/xmOyr66XBVraen8ATNLMESp92FKXLAMiKkerixTiBvXriZr" crossorigin=""></script>
+<script src="iconos.js?v=7493ac4bfe"></script>
+<!--DATOS_INCRUSTADOS-->
+<script>
+"use strict";
+/* Visor de OSINT Maps. Un solo fichero, sin compilación.
+   Lee datos/candidatos.geojson (y datos/huellas.geojson si existe), o los datos
+   incrustados cuando se genera con «osintmaps paquete».
+   Los textos vienen de OSM y Wikidata, que edita cualquiera: nunca se insertan
+   como HTML, siempre como texto (textContent). */
+
+const WMS_ACTUAL = "https://www.ign.es/wms-inspire/pnoa-ma";
+const WMS_HISTORICO = "https://www.ign.es/wms/pnoa-historico";
+const POR_PAGINA = 150;
+
+/* Vuelos históricos que interesan, con el año con que se ordenan y rotulan. */
+const VUELOS_FIJOS = {
+  "AMS_1956-1957": [1956, "1956"], "Interministerial_1973-1986": [1977, "1973-86"], "Nacional_1981-1986": [1984, "1981-86"],
+  "OLISTAT": [1998, "1998"], "SIGPAC": [2002, "2002"],
+};
+const vuelo = (nombre) => {
+  if (VUELOS_FIJOS[nombre]) return { nombre, anio: VUELOS_FIJOS[nombre][0], rotulo: VUELOS_FIJOS[nombre][1] };
+  const m = /^PNOA(\d{4})$/.exec(nombre);
+  return m ? { nombre, anio: +m[1], rotulo: m[1] } : null;
+};
+let vuelos = ["PNOA2021", "PNOA2018", "PNOA2015", "PNOA2012", "PNOA2009", "PNOA2006", "SIGPAC", "Nacional_1981-1986", "AMS_1956-1957"].map(vuelo);
+
+const NOMBRE_CATEGORIA = {
+  despoblado: "Despoblado", industrial: "Industrial", mineria: "Minería", militar: "Militar",
+  ferroviario: "Ferroviario", sanitario: "Sanitario", educativo: "Educativo", religioso: "Religioso",
+  ocio_hosteleria: "Ocio y hostelería", equipamiento: "Equipamiento", patrimonio: "Patrimonio",
+  oficinas: "Oficinas", comercial: "Comercial", residencial: "Residencial", agrario: "Agrario", otro: "Sin clasificar",
+};
+const NOMBRE_ESTADO = { ruina: "en ruina", abandonado: "abandonado", deficiente: "estado deficiente", en_desuso: "en desuso" };
+const NOMBRE_FACTOR = {
+  estado: ["Estado", 16], tamano: ["Tamaño", 20], categoria: ["Tipo de sitio", 15], fuentes: ["Varias fuentes", 15],
+  aislamiento: ["Aislamiento", 12], conjunto: ["Conjunto", 8], identidad: ["Nombre y artículo", 5],
+  antiguedad: ["Antigüedad", 4], vegetacion: ["Vegetación", 5],
+};
+const NOMBRE_ENLACE = {
+  google_maps: "Google Maps", street_view: "Street View", google_earth: "Google Earth", catastro: "Ficha catastral",
+  osm: "OpenStreetMap", wikipedia: "Wikipedia", wikidata: "Wikidata",
+  mapillary: "Mapillary", commons_cerca: "Fotos en Commons", busqueda: "Buscar en la web", noticias: "Prensa",
+};
+
+const $ = (id) => document.getElementById(id);
+const el = (etiqueta, props = {}, ...hijos) => {
+  const nodo = Object.assign(document.createElement(etiqueta), props);
+  for (const h of hijos) if (h != null) nodo.append(h);
+  return nodo;
+};
+const miles = (n) => Math.round(n).toLocaleString("es-ES");
+/* Texto para comparar en búsquedas: minúsculas y sin acentos ("Llíria" = "lliria"). */
+const sinAcentos = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const claseNota = (p) => (p >= 60 ? "n4" : p >= 50 ? "n3" : p >= 40 ? "n2" : "n1");
+const colorNota = (p) => (p >= 60 ? "#e5007d" : p >= 50 ? "#f08a00" : p >= 40 ? "#f2c200" : "#8aa0ab");
+const urlSegura = (u) => { try { return new URL(u).protocol === "https:" ? u : null; } catch { return null; } };
+function distanciaKm(a, b) {
+  const rad = Math.PI / 180, dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+}
+
+/* ---------- Almacenamiento ----------
+   El navegador puede negarlo (modo privado, lleno): todo sigue funcionando
+   mientras la página esté abierta. */
+/* «no-cache» no significa «sin guardar»: el navegador guarda el fichero y cada vez pregunta al
+   servidor si ha cambiado. Si no ha cambiado, el servidor contesta solo eso y no lo vuelve a
+   mandar: recargar la página no vuelve a bajar los megas de datos. */
+const pedirJSON = (ruta) => fetch(ruta, { cache: "no-cache" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))));
+/* ¿Detrás de la página está el programa «osintmaps servir», o es una web estática (GitHub Pages,
+   el fichero suelto)? Con el programa, las notas se guardan además en disco y se puede preguntar
+   a servicios que no dejan que una página les pregunte directamente (aviones, trenes). Sin él,
+   todo lo demás funciona igual y las notas se quedan en este navegador. */
+let conServidor = false;
+const hayServidor = window.OSINT_DATOS || !/^https?:$/.test(location.protocol) ? Promise.resolve(false)
+  : fetch("vivo/hola", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => !!(j && j.osintmaps)).catch(() => false);
+hayServidor.then((si) => { conServidor = si; document.documentElement.classList.toggle("sin-servidor", !si); });
+const leerLocal = (clave, porDefecto) => { try { return JSON.parse(localStorage.getItem(clave)) ?? porDefecto; } catch { return porDefecto; } };
+const guardarLocal = (clave, valor) => { try { localStorage.setItem(clave, JSON.stringify(valor)); } catch { /* sin almacenamiento */ } };
+
+/* ---------- Memoria de lo descargado ----------
+   Los servicios de fuera son lentos: Catastro tarda entre 10 y 30 segundos por trozo de mapa y
+   OpenStreetMap puede tardar un minuto. Para no esperar dos veces por lo mismo, lo que llega se
+   guarda en el navegador, en IndexedDB: una base de datos que el navegador da a cada página y
+   que aguanta cientos de megas (localStorage, que es lo que se usa arriba, se queda en 5).
+   Cada trozo se guarda con su fecha: pasado su plazo ya no vale y se vuelve a pedir.
+   Si el navegador no la deja usar (modo privado), todo funciona igual, solo que sin memoria. */
+const DIA = 86400000, VERSION_MEMORIA = "v1";      // la versión cambia si cambia la forma de lo guardado
+const memoria = (() => {
+  let base = null;
+  const abrir = () => base || (base = new Promise((resolver) => {
+    try {
+      const p = indexedDB.open("osintmaps", 1);
+      p.onupgradeneeded = () => p.result.createObjectStore("trozos");
+      p.onsuccess = () => resolver(p.result);
+      p.onerror = p.onblocked = () => resolver(null);
+    } catch { resolver(null); }
+    setTimeout(() => resolver(null), 2500);      // si la base no contesta, se sigue sin memoria: nada debe quedarse esperándola
+  }));
+  const almacen = (bd, modo) => bd.transaction("trozos", modo).objectStore("trozos");
+  return {
+    /* Varias claves de una vez. Devuelve, en el mismo orden, cada dato, o null si no está o ha caducado. */
+    leer: (claves, vida) => abrir().then((bd) => new Promise((resolver) => {
+      const salida = claves.map(() => null), ahora = Date.now();
+      if (!bd || !claves.length) { resolver(salida); return; }
+      try {
+        const a = almacen(bd, "readonly");
+        claves.forEach((clave, k) => { a.get(`${VERSION_MEMORIA}|${clave}`).onsuccess = (ev) => { const v = ev.target.result; if (v && ahora - v.t < vida) salida[k] = v.d; }; });
+        a.transaction.oncomplete = a.transaction.onerror = a.transaction.onabort = () => resolver(salida);
+        setTimeout(() => resolver(salida), 3000);      // por si la lectura se atasca: se pide fuera y listo
+      } catch { resolver(salida); }
+    })),
+    /* pares: [[clave, dato], ...] */
+    guardar: (pares) => abrir().then((bd) => {
+      if (!bd || !pares.length) return;
+      try {
+        const a = almacen(bd, "readwrite"), t = Date.now();
+        for (const [clave, d] of pares) try { a.put({ t, d }, `${VERSION_MEMORIA}|${clave}`); } catch { /* ese dato no se puede guardar: se pedirá otra vez */ }
+      } catch { /* disco lleno o base cerrada */ }
+    }),
+    vaciar: () => abrir().then((bd) => new Promise((resolver) => {
+      if (!bd) { resolver(); return; }
+      try { const a = almacen(bd, "readwrite"); a.clear(); a.transaction.oncomplete = a.transaction.onerror = () => resolver(); } catch { resolver(); }
+    })),
+    /* Borra lo que lleva guardado más de `edad` milisegundos (y lo de versiones anteriores). */
+    limpiar: (edad) => abrir().then((bd) => {
+      if (!bd) return;
+      try {
+        const corte = Date.now() - edad;
+        almacen(bd, "readwrite").openCursor().onsuccess = (ev) => {
+          const c = ev.target.result;
+          if (!c) return;
+          if (!(c.value && c.value.t > corte) || !String(c.key).startsWith(`${VERSION_MEMORIA}|`)) c.delete();
+          c.continue();
+        };
+      } catch { /* no pasa nada */ }
+    }),
+    cuantos: () => abrir().then((bd) => new Promise((resolver) => {
+      if (!bd) { resolver(0); return; }
+      try { const p = almacen(bd, "readonly").count(); p.onsuccess = () => resolver(p.result); p.onerror = () => resolver(0); } catch { resolver(0); }
+    })),
+  };
+})();
+setTimeout(() => memoria.limpiar(60 * DIA), 30000);
+
+/* ---------- Lo que el usuario anota ----------
+   Dos almacenes con la misma mecánica:
+   - marcas: favorito / visitado / descartado + nota sobre un sitio de la lista.
+   - marcadores: puntos propios puestos en el mapa (sitio, cámara, acceso...).
+
+   Con «osintmaps servir» se guardan además en datos/marcas.json y
+   datos/marcadores.json: así no dependen del navegador y valen igual desde el
+   móvil por la red local. Al servidor solo se le manda lo que ha cambiado aquí
+   (los «pendientes») y él lo incorpora a su fichero: dos dispositivos no se pisan
+   aunque uno tenga datos viejos. Los pendientes se recuerdan hasta que el
+   servidor confirma, de modo que cerrar la página a medias no pierde nada. */
+function crearAlmacen(nombre, normalizar, esVacio) {
+  const claveDatos = `osintmaps.${nombre}.v1`, clavePendientes = `osintmaps.${nombre}.pendientes.v1`, ruta = `datos/${nombre}.json`;
+  const a = { datos: leerLocal(claveDatos, {}), pendientes: new Set([].concat(leerLocal(clavePendientes, [])).map(String)), enServidor: false };
+  if (!a.datos || typeof a.datos !== "object" || Array.isArray(a.datos)) a.datos = {};
+  let reloj = null;
+  const recordar = () => { guardarLocal(claveDatos, a.datos); guardarLocal(clavePendientes, [...a.pendientes]); };
+  const cambios = () => Object.fromEntries([...a.pendientes].filter((id) => a.datos[id]).map((id) => [id, a.datos[id]]));
+  const aviso = (texto) => { const e = $("estado-marcas"); if (e) e.textContent = texto; };
+
+  /* Guarda en el navegador y, si hay servidor, programa el envío. `id` es el registro que cambió. */
+  a.guardar = (id) => {
+    if (id != null) a.pendientes.add(String(id));
+    recordar();
+    if (!a.enServidor) return;
+    clearTimeout(reloj);
+    reloj = setTimeout(a.enviar, 600);
+  };
+  a.enviar = () => {
+    if (!a.enServidor || !a.pendientes.size) return;
+    const enviado = cambios();
+    fetch(ruta, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(enviado) })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+      .then((delServidor) => {
+        // Deja de estar pendiente lo que no ha vuelto a cambiar mientras viajaba.
+        for (const [id, m] of Object.entries(enviado)) if (JSON.stringify(a.datos[id]) === JSON.stringify(m)) a.pendientes.delete(id);
+        a.incorporarDelServidor(delServidor);
+        aviso("Cambios guardados en la carpeta datos.");
+        if (a.pendientes.size) a.guardar(null);
+      })
+      .catch(() => aviso("No se pudo guardar en disco; se reintentará."));
+  };
+  /* Lo que dice el servidor manda, salvo en lo que aquí está pendiente de enviar.
+     Lo que el servidor no conoce (hecho sin él) se le envía. */
+  a.incorporarDelServidor = (datos) => {
+    if (!datos || typeof datos !== "object" || Array.isArray(datos)) throw new Error("formato");
+    for (const [id, m] of Object.entries(datos)) {
+      const registro = normalizar(m);
+      if (registro && !a.pendientes.has(id)) a.datos[id] = registro;
+    }
+    for (const id of Object.keys(a.datos)) if (!(id in datos) && !esVacio(a.datos[id])) a.pendientes.add(id);
+    recordar();
+  };
+  /* Registros recuperados de una copia: los que llegan mandan y quedan por enviar. */
+  a.incorporarDeCopia = (datos) => {
+    let n = 0;
+    for (const [id, m] of Object.entries(datos || {})) {
+      const registro = normalizar(m);
+      if (registro) { a.datos[id] = registro; a.pendientes.add(id); n++; }
+    }
+    a.guardar(null);
+    return n;
+  };
+  /* Lee lo que haya publicado junto a la página. Si detrás está el programa, además se le manda lo
+     pendiente; en una web estática solo se lee, y lo que se anote aquí se queda en este navegador. */
+  a.sincronizar = (base) => Promise.all([pedirJSON(`${base}${nombre}.json`), hayServidor]).then(([datos, si]) => {
+    a.incorporarDelServidor(datos);
+    a.enServidor = si && base === "datos/";
+    if (a.pendientes.size) a.guardar(null);
+  });
+  /* Al cerrar o cambiar de pestaña se manda lo pendiente sin esperar al temporizador. */
+  a.alSalir = () => {
+    if (!a.enServidor || !a.pendientes.size || !navigator.sendBeacon) return;
+    navigator.sendBeacon(ruta, new Blob([JSON.stringify(cambios())], { type: "application/json" }));
+  };
+  return a;
+}
+
+const normalizarMarca = (m) => (m && typeof m === "object" && !Array.isArray(m) ? { estado: String(m.estado || ""), nota: String(m.nota || "") } : null);
+/* Tipos de marcador propio. «spot» y «camera» se llaman igual que en GraffMap,
+   para que sus copias de seguridad se puedan abrir aquí tal cual. */
+const TIPOS_MARCADOR = { spot: ["Sitio", "#2fbf71"], camera: ["Cámara", "#d90429"], acceso: ["Acceso", "#5ee6ff"], aviso: ["Aviso", "#f2c200"], nota: ["Nota", "#ffffff"] };
+const ICONO_MARCADOR = { spot: "spray", camera: "camaras", acceso: "acceso", aviso: "aviso", nota: "nota" };
+function normalizarMarcador(m) {
+  if (!m || typeof m !== "object" || Array.isArray(m)) return null;
+  const lat = Number(m.lat), lng = Number(m.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { type: TIPOS_MARCADOR[m.type] ? m.type : "spot", lat: +lat.toFixed(6), lng: +lng.toFixed(6),
+           note: typeof m.note === "string" ? m.note.slice(0, 500) : "", created: Number.isFinite(Number(m.created)) ? Number(m.created) : Date.now(), deleted: !!m.deleted };
+}
+const almacenMarcas = crearAlmacen("marcas", normalizarMarca, (m) => !m.estado && !m.nota);
+const almacenMarcadores = crearAlmacen("marcadores", normalizarMarcador, (m) => m.deleted);
+const marcas = almacenMarcas.datos, marcadores = almacenMarcadores.datos;
+const guardarMarcas = (id) => almacenMarcas.guardar(id);
+
+window.addEventListener("pagehide", () => { almacenMarcas.alSalir(); almacenMarcadores.alSalir(); });
+/* Al volver a la pestaña se recoge lo anotado desde otro dispositivo. */
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || !almacenMarcas.enServidor) return;
+  Promise.allSettled([almacenMarcas.sincronizar("datos/"), almacenMarcadores.sincronizar("datos/")]).then(() => {
+    if (!seleccion && !panelOcupado() && candidatos.length) filtrar();
+    if (!marcadorAbierto) pintarMarcadores();
+  });
+});
+
+/* ---------- Mapa ---------- */
+const vista = leerLocal("osintmaps.vista.v1", {}) || {};
+// tolerance: margen en píxeles alrededor de cada punto que también cuenta como clic.
+/* La dirección de la página puede traer una posición (#mapa=zoom/latitud/longitud): si la
+   trae, manda sobre el encuadre guardado y sobre el de los datos, para que un enlace
+   copiado lleve siempre al mismo sitio. Vale una vez: al arrancar. */
+const enLaURL = /^#mapa=(\d{1,2})\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)$/.exec(location.hash);
+/* Hasta dónde se puede acercar el mapa. Más allá de lo que da cada foto, se amplía lo que hay. */
+const ZOOM_MAX = 22;
+let vistaDeLaURL = enLaURL && Math.abs(+enLaURL[2]) <= 90 && Math.abs(+enLaURL[3]) <= 180
+  ? { centro: [+enLaURL[2], +enLaURL[3]], zoom: Math.min(ZOOM_MAX, +enLaURL[1]) } : null;
+const mapa = L.map("mapa", { preferCanvas: true, renderer: L.canvas({ tolerance: 8 }), zoomControl: false, maxZoom: ZOOM_MAX })
+  .setView(vistaDeLaURL ? vistaDeLaURL.centro : [40.2, -3.6], vistaDeLaURL ? vistaDeLaURL.zoom : 6);
+L.control.zoom({ position: "bottomright" }).addTo(mapa);
+L.control.scale({ imperial: false, position: "topleft" }).addTo(mapa);
+
+const wmtsIGN = (servicio, capa) =>
+  `https://www.ign.es/wmts/${servicio}?layer=${capa}&style=default&tilematrixset=GoogleMapsCompatible` +
+  `&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image/jpeg&TileMatrix={z}&TileCol={x}&TileRow={y}`;
+
+/* ---------- Fotos aéreas: la más nítida que haya en cada sitio ----------
+   Tres fuentes públicas, de más a menos detalle:
+   - Ajuntament de València, vuelo de 2025: unos 6 cm por píxel. Solo el término municipal.
+   - Institut Cartogràfic Valencià, vuelo de 2025: 15 cm. La provincia de València.
+   - PNOA del IGN, «máxima actualidad»: 25 cm. Toda España.
+   El fondo «automático» pide para cada trozo de mapa la mejor de las tres que lo cubra.
+
+   Pantallas densas. Una tesela mide 256 píxeles. En un móvil o en un portátil moderno cada
+   «píxel» de la página son en realidad 2 o 3 puntos de pantalla, así que esa tesela se
+   estira y se ve blanda. Con DENSIDAD = 2 se pide la del nivel de zoom siguiente (el doble
+   de detalle) y se enseña a mitad de tamaño: son cuatro veces más teselas, pero cada punto
+   de la pantalla recibe un punto de foto. */
+const DENSIDAD = (window.devicePixelRatio || 1) > 1.25 && leerLocal("osintmaps.nitidez.v1", true) !== false ? 2 : 1;
+const VALENCIA_CIUDAD = { s: 39.4171, o: -0.4354, n: 39.509, e: -0.2827 };
+const VALENCIA_PROVINCIA = { s: 38.6653, o: -1.5636, n: 40.2303, e: 0.0193 };      // el rectángulo que la contiene
+const enCaja = (c, lat, lon) => lat >= c.s && lat <= c.n && lon >= c.o && lon <= c.e;
+const WMS_ICV = "https://terramapas.icv.gva.es/0202_2025PVAL0015";
+const FOTO_VLC = "https://geoportal.valencia.es/server/rest/services/FotoAerea_2025/MapServer";
+const URL_PNOA = wmtsIGN("pnoa-ma", "OI.OrthoimageCoverage");
+/* Teselas corrientes (z/x/y) de una foto, cuyo nivel más detallado es `nativo`. */
+const teselasFoto = (url, nativo, opciones) => L.tileLayer(url, Object.assign({ maxZoom: ZOOM_MAX },
+  DENSIDAD === 2 ? { tileSize: 128, zoomOffset: 1, maxNativeZoom: nativo - 1 } : { maxNativeZoom: nativo }, opciones));
+/* Lo mismo para un servicio WMS, que da la imagen del tamaño que se le pida. */
+const wmsFoto = (url, capa, opciones) => L.tileLayer.wms(url, Object.assign({ layers: capa, format: "image/jpeg", version: "1.1.1", maxZoom: ZOOM_MAX, detectRetina: DENSIDAD === 2 }, opciones));
+/* El rectángulo de una tesela z/x/y, en metros de la proyección del mapa (para pedirlo por WMS). */
+const MEDIO_MUNDO = 20037508.342789244;
+function wmsDeTesela(base, capa, formato, z, x, y) {
+  const lado = (2 * MEDIO_MUNDO) / 2 ** z;
+  const caja = [-MEDIO_MUNDO + x * lado, MEDIO_MUNDO - (y + 1) * lado, -MEDIO_MUNDO + (x + 1) * lado, MEDIO_MUNDO - y * lado];
+  return `${base}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${capa}&STYLES=&FORMAT=${formato}&TRANSPARENT=TRUE&SRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX=${caja.join(",")}`;
+}
+/* ¿Le falta algún trozo a la imagen? (Fuera de su zona, el ICV la devuelve transparente.) */
+const lienzoDePrueba = Object.assign(document.createElement("canvas"), { width: 4, height: 4 });
+function tieneHuecos(img) {
+  try {
+    const ctx = lienzoDePrueba.getContext("2d", { willReadFrequently: true });
+    ctx.clearRect(0, 0, 4, 4);
+    ctx.drawImage(img, 0, 0, 4, 4);
+    const d = ctx.getImageData(0, 0, 4, 4).data;
+    for (let k = 3; k < d.length; k += 4) if (d[k] < 250) return true;
+    return false;
+  } catch { return false; }
+}
+/* Capa de teselas que prueba las fuentes de mejor a peor: si una no tiene ese trozo (da error,
+   o lo trae con huecos), se pasa a la siguiente. De lejos se usa solo el PNOA, que es un
+   mosaico uniforme; el detalle de las otras no se aprecia hasta acercarse. */
+const MejorFoto = L.TileLayer.extend({
+  candidatas(coords) {
+    const z = coords.z + this.options.zoomOffset, b = this._tileCoordsToBounds(coords), lista = [];
+    const toca = (c) => b.getSouth() <= c.n && b.getNorth() >= c.s && b.getWest() <= c.e && b.getEast() >= c.o;
+    if (z >= 14) {
+      if (z <= 21 && toca(VALENCIA_CIUDAD)) lista.push({ url: `${FOTO_VLC}/tile/${z}/${coords.y}/${coords.x}` });
+      if (toca(VALENCIA_PROVINCIA)) lista.push({ url: wmsDeTesela(WMS_ICV, "2025PVAL0015_RGB", "image/vnd.jpeg-png", z, coords.x, coords.y), entera: true });
+    }
+    lista.push({ url: z <= 20 ? L.Util.template(URL_PNOA, { z, x: coords.x, y: coords.y }) : wmsDeTesela(WMS_ACTUAL, "OI.OrthoimageCoverage", "image/jpeg", z, coords.x, coords.y) });
+    return lista;
+  },
+  createTile(coords, hecho) {
+    const tesela = document.createElement("img"), lista = this.candidatas(coords);
+    let k = 0;
+    tesela.alt = "";
+    tesela.crossOrigin = "anonymous";      // hace falta para poder mirar si la imagen trae huecos
+    const probar = () => { if (k < lista.length) tesela.src = lista[k].url; else hecho(new Error("sin foto"), tesela); };
+    tesela.onload = () => { if (lista[k] && lista[k].entera && tieneHuecos(tesela)) { k++; probar(); } else hecho(null, tesela); };
+    tesela.onerror = () => { k++; probar(); };
+    probar();
+    return tesela;
+  },
+});
+const mejorFoto = (opciones) => new MejorFoto("", Object.assign({ maxZoom: ZOOM_MAX, attribution: "Ajuntament de València · ICV CC BY 4.0 · PNOA CC BY 4.0 scne.es" },
+  DENSIDAD === 2 ? { tileSize: 128, zoomOffset: 1, maxNativeZoom: 20 } : { maxNativeZoom: 21 }, opciones));
+
+/* Una foto suelta (no teselas) de un cuadrado de `lado` metros alrededor de un punto: las
+   direcciones de las fuentes que lo cubren, de mejor a peor. */
+function fotosAereas(lat, lon, lado, px) {
+  const dLat = lado / 2 / 111320, dLon = dLat / Math.cos((lat * Math.PI) / 180);
+  const caja = [lon - dLon, lat - dLat, lon + dLon, lat + dLat].map((v) => v.toFixed(6)).join(",");
+  const wms = (base, capa) => `${base}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${capa}&STYLES=&FORMAT=image/jpeg&SRS=EPSG:4326&WIDTH=${px}&HEIGHT=${px}&BBOX=${caja}`;
+  const lista = [];
+  if (enCaja(VALENCIA_CIUDAD, lat, lon)) lista.push(`${FOTO_VLC}/export?bbox=${caja}&bboxSR=4326&imageSR=4326&size=${px},${px}&format=jpg&f=image`);
+  if (enCaja(VALENCIA_PROVINCIA, lat, lon)) lista.push(wms(WMS_ICV, "2025PVAL0015_RGB"));
+  lista.push(wms(WMS_ACTUAL, "OI.OrthoimageCoverage"));
+  return lista;
+}
+/* Pone en una imagen la primera de esas direcciones que traiga una foto de verdad: ni un
+   error ni un rectángulo liso, que es lo que devuelve una fuente fuera de su zona. */
+function ponerFotoAerea(img, direcciones) {
+  let k = 0;
+  img.crossOrigin = "anonymous";
+  img.onload = () => { if (k < direcciones.length - 1 && esImagenLisa(img)) img.src = direcciones[++k]; };
+  img.onerror = () => { if (k < direcciones.length - 1) img.src = direcciones[++k]; };
+  img.src = direcciones[0];
+}
+/* Píxeles que conviene pedir para una imagen que se va a ver a `ancho` píxeles de página. */
+const pxDePantalla = (ancho, tope = 2000) => Math.min(tope, Math.round(ancho * Math.min(3, window.devicePixelRatio || 1)));
+
+const fondos = {
+  auto: mejorFoto(),
+  pnoa: teselasFoto(URL_PNOA, 20, { attribution: "PNOA CC BY 4.0 scne.es" }),
+  mtn: L.tileLayer(wmtsIGN("mapa-raster", "MTN"), { maxZoom: ZOOM_MAX, maxNativeZoom: 17, attribution: "IGN CC BY 4.0 ign.es" }),
+  osm: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: ZOOM_MAX, maxNativeZoom: 19, attribution: "© colaboradores de OpenStreetMap" }),
+};
+// El fondo elegido la última vez. Los que no están aquí se definen en capas.js, que pone el suyo al cargarse.
+const fondoGuardado = leerLocal("osintmaps.fondo.v2", "auto");
+let fondoActual = (fondos[fondoGuardado] || L.layerGroup()).addTo(mapa);
+let capaHistorica = null;
+const capaCatastro = L.tileLayer.wms("https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx", {
+  layers: "Catastro", format: "image/png", transparent: true, version: "1.1.1", maxZoom: ZOOM_MAX, minZoom: 15,
+  attribution: "D. G. del Catastro",
+});
+mapa.createPane("historico").style.zIndex = 250;      // por encima del fondo, por debajo de los puntos
+
+/* Los fondos que son un mapa dibujado y no una foto: en modo oscuro se invierten. */
+const FONDOS_DIBUJADOS = new Set(["mtn", "osm", "base"]);
+$("capa-fondo").addEventListener("change", (e) => {
+  mapa.removeLayer(fondoActual);
+  fondoActual = fondos[e.target.value].addTo(mapa);
+  fondoActual.bringToBack();
+  $("mapa").classList.toggle("fondo-dibujado", FONDOS_DIBUJADOS.has(e.target.value));
+});
+if (fondos[fondoGuardado]) { $("capa-fondo").value = fondoGuardado; $("mapa").classList.toggle("fondo-dibujado", FONDOS_DIBUJADOS.has(fondoGuardado)); }
+ponerSimbolos();
+ponerTema(temaActual(), false);
+$("tema").addEventListener("click", () => ponerTema(temaActual() === "oscuro" ? "claro" : "oscuro", true));
+$("capa-catastro").addEventListener("change", (e) => { e.target.checked ? capaCatastro.addTo(mapa) : mapa.removeLayer(capaCatastro); });
+
+/* Fotos aéreas y planos antiguos que publica el Ajuntament de València: solo cubren la ciudad,
+   pero llegan mucho más atrás y con más detalle que los vuelos nacionales. El segundo número
+   es el nivel de zoom más detallado que tiene cada uno. */
+const SERIE_CIUDAD = [[2018, 21], [2012, 19], [2010, 19], [2008, 19], [2007, 19], [2006, 19], [2005, 19], [2004, 19], [2002, 19], [2001, 19], [1992, 19], [1980, 19], [1956, 19],
+  [1929, 20, "plano"], [1910, 21, "plano"], [1860, 21, "plano"], [1828, 21, "plano"], [1738, 21, "plano"]]
+  .map(([anio, nativo, plano]) => ({ nombre: `ciudad-${anio}`, anio, nativo, rotulo: plano ? `Plano de ${anio}` : String(anio),
+    url: `https://geoportal.valencia.es/server/rest/services/FotoAerea/FotoAerea_${anio}/MapServer/tile/{z}/{y}/{x}` }));
+const deLaCiudad = (nombre) => SERIE_CIUDAD.find((v) => v.nombre === nombre);
+/* La Comunitat Valenciana se fotografía entera cada año desde 2017 (ICV, 25 cm): la serie más tupida
+   para ver cómo cambia un sitio. El rectángulo es el que la contiene. */
+const COMUNITAT = { s: 37.84, o: -1.54, n: 40.8, e: 0.52 };
+const SERIE_ICV = [2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017].map((anio) => ({ nombre: `icv-${anio}`, anio, rotulo: String(anio),
+  url: `https://terramapas.icv.gva.es/0202_${anio}CVAL0025`, capa: `${anio}CVAL0025_RGB` }));
+const delICV = (nombre) => SERIE_ICV.find((v) => v.nombre === nombre);
+/* Los vuelos que hay para un punto, del más nuevo al más viejo. Dentro de la Comunitat, los anuales
+   del ICV ocupan el sitio de los nacionales de esos mismos años (son las mismas fotos o mejores). */
+function vuelosDe(lat, lon) {
+  if (!enCaja(COMUNITAT, lat, lon)) return vuelos;
+  const anuales = new Set(SERIE_ICV.map((v) => v.anio));
+  return [...SERIE_ICV, ...vuelos.filter((v) => !anuales.has(v.anio))].sort((x, y) => y.anio - x.anio);
+}
+/* La capa de una foto antigua (un vuelo nacional, uno del ICV o una de las de la ciudad), para el mapa o para el visor. */
+function capaAntigua(nombre, opciones) {
+  const c = deLaCiudad(nombre), a = delICV(nombre);
+  if (a) return wmsFoto(a.url, a.capa, Object.assign({ attribution: "ICV CC BY 4.0", bounds: [[COMUNITAT.s, COMUNITAT.o], [COMUNITAT.n, COMUNITAT.e]] }, opciones));
+  return c ? teselasFoto(c.url, c.nativo, Object.assign({ attribution: "Ajuntament de València", bounds: [[VALENCIA_CIUDAD.s, VALENCIA_CIUDAD.o], [VALENCIA_CIUDAD.n, VALENCIA_CIUDAD.e]] }, opciones))
+    : wmsFoto(WMS_HISTORICO, nombre, Object.assign({ attribution: "PNOA CC BY 4.0 scne.es" }, opciones));
+}
+function rotuloAntigua(nombre) {
+  const c = deLaCiudad(nombre), v = c || delICV(nombre) || vuelo(nombre);
+  return !v ? "" : c ? `${c.rotulo} (València)` : v.rotulo;
+}
+
+/* Comparación con una ortofoto antigua: con cortina (mitad y mitad) o con opacidad. */
+let cortinaX = 0.5;
+function ponerHistorica(nombre) {
+  if (capaHistorica) mapa.removeLayer(capaHistorica);
+  capaHistorica = null;
+  if (nombre) capaHistorica = capaAntigua(nombre, { pane: "historico" }).addTo(mapa);
+  if ($("capa-historica").value !== nombre) $("capa-historica").value = nombre;
+  actualizarComparacion();
+}
+function actualizarComparacion() {
+  const conCortina = !!capaHistorica && $("usar-cortina").checked;
+  $("cortina").hidden = $("cortina-etiqueta").hidden = !conCortina;
+  $("fila-opacidad").hidden = !capaHistorica || conCortina;
+  const panel = mapa.getPane("historico");
+  panel.style.opacity = capaHistorica && !conCortina ? $("opacidad-historica").value / 100 : 1;
+  if (!conCortina) { panel.style.clipPath = ""; return; }
+  // El panel se desplaza con el mapa: el recorte se calcula en sus coordenadas.
+  const x = cortinaX * mapa.getSize().x;
+  const a = mapa.containerPointToLayerPoint([x, 0]), b = mapa.containerPointToLayerPoint(mapa.getSize());
+  panel.style.clipPath = `polygon(${a.x}px ${a.y}px, ${b.x}px ${a.y}px, ${b.x}px ${b.y}px, ${a.x}px ${b.y}px)`;
+  $("cortina").style.left = $("cortina-etiqueta").style.left = `${x}px`;
+  $("cortina").setAttribute("aria-valuenow", Math.round(cortinaX * 100));
+  $("cortina-etiqueta").textContent = rotuloAntigua($("capa-historica").value);
+}
+mapa.on("move zoom zoomend viewreset resize", actualizarComparacion);
+$("capa-historica").addEventListener("change", (e) => ponerHistorica(e.target.value));
+$("usar-cortina").addEventListener("change", actualizarComparacion);
+$("opacidad-historica").addEventListener("input", actualizarComparacion);
+const moverCortina = (x) => { cortinaX = Math.min(0.97, Math.max(0.03, x)); actualizarComparacion(); };
+$("cortina").addEventListener("pointerdown", (e) => {
+  e.preventDefault(); $("cortina").setPointerCapture(e.pointerId);
+  const mover = (ev) => { const caja = $("mapa").getBoundingClientRect(); moverCortina((ev.clientX - caja.left) / caja.width); };
+  const soltar = () => { $("cortina").removeEventListener("pointermove", mover); $("cortina").removeEventListener("pointerup", soltar); };
+  $("cortina").addEventListener("pointermove", mover); $("cortina").addEventListener("pointerup", soltar);
+});
+$("cortina").addEventListener("keydown", (e) => {
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  e.stopPropagation(); e.preventDefault();
+  moverCortina(cortinaX + (e.key === "ArrowLeft" ? -0.03 : 0.03));
+});
+
+function pintarVuelos() {
+  const actual = $("capa-historica").value;
+  $("capa-historica").replaceChildren(el("option", { value: "", textContent: "Ninguna" }),
+    ...vuelos.map((v) => el("option", { value: v.nombre, textContent: v.rotulo })),
+    el("optgroup", { label: "Comunitat Valenciana, año a año (ICV)" }, ...SERIE_ICV.map((v) => el("option", { value: v.nombre, textContent: v.rotulo }))),
+    el("optgroup", { label: "Solo la ciudad de València" }, ...SERIE_CIUDAD.map((v) => el("option", { value: v.nombre, textContent: v.rotulo }))));
+  $("capa-historica").value = vuelos.some((v) => v.nombre === actual) || delICV(actual) || deLaCiudad(actual) ? actual : "";
+}
+pintarVuelos();
+/* La lista real de vuelos se pregunta al servicio del IGN; si no contesta, vale la de reserva. */
+fetch(`${WMS_HISTORICO}?SERVICE=WMS&REQUEST=GetCapabilities`)
+  .then((r) => (r.ok ? r.text() : Promise.reject(new Error("sin respuesta"))))
+  .then((xml) => {
+    const doc = new DOMParser().parseFromString(xml, "text/xml");
+    const encontrados = [...doc.querySelectorAll("Layer > Name")].map((n) => vuelo(n.textContent.trim())).filter(Boolean);
+    const unicos = [...new Map(encontrados.map((v) => [v.nombre, v])).values()].sort((a, b) => b.anio - a.anio);
+    if (unicos.length < 3) return;
+    vuelos = unicos; pintarVuelos();
+    if (seleccion && document.activeElement !== $("nota-personal")) abrirFicha(seleccion, false);
+  })
+  .catch(() => { /* se queda la lista de reserva */ });
+
+/* ---------- Datos ---------- */
+let candidatos = [];          // [{id, lat, lon, p: propiedades, marcador}]
+const huellas = new Map();    // id -> geometría GeoJSON
+let visibles = [];            // los de la lista
+let enMapa = [];              // los que tienen su punto en el mapa: los que pasan los filtros
+let mostrados = 0;
+let seleccion = null;
+let miPosicion = null, marcadorYo = null;
+const categoriasActivas = new Set(Array.isArray(vista.categorias) ? vista.categorias : []);
+// Los contornos van en su propio panel, por debajo de los puntos y sin recibir
+// clics: si compartieran altura con ellos, su lienzo taparía los puntos al ratón.
+const panelHuellas = mapa.createPane("huellas");
+panelHuellas.style.zIndex = 350;
+panelHuellas.style.pointerEvents = "none";
+const lienzo = L.canvas({ padding: 0.3, pane: "huellas" });
+const capaHuellas = L.layerGroup().addTo(mapa);
+
+const grupo = L.markerClusterGroup({
+  maxClusterRadius: 46, disableClusteringAtZoom: 14, chunkedLoading: true, showCoverageOnHover: false,
+  iconCreateFunction: (c) => {
+    const n = c.getChildCount();
+    const lado = n > 500 ? 46 : n > 50 ? 38 : 30;
+    return L.divIcon({ html: String(n), className: "grupo", iconSize: [lado, lado] });
+  },
+}).addTo(mapa);
+
+/* Son miles de puntos: en vez de darle a cada uno su rótulo y su manejador de clic, hay uno
+   solo de cada para todos. Leaflet avisa al grupo de lo que le pasa a cualquiera de sus puntos. */
+const rotuloSitio = L.tooltip({ direction: "top", offset: [0, -8] });
+grupo.on("click", (e) => {
+  const c = e.layer && e.layer.sitio;
+  if (!c || midiendo || (typeof ruta === "object" && ruta.eligiendo)) return;      // (midiendo o eligiendo un extremo de ruta, el toque es para eso)
+  L.DomEvent.stopPropagation(e);      // el clic en un punto no debe contar además como clic en la parcela de debajo
+  abrirFicha(c, false);
+});
+grupo.on("mouseover", (e) => {
+  const c = e.layer && e.layer.sitio;
+  if (!c) return;
+  rotuloSitio.setLatLng(e.layer.getLatLng()).setContent(el("span", { textContent: `${tituloDe(c)} · nota ${Math.round(c.p.puntuacion || 0)}` }));
+  mapa.openTooltip(rotuloSitio);
+});
+grupo.on("mouseout", () => mapa.closeTooltip(rotuloSitio));
+
+/* Un sitio abandonado es un cuadrado con una casa tachada; el color es su nota. */
+function estiloMarcador(c) {
+  const nota = c.p.puntuacion || 0, elegido = c === seleccion;
+  return { forma: "cuadrado", icono: "sitio", fondo: colorNota(nota), tamano: nota >= 60 ? 1.08 : nota >= 50 ? 1 : 0.92, realce: elegido ? "#ffffff" : null };
+}
+
+function cargar(geojson) {
+  const feats = (geojson && geojson.features) || [];
+  candidatos = feats
+    .filter((f) => f.geometry && f.geometry.type === "Point" && f.properties)
+    .map((f) => ({ id: String(f.properties.id), lon: +f.geometry.coordinates[0], lat: +f.geometry.coordinates[1], p: f.properties, km: null,
+      busca: sinAcentos(`${f.properties.nombre || ""} ${f.properties.municipio || ""}`) }))
+    .filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lon));
+  // Cada punto solo sabe de qué sitio es: el clic y el rótulo los atiende el grupo entero (abajo).
+  for (const c of candidatos) { c.marcador = simbolo([c.lat, c.lon], estiloMarcador(c)); c.marcador.sitio = c; }
+  enMapa = [];
+  if (!candidatos.length) return;
+
+  // Chips de categoría con su recuento.
+  const cuenta = {};
+  for (const c of candidatos) cuenta[c.p.categoria] = (cuenta[c.p.categoria] || 0) + 1;
+  for (const cat of [...categoriasActivas]) if (!cuenta[cat]) categoriasActivas.delete(cat);
+  $("categorias").replaceChildren(...Object.keys(cuenta).sort((a, b) => cuenta[b] - cuenta[a]).map((cat) => {
+    const chip = el("button", { type: "button", className: "chip" }, NOMBRE_CATEGORIA[cat] || cat, el("small", { textContent: miles(cuenta[cat]) }));
+    chip.setAttribute("aria-pressed", String(categoriasActivas.has(cat)));
+    chip.addEventListener("click", () => {
+      categoriasActivas.has(cat) ? categoriasActivas.delete(cat) : categoriasActivas.add(cat);
+      chip.setAttribute("aria-pressed", String(categoriasActivas.has(cat)));
+      filtrar();
+    });
+    return chip;
+  }));
+
+  $("vacio").hidden = true; $("filtros").hidden = false; $("pie").hidden = false;
+  const limites = L.latLngBounds(candidatos.map((c) => [c.lat, c.lon]));
+  // Si la dirección de la página traía una posición, se respeta. Si no, se recupera el
+  // encuadre de la última vez si sigue cayendo sobre los datos.
+  // Sin animación: Leaflet la deja para el siguiente fotograma, y si entre tanto se abre una ficha
+  // (que encuadra el sitio), la animación llega después y devuelve el mapa a la vista general.
+  if (vistaDeLaURL) vistaDeLaURL = null;
+  else if (Array.isArray(vista.centro) && limites.pad(0.5).contains(vista.centro)) mapa.setView(vista.centro, vista.zoom || 10, { animate: false });
+  else mapa.fitBounds(limites.pad(0.05), { animate: false });
+  filtrar();
+}
+
+function cargarHuellas(geojson) {
+  for (const f of (geojson && geojson.features) || []) if (f.properties && f.geometry) huellas.set(String(f.properties.id), f.geometry);
+  pintarHuellas();
+}
+
+/* Contornos de los edificios: solo al acercarse y solo los que están a la vista. */
+function pintarHuellas() {
+  capaHuellas.clearLayers();
+  const dibujar = (c, elegido) => {
+    const g = huellas.get(c.id);
+    if (g) L.geoJSON(g, { renderer: lienzo, pane: "huellas", interactive: false,
+      style: { color: elegido ? "#e5007d" : "#ffffff", weight: elegido ? 2.5 : 1.5, fill: false } }).addTo(capaHuellas);
+  };
+  if ($("capa-huellas").checked && mapa.getZoom() >= 15) {
+    const caja = mapa.getBounds().pad(0.1);
+    let n = 0;
+    for (const c of visibles) { if (c !== seleccion && caja.contains([c.lat, c.lon])) { dibujar(c, false); if (++n >= 300) break; } }
+  }
+  if (seleccion) dibujar(seleccion, true);
+  if (typeof pintarVision === "function") pintarVision();      // y lo detectado alrededor del sitio abierto (vision.js)
+}
+$("capa-huellas").addEventListener("change", pintarHuellas);
+
+function guardarVista() {
+  const c = mapa.getCenter();
+  guardarLocal("osintmaps.vista.v1", {
+    centro: [c.lat, c.lng], zoom: mapa.getZoom(), nota: +$("f-nota").value, sup: $("f-sup").value, marca: $("f-marca").value,
+    orden: $("f-orden").value, multi: $("f-multi").checked, categorias: [...categoriasActivas], aire: $("f-vision").value,
+  });
+}
+
+function filtrar() {
+  const texto = sinAcentos($("buscar-texto").value.trim());
+  const notaMin = +$("f-nota").value, supMin = +$("f-sup").value, soloMulti = $("f-multi").checked, marca = $("f-marca").value;
+  const aire = typeof pasaVision === "function" ? $("f-vision").value : "";      // lo visto en la foto aérea (vision.js)
+  // Una búsqueda por texto mira todo el conjunto, no solo lo que hay en pantalla.
+  const caja = $("f-vista").checked && !texto ? mapa.getBounds() : null;
+  $("f-nota-valor").textContent = notaMin;
+  // Dos cosas distintas: qué sitios pasan los filtros (esos son los puntos del mapa) y, de
+  // ellos, cuáles van en la lista (con «solo lo que se ve», los que caen en pantalla).
+  const pasan = candidatos.filter((c) => {
+    const p = c.p, m = (marcas[c.id] || {}).estado || "";
+    if ((p.puntuacion || 0) < notaMin) return false;
+    if (supMin && !(p.superficie_m2 >= supMin)) return false;
+    if (soloMulti && (p.fuentes || []).length < 2) return false;
+    if (categoriasActivas.size && !categoriasActivas.has(p.categoria)) return false;
+    if (marca === "activos" && m === "descartado") return false;
+    if (marca === "pendientes" && m) return false;
+    if (["favorito", "visitado", "descartado"].includes(marca) && m !== marca) return false;
+    if (texto && !c.busca.includes(texto)) return false;
+    if (aire && !pasaVision(c, aire)) return false;
+    return true;
+  });
+  visibles = caja ? pasan.filter((c) => caja.contains([c.lat, c.lon])) : pasan.slice();
+
+  // Orden de la lista (y de «siguiente» / «anterior» en la ficha).
+  const orden = $("f-orden").value, centro = mapa.getCenter();
+  const origen = orden === "vista" ? { lat: centro.lat, lon: centro.lng } : miPosicion;
+  for (const c of visibles) c.km = origen ? distanciaKm(origen, c) : null;
+  if ((orden === "cercania" || orden === "vista") && origen) visibles.sort((a, b) => a.km - b.km);
+  else if (orden === "superficie") visibles.sort((a, b) => (b.p.superficie_m2 || 0) - (a.p.superficie_m2 || 0));
+  else visibles.sort((a, b) => (b.p.puntuacion || 0) - (a.p.puntuacion || 0));
+
+  // Los puntos del mapa solo se rehacen si ha cambiado qué sitios pasan los filtros. Mover el
+  // mapa o cerrar una ficha no lo cambia, y rehacer miles de puntos cada vez se notaba.
+  if (pasan.length !== enMapa.length || pasan.some((c, k) => c !== enMapa[k])) {
+    enMapa = pasan;
+    grupo.clearLayers();
+    grupo.addLayers(pasan.map((c) => c.marcador));
+  }
+  $("recuento").textContent = `${miles(visibles.length)} de ${miles(candidatos.length)}`;
+  mostrados = 0;
+  $("lista").replaceChildren();
+  pintarMas();
+  if (!seleccion && !panelOcupado()) mostrarLista();
+  pintarHuellas();
+  guardarVista();
+  // Con los filtros recogidos, que se siga viendo cuáles hay puestos.
+  const puestos = [`nota ≥ ${notaMin}`];
+  if (supMin) puestos.push(`más de ${miles(supMin)} m²`);
+  if (marca !== "activos") puestos.push($("f-marca").selectedOptions[0].textContent.toLowerCase());
+  if (soloMulti) puestos.push("varias fuentes");
+  if (aire) puestos.push($("f-vision").selectedOptions[0].textContent.toLowerCase());
+  if (categoriasActivas.size) puestos.push(categoriasActivas.size === 1 ? "1 categoría" : `${categoriasActivas.size} categorías`);
+  if ($("f-vista").checked) puestos.push("solo lo que se ve");
+  $("resumen-filtros").textContent = puestos.join(", ");
+}
+
+function tituloDe(c) {
+  return c.p.nombre || [NOMBRE_CATEGORIA[c.p.categoria] || "Sitio", NOMBRE_ESTADO[c.p.estado]].filter(Boolean).join(", ");
+}
+function subtituloDe(c) {
+  const p = c.p, trozos = [];
+  if (c.km != null) trozos.push(c.km < 10 ? `${c.km.toFixed(1).replace(".", ",")} km` : `${Math.round(c.km)} km`);
+  if (p.municipio) trozos.push(p.municipio);
+  const aire = typeof etiquetaVision === "function" ? etiquetaVision(c) : "";
+  if (aire) trozos.push(aire);
+  if (p.nombre) trozos.push(NOMBRE_CATEGORIA[p.categoria] || p.categoria);
+  if (p.superficie_m2) trozos.push(`${miles(p.superficie_m2)} m²`);
+  if ((p.fuentes || []).length > 1) trozos.push(`${p.fuentes.length} fuentes`);
+  return trozos.join(", ");
+}
+
+function pintarMas() {
+  const trozo = visibles.slice(mostrados, mostrados + POR_PAGINA);
+  for (const c of trozo) {
+    const m = (marcas[c.id] || {}).estado;
+    const titulo = el("div", { className: "titulo" + (m === "descartado" ? " marca-des" : ""), textContent: tituloDe(c) });
+    if (m === "favorito") titulo.prepend(el("span", { className: "marca-fav", textContent: "★ " }));
+    if (m === "visitado") titulo.prepend(el("span", { className: "marca-vis", textContent: "✓ " }));
+    const boton = el("button", { type: "button" },
+      el("div", { className: `nota ${claseNota(c.p.puntuacion || 0)}`, textContent: Math.round(c.p.puntuacion || 0) }),
+      el("div", { style: "min-width:0" }, titulo, el("div", { className: "sub", textContent: subtituloDe(c) })));
+    boton.addEventListener("click", () => abrirFicha(c, true));
+    $("lista").append(el("li", {}, boton));
+  }
+  mostrados += trozo.length;
+  $("ver-mas").hidden = seleccion !== null || panelOcupado() || mostrados >= visibles.length;
+  $("ver-mas").textContent = `Ver más (quedan ${miles(visibles.length - mostrados)})`;
+}
+
+function mostrarLista() {
+  soltarMarcador(); soltarElemento(); ocultarFichaRuta();
+  const anterior = seleccion;
+  seleccion = null;
+  if (anterior) anterior.marcador.setStyle(estiloMarcador(anterior));
+  $("ficha").hidden = true;
+  $("filtros").hidden = $("pie").hidden = candidatos.length === 0;
+  $("lista").hidden = candidatos.length === 0;
+  $("sin-coincidencias").hidden = !(candidatos.length && !visibles.length);
+  $("ver-mas").hidden = mostrados >= visibles.length;
+  pintarHuellas();
+}
+
+/* Volver a la lista a petición del usuario. Mientras hay una ficha abierta la
+   lista no se recalcula (para que «siguiente» sea estable); al salir, sí. */
+function volverALista() {
+  mostrarLista();
+  if (candidatos.length && ($("f-vista").checked || $("f-orden").value === "vista")) filtrar();
+}
+
+/* ---------- Ficha ---------- */
+/* Encuadre cuadrado, en metros, adaptado al tamaño del sitio. */
+const ladoAereo = (c) => Math.min(900, Math.max(220, 4 * Math.sqrt(c.p.superficie_m2 || 2500)));
+function urlAerea(c, capa, px) {
+  const lado = ladoAereo(c);
+  const dLat = lado / 2 / 111320, dLon = lado / 2 / (111320 * Math.cos((c.lat * Math.PI) / 180));
+  const actual = capa === "actual", anual = delICV(capa);
+  const q = new URLSearchParams({
+    SERVICE: "WMS", VERSION: "1.1.1", REQUEST: "GetMap", LAYERS: actual ? "OI.OrthoimageCoverage" : anual ? anual.capa : capa, STYLES: "",
+    FORMAT: "image/jpeg", SRS: "EPSG:4326", WIDTH: px, HEIGHT: px,
+    BBOX: [c.lon - dLon, c.lat - dLat, c.lon + dLon, c.lat + dLat].map((v) => v.toFixed(6)).join(","),
+  });
+  return `${actual ? WMS_ACTUAL : anual ? anual.url : WMS_HISTORICO}?${q}`;
+}
+
+/* Una imagen lisa (toda blanca o toda negra) significa que ese vuelo no cubre la zona. */
+function esImagenLisa(img) {
+  try {
+    const prueba = Object.assign(document.createElement("canvas"), { width: 12, height: 12 });
+    const ctx = prueba.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, 12, 12);
+    const d = ctx.getImageData(0, 0, 12, 12).data;
+    let min = 255, max = 0;
+    for (let i = 0; i < d.length; i += 4) { const v = (d[i] + d[i + 1] + d[i + 2]) / 3; if (v < min) min = v; if (v > max) max = v; }
+    return max - min < 10;
+  } catch { return false; }   // si el navegador no deja leer la imagen, se da por buena
+}
+
+function bloque(titulo, ...contenido) {
+  return el("section", { className: "bloque" }, el("h3", { textContent: titulo }), ...contenido);
+}
+
+function irA(desplazamiento) {
+  if (!seleccion) return;
+  const i = visibles.indexOf(seleccion);
+  const destino = visibles[i === -1 ? 0 : i + desplazamiento];
+  if (destino) abrirFicha(destino, true);
+}
+
+function abrirFicha(c, mover) {
+  soltarMarcador(); soltarElemento(); ocultarFichaRuta();
+  const anterior = seleccion;
+  seleccion = c;
+  if (anterior && anterior !== c) anterior.marcador.setStyle(estiloMarcador(anterior));
+  c.marcador.setStyle(estiloMarcador(c));
+  const p = c.p, ficha = $("ficha");
+  desplegarPanel();
+
+  // Navegación: lista, anterior y siguiente siguen el orden de la lista.
+  const indice = visibles.indexOf(c);
+  const volver = el("button", { id: "volver", type: "button", textContent: "Lista" });
+  volver.addEventListener("click", volverALista);
+  const previo = el("button", { type: "button", textContent: "Anterior", disabled: indice <= 0 });
+  previo.addEventListener("click", () => irA(-1));
+  const siguiente = el("button", { type: "button", textContent: "Siguiente", disabled: indice === -1 || indice >= visibles.length - 1 });
+  siguiente.addEventListener("click", () => irA(1));
+  const navegacion = el("div", { className: "navegacion" }, volver, previo, siguiente,
+    el("span", { className: "posicion", textContent: indice === -1 ? "" : `${miles(indice + 1)} de ${miles(visibles.length)}` }));
+
+  // Vista aérea por años: imagen grande y tira de miniaturas del mismo encuadre.
+  const img = el("img", { alt: "Ortofoto del lugar", referrerPolicy: "no-referrer" });
+  const rotulo = el("div", { className: "anio" });
+  const aereo = el("div", { id: "aereo" }, img, el("div", { className: "cruz" }), rotulo);
+  const tira = el("div", { id: "tira", role: "group", ariaLabel: "Año de la ortofoto" });
+  const comparar = el("button", { id: "comparar", type: "button", disabled: true, textContent: "Elige un año para compararlo en el mapa" });
+  let capaElegida = "actual";
+  const elegir = (v, boton) => {
+    for (const b of tira.children) b.setAttribute("aria-pressed", String(b === boton));
+    capaElegida = v.nombre;
+    rotulo.textContent = v.rotulo;
+    const px = pxDePantalla(400, 1400);
+    if (v.nombre === "actual") ponerFotoAerea(img, fotosAereas(c.lat, c.lon, ladoAereo(c), px));
+    else { img.onload = img.onerror = null; img.src = urlAerea(c, v.nombre, px); }
+    comparar.disabled = v.nombre === "actual";
+    comparar.textContent = v.nombre === "actual" ? "Elige un año para compararlo en el mapa" : `Comparar ${v.rotulo} con hoy en el mapa`;
+  };
+  comparar.addEventListener("click", () => { $("usar-cortina").checked = true; ponerHistorica(capaElegida); });
+  for (const v of [{ nombre: "actual", rotulo: "Hoy" }, ...vuelosDe(c.lat, c.lon)]) {
+    const mini = el("img", { alt: "", crossOrigin: "anonymous", referrerPolicy: "no-referrer" });
+    const b = el("button", { type: "button", title: `Ortofoto de ${v.rotulo}` }, mini, el("span", { textContent: v.rotulo }));
+    b.addEventListener("click", () => elegir(v, b));
+    if (v.nombre !== "actual") {
+      // Los vuelos que no cubren esta zona devuelven una imagen lisa: se quitan de la tira.
+      mini.addEventListener("load", () => { if (esImagenLisa(mini)) b.remove(); });
+      mini.addEventListener("error", () => b.remove());
+    }
+    mini.src = urlAerea(c, v.nombre, 96);
+    tira.append(b);
+  }
+  elegir({ nombre: "actual", rotulo: "Hoy" }, tira.firstChild);
+
+  // Marcas personales.
+  const mia = marcas[c.id] || {};
+  const botones = el("div", { className: "marcas" });
+  for (const [estado, nombre] of [["favorito", "Favorito"], ["visitado", "Visitado"], ["descartado", "Descartar"]]) {
+    const b = el("button", { type: "button", textContent: nombre });
+    b.dataset.estado = estado;
+    b.setAttribute("aria-pressed", String(mia.estado === estado));
+    b.addEventListener("click", () => marcarDesdeFicha(estado));
+    botones.append(b);
+  }
+  const nota = el("textarea", { id: "nota-personal", placeholder: "Notas: accesos, estado real, fecha de la visita", value: mia.nota || "" });
+  nota.setAttribute("aria-label", "Notas personales");
+  // Se guarda mientras se escribe: si la ficha se reconstruye o se cierra la página, no se pierde.
+  nota.addEventListener("input", () => { marcas[c.id] = normalizarMarca(Object.assign({}, marcas[c.id], { nota: nota.value })); guardarMarcas(c.id); });
+
+  // Enlaces de comprobación.
+  const enlaces = el("div", { className: "enlaces" });
+  enlaces.append(el("a", { href: `https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lon}`, target: "_blank", rel: "noopener noreferrer", textContent: "Cómo llegar" }));
+  for (const [clave, nombre] of Object.entries(NOMBRE_ENLACE)) {
+    const url = urlSegura((p.enlaces || {})[clave]);
+    if (url) enlaces.append(el("a", { href: url, target: "_blank", rel: "noopener noreferrer", textContent: nombre }));
+  }
+  const copiar = el("button", { type: "button", textContent: "Copiar coordenadas" });
+  copiar.addEventListener("click", () => {
+    const texto = `${c.lat.toFixed(6)}, ${c.lon.toFixed(6)}`;
+    (navigator.clipboard ? navigator.clipboard.writeText(texto) : Promise.reject(new Error("sin portapapeles"))).then(
+      () => { copiar.textContent = "Coordenadas copiadas"; }, () => { copiar.textContent = texto; });
+  });
+  enlaces.append(copiar);
+
+  // Foto de fachada de Catastro: no todos los edificios la tienen.
+  let fachada = null;
+  const urlFachada = urlSegura((p.enlaces || {}).foto_fachada);
+  if (urlFachada) {
+    const foto = el("img", { alt: "Foto de fachada de Catastro", referrerPolicy: "no-referrer" });
+    fachada = bloque("Foto de fachada (Catastro)", el("div", { id: "fachada" }, foto));
+    fachada.hidden = true;
+    foto.addEventListener("load", () => { fachada.hidden = foto.naturalWidth < 50; });
+    foto.src = urlFachada;
+  }
+
+  // Desglose de la nota.
+  const desglose = el("div", { className: "desglose" });
+  for (const [clave, [nombre, maximo]] of Object.entries(NOMBRE_FACTOR)) {
+    const v = (p.desglose || {})[clave];
+    if (!v) continue;
+    const relleno = el("i"); relleno.style.width = `${Math.min(100, (v / maximo) * 100)}%`;
+    desglose.append(el("span", { textContent: nombre }), el("div", { className: "barra" }, relleno), el("b", { textContent: Math.round(v) }));
+  }
+
+  // Datos.
+  const datos = el("dl", { className: "datos" });
+  const dato = (k, v) => { if (v !== null && v !== undefined && v !== "") datos.append(el("dt", { textContent: k }), el("dd", { textContent: v })); };
+  const soloCatastro = p.tipo_confirmado === false && (p.fuentes || []).includes("catastro");
+  dato("Estado", NOMBRE_ESTADO[p.estado] || p.estado);
+  dato("Tipo", (NOMBRE_CATEGORIA[p.categoria] || p.categoria) + (soloCatastro ? " (uso según Catastro)" : ""));
+  dato("Superficie en planta", p.superficie_m2 ? `${miles(p.superficie_m2)} m²` : null);
+  dato("Edificio mayor", p.n_edificios > 1 && p.mayor_edificio_m2 ? `${miles(p.mayor_edificio_m2)} m²` : null);
+  dato("Superficie construida", p.superficie_construida_m2 ? `${miles(p.superficie_construida_m2)} m²` : null);
+  dato("Edificios", p.n_edificios > 1 ? p.n_edificios : null);
+  dato("Año de construcción", p.anio);
+  dato("Edificios en uso a 150 m", p.vecinos_150m);
+  dato("Fuentes", (p.fuentes || []).join(", "));
+  dato("Coordenadas", `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`);
+  dato("Referencia catastral", (p.refcats || [])[0]);
+  for (const [k, v] of Object.entries(p.etiquetas || {}).slice(0, 12)) dato(k, v);
+
+  // Fotos de Commons, si se pidieron al generar los datos.
+  let fotos = null;
+  const lista = (p.fotos || []).filter((f) => urlSegura(f.miniatura) && urlSegura(f.pagina));
+  if (lista.length) {
+    fotos = bloque("Fotos cercanas en Wikimedia Commons", el("div", { className: "fotos" }, ...lista.map((f) =>
+      el("a", { href: f.pagina, target: "_blank", rel: "noopener noreferrer", title: f.titulo || "" },
+        el("img", { src: f.miniatura, alt: f.titulo || "Foto cercana", loading: "lazy", referrerPolicy: "no-referrer" })))));
+  }
+
+  ficha.replaceChildren(
+    navegacion,
+    el("h2", { textContent: tituloDe(c) }),
+    el("div", { className: "lugar", textContent: [p.municipio, `nota ${Math.round(p.puntuacion || 0)} de 100`].filter(Boolean).join(", ") }),
+    aereo, tira, comparar, botones, nota,
+    typeof bloqueVision === "function" ? bloqueVision(c) : null,       // lo que un programa ha visto en la foto (vision.js)
+    typeof bloqueHistoria === "function" ? bloqueHistoria(sujetoDeSitio(c)) : null,       // lo que se sabe de su pasado (historia.js)
+    bloque("Comprobar en otras fuentes", enlaces),
+    fachada,
+    bloque("Por qué tiene esta nota", desglose),
+    bloque("Datos", datos),
+    fotos,
+  );
+  $("lista").hidden = true; $("ver-mas").hidden = true; $("sin-coincidencias").hidden = true; ficha.hidden = false;
+  $("filtros").hidden = true; $("pie").hidden = true;
+  $("contenido").scrollTop = 0;
+
+  if (mover) mapa.setView([c.lat, c.lon], Math.max(mapa.getZoom(), 17));
+  pintarHuellas();
+}
+
+/* Marcar desde la ficha. Si con la marca el sitio sale de la lista (p. ej. al
+   descartar), se pasa solo al siguiente: así se criba una lista larga de corrido. */
+function marcarDesdeFicha(estado) {
+  const c = seleccion;
+  if (!c) return;
+  const i = visibles.indexOf(c), vecino = visibles[i + 1] || visibles[i - 1] || null;
+  const actual = Object.assign({ estado: "", nota: "" }, marcas[c.id]);
+  actual.estado = actual.estado === estado ? "" : estado;
+  marcas[c.id] = actual;
+  guardarMarcas(c.id);
+  for (const b of document.querySelectorAll(".marcas button")) b.setAttribute("aria-pressed", String(b.dataset.estado === actual.estado));
+  filtrar();
+  if (visibles.includes(c)) { $("lista").hidden = true; $("ver-mas").hidden = true; }
+  else if (vecino && visibles.includes(vecino)) abrirFicha(vecino, true);
+  else mostrarLista();
+}
+
+/* ---------- Capa de acceso: por dónde se puede pasar ----------
+   Junta lo que hay publicado sobre a quién pertenece el suelo y qué lo cierra:
+
+   - Parcelas de Catastro (servicio WFS). Catastro NO publica quién es el dueño.
+     Lo que sí se sabe: si la parcela es urbana o rústica y, en rústica, que las
+     numeradas de 9000 en adelante son dominio público (caminos, cauces, vías).
+     Al hacer clic se piden a Catastro el uso, el cultivo y si tiene construcciones.
+   - Vallas, muros, puertas y caminos de OpenStreetMap. Solo aparece lo que alguien
+     ha dibujado: que no salga una valla no significa que no la haya.
+   - Vías pecuarias, senderos, montes y fincas públicas del Institut Cartogràfic
+     Valencià (solo Comunitat Valenciana).
+   Nada de esto dice si un sitio está ocupado, vigilado o en venta. */
+const WFS_PARCELAS = "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx";
+const DATOS_PARCELA = "https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/COVCCallejero.svc/json/Consulta_DNPRC";
+// Servidores públicos de Overpass (la base de datos de OpenStreetMap), todos con los mismos datos.
+// Cualquiera de ellos pasa ratos caído o saturado: por eso hay varios.
+const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
+const WMS_FORESTAL = "https://carto.icv.gva.es/arcgis/services/tm_medio_ambiente/forestal/MapServer/WMSServer";
+const COLOR = { publico: "#2fbf71", rustica: "#f2c200", urbana: "#ff7a59", valla: "#ff2d2d", camino: "#5ee6ff" };
+const ZOOM_PARCELAS = 16, ZOOM_VALLAS = 15, MAX_TESELAS = 24;
+// Catastro no sirve más de 1 km² por petición: se pide en teselas de unos 890 x 860 m.
+const PASO_LAT = 0.008, PASO_LON = 0.010;
+
+for (const [nombre, z] of [["publico", 300], ["acceso", 340]]) {
+  const panel = mapa.createPane(nombre);
+  panel.style.zIndex = z;
+  panel.style.pointerEvents = "none";      // no deben tapar los puntos; los clics se resuelven aparte
+}
+const lienzoAcceso = L.canvas({ padding: 0.3, pane: "acceso" });
+const capaParcelas = L.layerGroup().addTo(mapa), capaVallas = L.layerGroup().addTo(mapa);
+const capaPecuarias = L.tileLayer.wms(WMS_FORESTAL, { layers: "34,23,24,25", format: "image/png", transparent: true, version: "1.1.1", pane: "publico", minZoom: 12, maxZoom: ZOOM_MAX, attribution: "Institut Cartogràfic Valencià" });
+const capaMontes = L.tileLayer.wms(WMS_FORESTAL, { layers: "11,13", format: "image/png", transparent: true, version: "1.1.1", pane: "publico", opacity: 0.55, minZoom: 10, maxZoom: ZOOM_MAX, attribution: "Institut Cartogràfic Valencià" });
+
+const teselasParcelas = new Map();   // clave -> { estado: "cargando" | "lista" | "fallo", parcelas: [] }
+const teselasVallas = new Map();
+let estadoAcceso = "";
+
+/* Tipo de parcela a partir de la referencia catastral. Una rústica tiene la forma
+   provincia(2) municipio(3) sector(1) polígono(3) parcela(5), todo cifras salvo el sector. */
+function tipoParcela(refcat) {
+  const m = /^\d{5}[A-Z](\d{3})(\d{5})$/.exec(refcat);
+  if (!m) return "urbana";
+  return +m[2] >= 9000 ? "publico" : "rustica";
+}
+
+function leerParcelas(xml) {
+  const doc = new DOMParser().parseFromString(xml, "text/xml");
+  const parcelas = [];
+  for (const nodo of doc.getElementsByTagNameNS("*", "CadastralParcel")) {
+    const texto = (nombre) => { const e = nodo.getElementsByTagNameNS("*", nombre)[0]; return e ? e.textContent.trim() : ""; };
+    const refcat = texto("nationalCadastralReference");
+    if (!refcat) continue;
+    const poligonos = [];
+    let s = 90, n = -90, o = 180, e = -180;
+    for (const parche of nodo.getElementsByTagNameNS("*", "PolygonPatch")) {
+      const anillos = [];
+      for (const lista of parche.getElementsByTagNameNS("*", "posList")) {
+        // Con EPSG:4326 el servicio devuelve pares "latitud longitud".
+        const v = lista.textContent.trim().split(/\s+/).map(Number), anillo = [];
+        for (let i = 0; i + 1 < v.length; i += 2) {
+          if (!Number.isFinite(v[i]) || !Number.isFinite(v[i + 1])) continue;
+          anillo.push([v[i], v[i + 1]]);
+          if (v[i] < s) s = v[i]; if (v[i] > n) n = v[i]; if (v[i + 1] < o) o = v[i + 1]; if (v[i + 1] > e) e = v[i + 1];
+        }
+        if (anillo.length >= 3) anillos.push(anillo);
+      }
+      if (anillos.length) poligonos.push(anillos);
+    }
+    if (poligonos.length) parcelas.push({ refcat, area: +texto("areaValue") || 0, tipo: tipoParcela(refcat), poligonos, caja: [s, o, n, e] });
+  }
+  return parcelas;
+}
+
+/* ¿Está el punto dentro del anillo? Se cuenta cuántas veces cruza los lados una
+   semirrecta que sale del punto: si es impar, está dentro. */
+function dentroDeAnillo(lat, lon, anillo) {
+  let dentro = false;
+  for (let i = 0, j = anillo.length - 1; i < anillo.length; j = i++) {
+    const [la1, lo1] = anillo[i], [la2, lo2] = anillo[j];
+    if ((la1 > lat) !== (la2 > lat) && lon < ((lo2 - lo1) * (lat - la1)) / (la2 - la1) + lo1) dentro = !dentro;
+  }
+  return dentro;
+}
+function parcelaEn(lat, lon) {
+  let mejor = null;
+  for (const t of teselasParcelas.values()) {
+    for (const p of t.parcelas || []) {
+      if (lat < p.caja[0] || lat > p.caja[2] || lon < p.caja[1] || lon > p.caja[3]) continue;
+      const toca = p.poligonos.some((anillos) => dentroDeAnillo(lat, lon, anillos[0]) && !anillos.slice(1).some((h) => dentroDeAnillo(lat, lon, h)));
+      if (toca && (!mejor || p.area < mejor.area)) mejor = p;     // si se solapan, la más pequeña
+    }
+  }
+  return mejor;
+}
+
+function teselasDeLaVista(pasoLat, pasoLon) {
+  const b = mapa.getBounds(), claves = [];
+  for (let i = Math.floor(b.getSouth() / pasoLat); i <= Math.floor(b.getNorth() / pasoLat); i++)
+    for (let j = Math.floor(b.getWest() / pasoLon); j <= Math.floor(b.getEast() / pasoLon); j++) claves.push([i, j]);
+  return claves;
+}
+
+/* Cola de peticiones con un máximo de simultáneas: Catastro aguanta tres a la vez;
+   a Overpass (OpenStreetMap), que es un servicio compartido, se le hacen dos.
+   Lo último que se pide se atiende primero, porque es lo que se está mirando ahora. Y si al
+   llegarle el turno a una petición ya no hace falta (el mapa se ha ido a otro sitio), se
+   tira sin hacerla: `sigue()` lo dice y `alDescartar()` avisa a quien la pidió. */
+function crearCola(maximo) {
+  const pendientes = [];
+  let enCurso = 0;
+  const despachar = () => {
+    while (enCurso < maximo && pendientes.length) {
+      const { tarea, sigue, alDescartar } = pendientes.pop();
+      if (sigue && !sigue()) { if (alDescartar) alDescartar(); continue; }
+      enCurso++;
+      tarea().finally(() => { enCurso--; despachar(); repintarAcceso(); });
+    }
+  };
+  return (tarea, opciones) => { pendientes.push(Object.assign({ tarea }, opciones)); despachar(); };
+}
+const encolarCatastro = crearCola(3), encolarOSM = crearCola(2);
+const PASO_OSM = 0.03, ESPERA_OSM = 45000, VENTAJA_OSM = 8000;
+const enVista = (s, o, n, e, margen = 0.3) => mapa.getBounds().pad(margen).intersects([[s, o], [n, e]]);
+
+/* Una consulta a OpenStreetMap. Se hace a través de Overpass, que son varios servidores públicos
+   y gratuitos: a ratos alguno está saturado y tarda un minuto o no contesta. Se pregunta primero
+   al que respondió bien la última vez; si a los 8 segundos sigue callado se pregunta además al
+   siguiente, y vale la primera respuesta buena (a los demás se les cuelga).
+   `sigue`, si se da, dice si la consulta aún hace falta cuando le llega el turno.
+   `urgente`: lo que alguien acaba de pedir a mano (una búsqueda «cerca de aquí») no espera en la
+   cola detrás de las capas que se están cargando: se pregunta ya. */
+// El servidor que funcionó se recuerda una hora, también de una recarga a la siguiente: si el
+// principal está caído no hay que tropezar con él cada vez que se abre la página.
+let servidorOSM = 0;
+{
+  const recordado = leerLocal("osintmaps.overpass.v1", null);
+  if (recordado && recordado.url && Date.now() - recordado.t < 3600000 && OVERPASS.includes(recordado.url)) servidorOSM = OVERPASS.indexOf(recordado.url);
+}
+function overpass(consulta, sigue, urgente) {
+  const preguntar = () => new Promise((resolver, rechazar) => {
+    const cortes = [];
+    let lanzados = 0, vivos = 0, hecho = false, reloj = null;
+    const lanzar = () => {
+      clearTimeout(reloj);
+      if (hecho || lanzados >= OVERPASS.length) return;
+      const k = (servidorOSM + lanzados++) % OVERPASS.length, corte = new AbortController();
+      const plazo = setTimeout(() => corte.abort(), ESPERA_OSM);
+      cortes.push(corte); vivos++;
+      fetch(OVERPASS[k], { method: "POST", body: new URLSearchParams({ data: consulta }), signal: corte.signal })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+        .then((j) => {
+          // Overpass contesta «200 OK» aunque se le acabe el tiempo: lo avisa en «remark» y manda lo que llevaba.
+          if (j.remark && /error|timed out|out of memory/i.test(j.remark)) throw new Error("overpass");
+          return j;
+        })
+        .then((j) => {
+          vivos--;
+          if (hecho) return;
+          hecho = true; clearTimeout(reloj);
+          if (servidorOSM !== k) { servidorOSM = k; guardarLocal("osintmaps.overpass.v1", { url: OVERPASS[k], t: Date.now() }); }
+          for (const c of cortes) if (c !== corte) c.abort();
+          resolver(j);
+        }, (err) => {
+          vivos--;
+          if (hecho) return;
+          if (lanzados < OVERPASS.length) lanzar(); else if (!vivos) rechazar(err);
+        })
+        .finally(() => clearTimeout(plazo));
+      if (lanzados < OVERPASS.length) reloj = setTimeout(lanzar, VENTAJA_OSM);
+    };
+    lanzar();
+  });
+  if (urgente) return preguntar();
+  return new Promise((resolver, rechazar) => encolarOSM(() => preguntar().then(resolver, rechazar),
+    { sigue, alDescartar: () => rechazar(new Error("descartada")) }));
+}
+
+function pedirParcelas() {
+  if (!$("capa-parcelas").checked || mapa.getZoom() < ZOOM_PARCELAS) return;
+  const teselas = teselasDeLaVista(PASO_LAT, PASO_LON);
+  if (teselas.length > MAX_TESELAS) return;
+  const nuevas = [];
+  for (const [i, j] of teselas) {
+    const clave = `${i},${j}`;
+    const previa = teselasParcelas.get(clave);
+    if (previa && previa.estado !== "fallo") continue;
+    const tesela = { estado: "cargando", parcelas: [] };
+    teselasParcelas.set(clave, tesela);
+    nuevas.push({ i, j, clave, tesela });
+  }
+  if (!nuevas.length) return;
+  // Primero, lo que ya se bajó otro día (las parcelas cambian poco: vale un mes). El resto, a Catastro.
+  memoria.leer(nuevas.map((n) => `parcelas|${n.clave}`), 30 * DIA).then((guardadas) => {
+    nuevas.forEach(({ i, j, clave, tesela }, k) => {
+      if (guardadas[k]) { tesela.parcelas = guardadas[k]; tesela.estado = "lista"; return; }
+      const s = i * PASO_LAT, o = j * PASO_LON, n = (i + 1) * PASO_LAT, e = (j + 1) * PASO_LON;
+      const caja = [s, o, n, e].map((v) => v.toFixed(6)).join(",");
+      encolarCatastro(() => fetch(`${WFS_PARCELAS}?service=wfs&version=2&request=getfeature&Typenames=cp.cadastralparcel&SRSname=EPSG::4326&bbox=${caja}`)
+        .then((r) => (r.ok ? r.text() : Promise.reject(new Error(r.status))))
+        .then((xml) => {
+          // «No records» (el mar, por ejemplo) es un vacío de verdad; cualquier otro informe de error, un fallo.
+          if (/ExceptionReport/.test(xml.slice(0, 600)) && !/No records/i.test(xml)) throw new Error("catastro");
+          tesela.parcelas = leerParcelas(xml); tesela.estado = "lista";
+          memoria.guardar([[`parcelas|${clave}`, tesela.parcelas]]);
+        })
+        .catch(() => { tesela.estado = "fallo"; }),
+      { sigue: () => $("capa-parcelas").checked && mapa.getZoom() >= ZOOM_PARCELAS && enVista(s, o, n, e),
+        alDescartar: () => { if (teselasParcelas.get(clave) === tesela) teselasParcelas.delete(clave); } });
+    });
+    if (guardadas.some(Boolean)) repintarAcceso();
+  });
+}
+
+function pedirVallas() {
+  if (!$("capa-vallas").checked || mapa.getZoom() < ZOOM_VALLAS) return;
+  const paso = PASO_OSM;
+  const teselas = teselasDeLaVista(paso, paso);
+  if (teselas.length > 6) return;
+  const nuevas = [];
+  for (const [i, j] of teselas) {
+    const clave = `${i},${j}`;
+    const previa = teselasVallas.get(clave);
+    if (previa && previa.estado !== "fallo") continue;
+    const tesela = { estado: "cargando", elementos: [] };
+    teselasVallas.set(clave, tesela);
+    nuevas.push({ i, j, clave, tesela });
+  }
+  if (!nuevas.length) return;
+  memoria.leer(nuevas.map((n) => `vallas|${n.clave}`), 7 * DIA).then((guardadas) => {
+    nuevas.forEach(({ i, j, clave, tesela }, k) => {
+      if (guardadas[k]) { tesela.elementos = guardadas[k]; tesela.estado = "lista"; return; }
+      const s = i * paso, o = j * paso, n = (i + 1) * paso, e = (j + 1) * paso;
+      const z = `(${s.toFixed(5)},${o.toFixed(5)},${n.toFixed(5)},${e.toFixed(5)})`;
+      const consulta = `[out:json][timeout:25];(way["barrier"~"^(fence|wall|hedge|retaining_wall)$"]${z};` +
+        `node["barrier"~"^(gate|lift_gate|swing_gate|sliding_gate|chain)$"]${z};` +
+        `way["highway"~"^(path|track|footway|bridleway|cycleway|steps|pedestrian)$"]${z};` +
+        `way["highway"]["access"~"^(private|no)$"]${z};);out geom tags;`;
+      overpass(consulta, () => $("capa-vallas").checked && mapa.getZoom() >= ZOOM_VALLAS && enVista(s, o, n, e))
+        .then((d) => { tesela.elementos = d.elements || []; tesela.estado = "lista"; memoria.guardar([[`vallas|${clave}`, tesela.elementos]]); })
+        .catch((err) => {
+          if (err && err.message === "descartada") { if (teselasVallas.get(clave) === tesela) teselasVallas.delete(clave); } else tesela.estado = "fallo";
+        })
+        .finally(repintarAcceso);
+    });
+    if (guardadas.some(Boolean)) repintarAcceso();
+  });
+}
+
+/* Lo de cada tesela se dibuja una sola vez y agrupado: sus parcelas van en polígonos múltiples
+   de 40 en 40, sus vallas en una línea múltiple por tipo y sus puertas en una capa de puntos.
+   Con miles de parcelas a la vista, Leaflet maneja unas decenas de capas en vez de miles, y
+   mover el mapa no obliga a rehacer nada.
+   ¿Por qué de 40 en 40 y no todas juntas? Medido en Chrome con 5.700 parcelas: pintarlas de
+   una en una cuesta 11 ms; en grupos de 40, 4 ms; en grupos de 400, 31 ms; y todas en un solo
+   trazo, 500 ms. Un trazo con muchísimos trozos se le atraganta al navegador. */
+const PARCELAS_POR_TRAZO = 40;
+const refcatsDibujadas = new Set();    // una parcela puede venir en dos teselas: se dibuja con la primera
+const viasDibujadas = new Set();       // lo mismo con vallas, caminos y puertas («way/123»)
+const MAX_DIBUJOS_ACCESO = 30000;
+const ESTILO_PARCELA = { urbana: { weight: 1.3, fillOpacity: 0.1 }, rustica: { weight: 1.3, fillOpacity: 0.03 }, publico: { weight: 2, fillOpacity: 0.38 } };
+const ESTILO_VIA = { valla: { color: COLOR.valla, weight: 2.5 }, restringido: { color: COLOR.valla, weight: 2.5, dashArray: "3 7" }, camino: { color: COLOR.camino, weight: 2.5, dashArray: "7 6" } };
+/* Muchos puntos pequeños (las puertas y barreras) pintados en el lienzo como una sola capa. */
+const Puntos = L.Path.extend({
+  initialize(latlngs, opciones) { L.setOptions(this, opciones); this._latlngs = latlngs.map((q) => L.latLng(q)); },
+  _project() {
+    this._puntos = this._latlngs.map((ll) => this._map.latLngToLayerPoint(ll));
+    const caja = new L.Bounds(this._puntos), m = [this.options.lado, this.options.lado];
+    this._pxBounds = this._puntos.length ? new L.Bounds(caja.min.subtract(m), caja.max.add(m)) : null;
+  },
+  _update() { /* se pinta cuando el lienzo repasa sus capas (_updatePath) */ },
+  _updatePath() {
+    const lienzo = this._renderer;
+    if (!lienzo._drawing || !this._puntos) return;
+    const ctx = lienzo._ctx, o = this.options, l = o.lado, zona = lienzo._bounds;
+    ctx.beginPath();
+    for (const q of this._puntos) if (!zona || (q.x > zona.min.x - l && q.x < zona.max.x + l && q.y > zona.min.y - l && q.y < zona.max.y + l)) ctx.rect(q.x - l / 2, q.y - l / 2, l, l);
+    ctx.globalAlpha = 1; ctx.setLineDash([]);
+    ctx.fillStyle = o.fillColor; ctx.fill();
+    ctx.lineWidth = o.weight; ctx.strokeStyle = o.color; ctx.stroke();
+  },
+});
+const paraAcceso = (estilo) => Object.assign({ renderer: lienzoAcceso, pane: "acceso", interactive: false }, estilo);
+function dibujarParcelasDe(t) {
+  const porTipo = { urbana: [], rustica: [], publico: [] }, ids = [];
+  for (const q of t.parcelas) {
+    if (refcatsDibujadas.has(q.refcat)) continue;
+    refcatsDibujadas.add(q.refcat); ids.push(q.refcat);
+    porTipo[q.tipo].push(...q.poligonos);
+  }
+  const capas = [];
+  for (const tipo of Object.keys(porTipo)) for (let k = 0; k < porTipo[tipo].length; k += PARCELAS_POR_TRAZO)
+    capas.push(L.polygon(porTipo[tipo].slice(k, k + PARCELAS_POR_TRAZO), paraAcceso(Object.assign({ color: COLOR[tipo], fillColor: COLOR[tipo] }, ESTILO_PARCELA[tipo]))).addTo(capaParcelas));
+  return { capas, ids };
+}
+function dibujarViasDe(t) {
+  const lineas = { valla: [], restringido: [], camino: [] }, puertas = [], ids = [];
+  for (const v of t.elementos) {
+    const id = `${v.type}/${v.id}`, tags = v.tags || {};
+    if (viasDibujadas.has(id)) continue;
+    viasDibujadas.add(id); ids.push(id);
+    if (v.type === "node") puertas.push([v.lat, v.lon]);
+    else if (v.geometry && v.geometry.length > 1) {
+      const restringido = /^(private|no)$/.test(tags.access || "") || /^(private|no)$/.test(tags.foot || "");
+      lineas[tags.barrier ? "valla" : restringido ? "restringido" : "camino"].push(v.geometry.map((g) => [g.lat, g.lon]));
+    }
+  }
+  const capas = [];
+  for (const tipo of Object.keys(lineas)) if (lineas[tipo].length) capas.push(L.polyline(lineas[tipo], paraAcceso(ESTILO_VIA[tipo])).addTo(capaVallas));
+  if (puertas.length) capas.push(new Puntos(puertas, paraAcceso({ color: COLOR.valla, weight: 2, fillColor: "#ffffff", lado: 8 })).addTo(capaVallas));
+  return { capas, ids };
+}
+function borrarDibujo(t, capa, dibujadas) {
+  for (const c of t.dibujo.capas) capa.removeLayer(c);
+  for (const id of t.dibujo.ids) dibujadas.delete(id);
+  t.dibujo = null;
+}
+function borrarDibujos(teselas, capa, dibujadas) { for (const t of teselas.values()) if (t.dibujo) borrarDibujo(t, capa, dibujadas); }
+/* Si se acumula demasiado dibujado, se quita lo de las teselas que quedan lejos de lo que se ve. */
+function podar(teselas, capa, dibujadas, pasoLat, pasoLon, vista) {
+  if (dibujadas.size <= MAX_DIBUJOS_ACCESO) return;
+  const cerca = vista.pad(1);
+  for (const [clave, t] of teselas) {
+    if (!t.dibujo) continue;
+    const [i, j] = clave.split(",").map(Number);
+    if (!cerca.intersects([[i * pasoLat, j * pasoLon], [(i + 1) * pasoLat, (j + 1) * pasoLon]])) borrarDibujo(t, capa, dibujadas);
+  }
+}
+function pintarAcceso() {
+  const zoom = mapa.getZoom(), vista = mapa.getBounds();
+  const avisos = [];
+  let hayParcelas = false, hayVallas = false;
+  if ($("capa-parcelas").checked) {
+    if (zoom < ZOOM_PARCELAS || teselasDeLaVista(PASO_LAT, PASO_LON).length > MAX_TESELAS) avisos.push("Acerca el mapa para ver las parcelas.");
+    else {
+      hayParcelas = true;
+      let cargando = 0, fallos = 0;
+      for (const [i, j] of teselasDeLaVista(PASO_LAT, PASO_LON)) {
+        const t = teselasParcelas.get(`${i},${j}`);
+        if (!t) continue;
+        if (t.estado === "cargando") cargando++;
+        if (t.estado === "fallo") fallos++;
+        if (t.estado === "lista" && !t.dibujo) t.dibujo = dibujarParcelasDe(t);
+      }
+      podar(teselasParcelas, capaParcelas, refcatsDibujadas, PASO_LAT, PASO_LON, vista);
+      if (cargando) avisos.push(`Cargando parcelas de Catastro (${cargando} zonas)…`);
+      if (fallos) avisos.push("Catastro no respondió en parte de la zona; mueve el mapa para reintentar.");
+    }
+  }
+  if (!hayParcelas && refcatsDibujadas.size) borrarDibujos(teselasParcelas, capaParcelas, refcatsDibujadas);
+  if ($("capa-vallas").checked) {
+    if (zoom < ZOOM_VALLAS || teselasDeLaVista(PASO_OSM, PASO_OSM).length > 6) avisos.push("Acerca el mapa para ver vallas y caminos.");
+    else {
+      hayVallas = true;
+      let cargando = 0, fallos = 0;
+      for (const [i, j] of teselasDeLaVista(PASO_OSM, PASO_OSM)) {
+        const t = teselasVallas.get(`${i},${j}`);
+        if (!t) continue;
+        if (t.estado === "cargando") cargando++;
+        if (t.estado === "fallo") fallos++;
+        if (t.estado === "lista" && !t.dibujo) t.dibujo = dibujarViasDe(t);
+      }
+      podar(teselasVallas, capaVallas, viasDibujadas, PASO_OSM, PASO_OSM, vista);
+      if (cargando) avisos.push("Cargando vallas y caminos de OpenStreetMap (puede tardar hasta un minuto)…");
+      if (fallos) avisos.push("OpenStreetMap no respondió; mueve el mapa para reintentar.");
+    }
+  }
+  if (!hayVallas && viasDibujadas.size) borrarDibujos(teselasVallas, capaVallas, viasDibujadas);
+  estadoAcceso = avisos.join(" ");
+  pintarLeyenda();
+}
+/* Varias peticiones suelen terminar casi a la vez: se repinta una vez para todas. */
+let relojAcceso = null;
+function repintarAcceso() {
+  if (relojAcceso) return;
+  relojAcceso = setTimeout(() => { relojAcceso = null; pintarAcceso(); }, 40);
+}
+/* Olvida las parcelas y vallas bajadas en esta sesión y las vuelve a pedir. */
+function olvidarAcceso() {
+  borrarDibujos(teselasParcelas, capaParcelas, refcatsDibujadas); borrarDibujos(teselasVallas, capaVallas, viasDibujadas);
+  teselasParcelas.clear(); teselasVallas.clear();
+  pedirParcelas(); pedirVallas(); pintarAcceso();
+}
+
+let leyendaPlegada = leerLocal("osintmaps.leyenda.v1", false) === true;
+function pintarLeyenda() {
+  const caja = $("leyenda"), filas = [];
+  const clave = (estilo, texto) => { const i = el("i"); i.style.cssText = estilo; return el("div", { className: "clave" }, i, el("span", { textContent: texto })); };
+  if ($("capa-parcelas").checked) filas.push(
+    clave(`background:${COLOR.publico};opacity:.75`, "Dominio público: camino, cauce o vía"),
+    clave(`border:2px solid ${COLOR.rustica}`, "Parcela rústica"),
+    clave(`border:2px solid ${COLOR.urbana};background:${COLOR.urbana}33`, "Parcela urbana"));
+  if ($("capa-vallas").checked) filas.push(
+    clave(`border-top:3px solid ${COLOR.valla};height:0`, "Valla, muro o seto"),
+    clave(`border-top:3px dotted ${COLOR.valla};height:0`, "Camino de paso restringido"),
+    clave(`border-top:3px dashed ${COLOR.camino};height:0`, "Camino o senda"),
+    clave(`width:9px;flex-basis:9px;height:9px;margin:0 8px;border:2px solid ${COLOR.valla};background:#fff`, "Puerta o barrera"));
+  if ($("capa-pecuarias").checked) filas.push(el("div", { textContent: "Vías pecuarias y senderos GR, PR y SL (Comunitat Valenciana)." }));
+  if ($("capa-montes").checked) filas.push(el("div", { textContent: "Montes gestionados por la Generalitat y fincas patrimoniales." }));
+  if (!filas.length) { caja.hidden = true; return; }
+  if (estadoAcceso) filas.push(el("div", { className: "estado", textContent: estadoAcceso }));
+  if ($("capa-parcelas").checked) filas.push(el("div", { className: "aviso", textContent: "Catastro no publica quién es el dueño. Toca una parcela para ver su uso. Que no haya valla dibujada no significa que no exista." }));
+  const plegar = el("button", { type: "button", className: "plegar-leyenda", textContent: leyendaPlegada ? "Leyenda" : "Ocultar leyenda" });
+  plegar.setAttribute("aria-expanded", String(!leyendaPlegada));
+  plegar.addEventListener("click", () => { leyendaPlegada = !leyendaPlegada; guardarLocal("osintmaps.leyenda.v1", leyendaPlegada); pintarLeyenda(); });
+  caja.replaceChildren(plegar, ...(leyendaPlegada ? (estadoAcceso ? [el("div", { className: "estado", textContent: estadoAcceso })] : []) : filas));
+  caja.hidden = false;
+}
+
+/* Ficha de una parcela: lo que Catastro deja consultar sin identificarse. */
+const USO_SUBPARCELA_PUBLICO = /DOMINIO P[ÚU]BLICO|HIDROGRAF|V[ÍI]A F[ÉE]RREA/i;
+function abrirParcela(p, latlng) {
+  const titulo = { publico: "Dominio público", rustica: "Parcela rústica", urbana: "Parcela urbana" }[p.tipo];
+  const explicacion = {
+    publico: "Por su numeración en Catastro es un camino, un cauce o una vía de dominio público.",
+    rustica: "Catastro no publica el titular: puede ser de un particular o de una administración.",
+    urbana: "Suelo urbano. Catastro no publica el titular.",
+  }[p.tipo];
+  const detalle = el("p", { textContent: "Consultando Catastro…" });
+  const sede = `https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1=${encodeURIComponent(p.refcat.slice(0, 7))}&rc2=${encodeURIComponent(p.refcat.slice(7, 14))}`;
+  const contenido = el("div", { className: "ficha-parcela" },
+    el("h4", { textContent: titulo }),
+    el("p", { textContent: `${miles(p.area)} m², referencia ${p.refcat}` }),
+    detalle,
+    el("p", { className: "nota-legal", textContent: explicacion }),
+    el("p", {}, el("a", { href: sede, target: "_blank", rel: "noopener noreferrer", textContent: "Ficha en la Sede del Catastro" })));
+  L.popup({ maxWidth: 310 }).setLatLng(latlng).setContent(contenido).openOn(mapa);
+
+  fetch(`${DATOS_PARCELA}?RefCat=${encodeURIComponent(p.refcat)}`)
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+    .then((j) => {
+      const res = j.consulta_dnprcResult || {}, lineas = [];
+      if (res.bico) {
+        const bi = res.bico.bi || {}, debi = bi.debi || {};
+        if (bi.ldt) lineas.push(bi.ldt);
+        const cultivos = (res.bico.lspr || []).map((x) => (x.dspr || {}).dcc).filter(Boolean);
+        if (cultivos.length) lineas.push("Aprovechamiento: " + [...new Set(cultivos)].join(", ").toLowerCase());
+        if (cultivos.some((c) => USO_SUBPARCELA_PUBLICO.test(c))) lineas.push("Catastro la describe como dominio público.");
+        const cons = res.bico.lcons || [];
+        if (cons.length) {
+          const usos = [...new Set(cons.map((x) => x.lcd).filter(Boolean))].join(", ").toLowerCase();
+          lineas.push(`Con construcciones: ${usos || "sin detalle"}` + (debi.sfc ? `, ${miles(+debi.sfc)} m² construidos` : "") + (debi.ant ? `, año ${debi.ant}` : ""));
+        } else if (debi.luso) lineas.push(`Uso: ${debi.luso.toLowerCase()}, sin construcciones registradas`);
+      } else if (res.lrcdnp && res.lrcdnp.rcdnp) {
+        // Varios inmuebles en la misma parcela (un edificio con pisos, por ejemplo).
+        const inmuebles = [].concat(res.lrcdnp.rcdnp);
+        const usos = [...new Set(inmuebles.map((x) => ((x.debi || {}).luso || "")).filter(Boolean))].join(", ").toLowerCase();
+        lineas.push(`${inmuebles.length} inmuebles en la parcela` + (usos ? ` (${usos})` : ""));
+      }
+      detalle.replaceChildren(...(lineas.length ? lineas : ["Catastro no devuelve más datos de esta parcela."]).flatMap((t, k) => (k ? [el("br"), t] : [t])));
+    })
+    .catch(() => { detalle.textContent = "No se pudo consultar el detalle en Catastro."; });
+}
+mapa.on("click", (e) => {
+  if (midiendo) return;
+  if (colocando) { dejarDeColocar(); nuevoMarcador(e.latlng); return; }
+  if (!$("capa-parcelas").checked || mapa.getZoom() < ZOOM_PARCELAS) return;
+  const p = parcelaEn(e.latlng.lat, e.latlng.lng);
+  if (p) abrirParcela(p, e.latlng);
+});
+
+const ajustesAcceso = leerLocal("osintmaps.acceso.v1", {}) || {};
+function actualizarAcceso() {
+  $("capa-pecuarias").checked ? capaPecuarias.addTo(mapa) : mapa.removeLayer(capaPecuarias);
+  $("capa-montes").checked ? capaMontes.addTo(mapa) : mapa.removeLayer(capaMontes);
+  guardarLocal("osintmaps.acceso.v1", { parcelas: $("capa-parcelas").checked, vallas: $("capa-vallas").checked, pecuarias: $("capa-pecuarias").checked, montes: $("capa-montes").checked });
+  pedirParcelas(); pedirVallas(); pintarAcceso();
+}
+for (const [id, clave] of [["capa-parcelas", "parcelas"], ["capa-vallas", "vallas"], ["capa-pecuarias", "pecuarias"], ["capa-montes", "montes"]]) {
+  $(id).checked = !!ajustesAcceso[clave];
+  $(id).addEventListener("change", actualizarAcceso);
+}
+mapa.on("moveend", () => { pedirParcelas(); pedirVallas(); pintarAcceso(); });
+actualizarAcceso();
+
+/* ---------- Cámaras de vigilancia (OpenStreetMap) ----------
+   Vienen de datos/camaras.geojson (las descarga «osintmaps buscar») y se pueden
+   ampliar al momento con las de la zona que se esté viendo. Es un dato
+   colaborativo: que no haya cámara dibujada no significa que no la haya. */
+const TEXTO_CAMARA = {
+  tipo: { camera: "Cámara", ALPR: "Lector de matrículas" },
+  camara: { fixed: "fija", panning: "móvil (PTZ)", dome: "domo" },
+  vigila: { public: "Vía pública", outdoor: "Exterior de un recinto" },
+  zona: { traffic: "Tráfico", town: "Calle o plaza", parking: "Aparcamiento", building: "Edificio", shop: "Comercio", bank: "Banco",
+          atm: "Cajero", public_transport_platform: "Andén", public_transport: "Transporte público", entrance: "Entrada",
+          gate: "Puerta o barrera", street: "Calle", station: "Estación" },
+  montaje: { wall: "Pared", pole: "Poste", ceiling: "Techo", street_lamp: "Farola", traffic_signals: "Semáforo", roof: "Tejado" },
+};
+const textoCamara = (grupo, valor) => TEXTO_CAMARA[grupo][valor] || String(valor).replace(/_/g, " ");
+const camaras = new Map();    // id -> { id, lat, lon, tipo, camara, vigila, zona, montaje, direccion, operador }
+const capaConos = L.layerGroup().addTo(mapa);
+const grupoCamaras = L.markerClusterGroup({
+  maxClusterRadius: 38, disableClusteringAtZoom: 16, chunkedLoading: true, showCoverageOnHover: false,
+  iconCreateFunction: (c) => L.divIcon({ html: String(c.getChildCount()), className: "grupo grupo-camaras", iconSize: [26, 26] }),
+});
+
+/* Rumbo en grados (0 = norte, sentido horario) si la etiqueta de OSM es un número. */
+function rumboDe(c) {
+  return /^-?\d+(\.\d+)?$/.test(c.direccion || "") ? ((Number(c.direccion) % 360) + 360) % 360 : null;
+}
+function filasCamara(c) {
+  const filas = [];
+  // «Cámara fija», pero «Lector de matrículas (cámara fija)».
+  const esCamara = !c.tipo || c.tipo === "camera", clase = c.camara ? textoCamara("camara", c.camara) : "";
+  filas.push(["Tipo", esCamara ? `Cámara${clase ? " " + clase : ""}` : textoCamara("tipo", c.tipo) + (clase ? ` (cámara ${clase})` : "")]);
+  if (c.vigila) filas.push(["Vigila", textoCamara("vigila", c.vigila)]);
+  if (c.zona) filas.push(["Zona", textoCamara("zona", c.zona)]);
+  if (c.montaje) filas.push(["Montaje", textoCamara("montaje", c.montaje)]);
+  const rumbo = rumboDe(c);
+  if (rumbo !== null) filas.push(["Orientación", `${Math.round(rumbo)}° (${["N", "NE", "E", "SE", "S", "SO", "O", "NO"][Math.round(rumbo / 45) % 8]})`]);
+  else if (c.direccion) filas.push(["Orientación", c.direccion]);
+  if (c.operador) filas.push(["Operador", c.operador]);
+  return filas;
+}
+
+function anadirCamaras(lista) {
+  let nuevas = 0;
+  for (const c of lista) {
+    if (!c || !c.id || !Number.isFinite(c.lat) || !Number.isFinite(c.lon)) continue;
+    if (!camaras.has(c.id)) nuevas++;
+    camaras.set(c.id, c);
+  }
+  pintarCamaras();
+  return nuevas;
+}
+function cargarCamaras(geojson) {
+  anadirCamaras(((geojson && geojson.features) || []).filter((f) => f.geometry && f.properties).map((f) =>
+    Object.assign({}, f.properties, { id: String(f.properties.id), lon: +f.geometry.coordinates[0], lat: +f.geometry.coordinates[1] })));
+}
+function pintarCamaras() {
+  grupoCamaras.clearLayers();
+  const puntos = [];
+  for (const c of camaras.values()) {
+    const m = simbolo([c.lat, c.lon], { icono: "camaras", fondo: "#d90429" });
+    m.bindTooltip(() => el("span", { textContent: filasCamara(c)[0][1] }), { direction: "top", offset: [0, -8] });
+    m.on("click", (e) => { L.DomEvent.stopPropagation(e); abrirCamara(c); });
+    puntos.push(m);
+  }
+  grupoCamaras.addLayers(puntos);
+  $("capa-camaras").checked ? grupoCamaras.addTo(mapa) : mapa.removeLayer(grupoCamaras);
+  pintarConos();
+}
+/* Al acercar, un abanico marca hacia dónde mira cada cámara que tiene la orientación anotada. */
+function pintarConos() {
+  capaConos.clearLayers();
+  if (!$("capa-camaras").checked || mapa.getZoom() < 17) return;
+  const vista = mapa.getBounds().pad(0.1), alcance = 30, apertura = 28;
+  for (const c of camaras.values()) {
+    const rumbo = rumboDe(c);
+    if (rumbo === null || !vista.contains([c.lat, c.lon])) continue;
+    const puntos = [[c.lat, c.lon]];
+    for (let g = rumbo - apertura; g <= rumbo + apertura; g += 7) {
+      const rad = (g * Math.PI) / 180;
+      puntos.push([c.lat + (alcance * Math.cos(rad)) / 111320, c.lon + (alcance * Math.sin(rad)) / (111320 * Math.cos((c.lat * Math.PI) / 180))]);
+    }
+    L.polygon(puntos, { renderer: lienzoAcceso, pane: "acceso", interactive: false, color: "#ff2d2d", weight: 1, fillColor: "#ff2d2d", fillOpacity: 0.28 }).addTo(capaConos);
+  }
+}
+function abrirCamara(c) { abrirElemento(elementoDeCamara(c)); }
+mapa.on("moveend", pintarConos);
+
+/* ---------- Mis marcadores ----------
+   Puntos propios sobre el mapa. Se crean con el botón «Añadir marcador» (y un
+   clic en el sitio), con el botón derecho o manteniendo pulsado en el móvil.
+   Mientras su ficha está abierta, el marcador se puede arrastrar. */
+const capaMarcadores = L.layerGroup().addTo(mapa);
+const pinesMarcadores = new Map();     // id -> marcador de Leaflet
+let marcadorAbierto = null, colocando = false;
+let midiendo = false;      // se está midiendo una distancia: los clics en el mapa son puntos de la medida (herramientas.js)
+/* Ficha de un elemento de cualquier otra capa (la pinta capas.js). */
+let elementoAbierto = null;
+function soltarElemento() {
+  if (elementoAbierto === null) return;
+  const anterior = elementoAbierto;
+  elementoAbierto = null;
+  $("ficha-elemento").hidden = true;
+  if (typeof alSoltarElemento === "function") alSoltarElemento(anterior);
+}
+const panelOcupado = () => marcadorAbierto !== null || elementoAbierto !== null || !$("ficha-ruta").hidden;
+/* La ficha de «cómo llegar» (rutas.js) se aparta cuando se abre cualquier otra cosa; la ruta sigue dibujada. */
+function ocultarFichaRuta() {
+  if ($("ficha-ruta").hidden) return;
+  $("ficha-ruta").hidden = true;
+  if (typeof pintarTarjetaRuta === "function") pintarTarjetaRuta();
+}
+let ultimoTipo = leerLocal("osintmaps.ultimo-tipo.v1", "spot");
+if (!TIPOS_MARCADOR[ultimoTipo]) ultimoTipo = "spot";
+
+/* Tus marcadores son chinchetas: la punta señala el sitio exacto. */
+function iconoMarcador(tipo, abierto) {
+  return L.divIcon({ className: "", iconSize: [32, 42], iconAnchor: [16, 41], tooltipAnchor: [0, -38],
+    html: chinchetaHTML(ICONO_MARCADOR[tipo], TIPOS_MARCADOR[tipo][1], abierto) });
+}
+function pintarMarcadores() {
+  capaMarcadores.clearLayers(); pinesMarcadores.clear();
+  if (!$("capa-marcadores").checked) return;
+  for (const [id, m] of Object.entries(marcadores)) {
+    if (m.deleted) continue;
+    const abierto = id === marcadorAbierto;
+    const pin = L.marker([m.lat, m.lng], { icon: iconoMarcador(m.type, abierto), draggable: abierto, title: TIPOS_MARCADOR[m.type][0], zIndexOffset: abierto ? 1000 : 500 });
+    pin.on("click", (e) => { L.DomEvent.stopPropagation(e); abrirMarcador(id); });
+    pin.on("dragend", () => {
+      const p = pin.getLatLng();
+      marcadores[id] = normalizarMarcador(Object.assign({}, marcadores[id], { lat: p.lat, lng: p.lng }));
+      almacenMarcadores.guardar(id);
+      if (marcadorAbierto === id) abrirMarcador(id);
+    });
+    pin.addTo(capaMarcadores); pinesMarcadores.set(id, pin);
+  }
+}
+function nuevoMarcador(latlng, tipo, nota) {
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  marcadores[id] = normalizarMarcador({ type: tipo || ultimoTipo, lat: latlng.lat, lng: latlng.lng, note: nota || "", created: Date.now() });
+  almacenMarcadores.guardar(id);
+  $("capa-marcadores").checked = true;
+  abrirMarcador(id);
+}
+/* Cierra la ficha de marcador sin tocar el resto del panel (lo usan las otras fichas al abrirse). */
+function soltarMarcador() {
+  if (marcadorAbierto === null) return;
+  marcadorAbierto = null;
+  $("ficha-marcador").hidden = true;
+  pintarMarcadores();
+}
+function cerrarMarcador() { soltarMarcador(); mostrarLista(); if (candidatos.length) filtrar(); }
+
+function abrirMarcador(id) {
+  const m = marcadores[id];
+  if (!m || m.deleted) return;
+  if (seleccion) mostrarLista();
+  soltarElemento(); ocultarFichaRuta();
+  marcadorAbierto = id;
+  desplegarPanel();
+
+  const volver = el("button", { id: "volver-marcador", type: "button", textContent: "Lista" });
+  volver.addEventListener("click", cerrarMarcador);
+  const tipos = el("div", { className: "tipos", role: "group", ariaLabel: "Tipo de marcador" });
+  for (const [tipo, [nombre, color]] of Object.entries(TIPOS_MARCADOR)) {
+    const b = el("button", { type: "button" }, simboloSVG(ICONO_MARCADOR[tipo], color, "circulo", 20), nombre);
+    b.setAttribute("aria-pressed", String(m.type === tipo));
+    b.addEventListener("click", () => {
+      marcadores[id] = normalizarMarcador(Object.assign({}, marcadores[id], { type: tipo }));
+      almacenMarcadores.guardar(id);
+      ultimoTipo = tipo; guardarLocal("osintmaps.ultimo-tipo.v1", tipo);
+      abrirMarcador(id);
+    });
+    tipos.append(b);
+  }
+  const nota = el("textarea", { id: "nota-marcador", placeholder: "Nota: qué hay, por dónde se entra, cuándo lo viste", value: m.note });
+  nota.setAttribute("aria-label", "Nota del marcador"); nota.maxLength = 500;
+  nota.addEventListener("input", () => { marcadores[id] = normalizarMarcador(Object.assign({}, marcadores[id], { note: nota.value })); almacenMarcadores.guardar(id); });
+
+  const borrar = el("button", { type: "button", className: "peligro", textContent: "Borrar" });
+  borrar.setAttribute("aria-pressed", "false");
+  borrar.addEventListener("click", () => {
+    // Dos pulsaciones para borrar: la primera arma el botón.
+    if (borrar.getAttribute("aria-pressed") !== "true") { borrar.setAttribute("aria-pressed", "true"); borrar.textContent = "Pulsa otra vez para borrar"; return; }
+    marcadores[id] = normalizarMarcador(Object.assign({}, marcadores[id], { deleted: true }));
+    almacenMarcadores.guardar(id);
+    cerrarMarcador();
+  });
+  const centrar = el("button", { type: "button", textContent: "Centrar en el mapa" });
+  centrar.addEventListener("click", () => mapa.setView([marcadores[id].lat, marcadores[id].lng], Math.max(mapa.getZoom(), 17)));
+
+  const enlaces = el("div", { className: "enlaces" });
+  const pos = `${m.lat},${m.lng}`;
+  for (const [nombre, url] of [["Cómo llegar", `https://www.google.com/maps/dir/?api=1&destination=${pos}`],
+    ["Google Maps", `https://www.google.com/maps/@?api=1&map_action=map&center=${pos}&zoom=19&basemap=satellite`],
+    ["Street View", `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${pos}`],
+    ["Google Earth", `https://earth.google.com/web/search/${pos}`]]) {
+    enlaces.append(el("a", { href: url, target: "_blank", rel: "noopener noreferrer", textContent: nombre }));
+  }
+  const copiar = el("button", { type: "button", textContent: "Copiar coordenadas" });
+  copiar.addEventListener("click", () => {
+    const texto = `${m.lat.toFixed(6)}, ${m.lng.toFixed(6)}`;
+    (navigator.clipboard ? navigator.clipboard.writeText(texto) : Promise.reject(new Error("sin portapapeles"))).then(
+      () => { copiar.textContent = "Coordenadas copiadas"; }, () => { copiar.textContent = texto; });
+  });
+  enlaces.append(copiar);
+
+  const mantenerFoco = document.activeElement && document.activeElement.id === "nota-marcador";
+  $("ficha-marcador").replaceChildren(
+    el("div", { className: "navegacion" }, volver),
+    el("h2", { textContent: `Marcador: ${TIPOS_MARCADOR[m.type][0].toLowerCase()}` }),
+    el("div", { className: "lugar", textContent: `${m.lat.toFixed(5)}, ${m.lng.toFixed(5)}, creado el ${new Date(m.created).toLocaleDateString("es-ES")}` }),
+    tipos, nota,
+    el("div", { className: "acciones" }, centrar, borrar),
+    el("p", { className: "ayuda", textContent: "Arrastra el marcador en el mapa para moverlo. Los cambios se guardan solos." }),
+    bloque("Abrir en", enlaces));
+  $("lista").hidden = true; $("ver-mas").hidden = true; $("sin-coincidencias").hidden = true; $("ficha").hidden = true;
+  $("filtros").hidden = true; $("pie").hidden = true; $("vacio").hidden = true;
+  $("ficha-marcador").hidden = false;
+  $("contenido").scrollTop = 0;
+  if (mantenerFoco) $("nota-marcador").focus();
+  pintarMarcadores();
+}
+
+function dejarDeColocar() {
+  colocando = false;
+  $("anadir").setAttribute("aria-pressed", "false"); rotular($("anadir"), "Añadir marcador");
+  $("mapa").classList.remove("colocando");
+}
+$("anadir").addEventListener("click", () => {
+  if (colocando) { dejarDeColocar(); return; }
+  // Si se estaba midiendo, se termina la medida (lo medido se queda): si no, el siguiente toque
+  // en el mapa sería otro punto de la medida y no el marcador que se acaba de pedir.
+  if (midiendo && typeof terminarMedida === "function") terminarMedida(false);
+  colocando = true;
+  $("anadir").setAttribute("aria-pressed", "true"); rotular($("anadir"), "Toca el sitio en el mapa");
+  $("mapa").classList.add("colocando");
+});
+// Botón derecho del ratón, o mantener pulsado con el dedo.
+mapa.on("contextmenu", (e) => { dejarDeColocar(); abrirMenuContextual(e); });
+
+/* Qué capas de puntos se ven. */
+const capasVisibles = leerLocal("osintmaps.capas.v1", {}) || {};
+function actualizarCapasDePuntos() {
+  $("capa-sitios").checked ? grupo.addTo(mapa) : mapa.removeLayer(grupo);
+  guardarLocal("osintmaps.capas.v1", { sitios: $("capa-sitios").checked, camaras: $("capa-camaras").checked, marcadores: $("capa-marcadores").checked });
+  pintarCamaras(); pintarMarcadores();
+}
+for (const [id, clave] of [["capa-sitios", "sitios"], ["capa-camaras", "camaras"], ["capa-marcadores", "marcadores"]]) {
+  if (capasVisibles[clave] === false) $(id).checked = false;
+  $(id).addEventListener("change", actualizarCapasDePuntos);
+}
+
+/* ---------- Controles ---------- */
+// Abiertos en el ordenador y recogidos en el móvil, hasta que cada uno los deje como quiera.
+$("filtros-mas").open = leerLocal("osintmaps.filtros.v1", window.matchMedia("(min-width: 761px)").matches) === true;
+$("filtros-mas").addEventListener("toggle", () => guardarLocal("osintmaps.filtros.v1", $("filtros-mas").open));
+if (vista.nota != null) $("f-nota").value = vista.nota;
+if (vista.sup) $("f-sup").value = vista.sup;
+if (vista.marca) $("f-marca").value = vista.marca;
+if (vista.orden && vista.orden !== "cercania") $("f-orden").value = vista.orden;
+$("f-multi").checked = !!vista.multi;
+if (vista.aire) $("f-vision").value = vista.aire;      // no hace nada hasta que llega lo visto desde el aire (vision.js)
+
+$("f-nota").addEventListener("input", filtrar);
+/* Al buscar, la lista de sitios se filtra al momento. El mapa no se mueve solo: lo que se busca
+   suele estar cerca de lo que se mira. `encuadrarResultados` lo lleva a los sitios que quedan. */
+let temporizadorBusqueda = null;
+function encuadrarResultados() {
+  clearTimeout(temporizadorBusqueda);
+  if (!$("buscar-texto").value.trim() || !visibles.length) return;
+  mapa.fitBounds(L.latLngBounds(visibles.map((c) => [c.lat, c.lon])).pad(0.15), { maxZoom: 16 });
+}
+$("buscar-texto").addEventListener("input", filtrar);      // (el resto del buscador, lugares y direcciones, está en capas.js)
+for (const id of ["f-sup", "f-marca", "f-multi", "f-vista", "f-vision"]) $(id).addEventListener("change", filtrar);
+$("f-orden").addEventListener("change", () => { if ($("f-orden").value === "cercania" && !miPosicion) localizar(); else filtrar(); });      // (localizar() ordena al tener la posición)
+$("ver-mas").addEventListener("click", pintarMas);
+/* Los dos botones del mapa llevan icono y texto. En el móvil, para no comerse el mapa, solo se
+   ve el icono, salvo cuando el texto avisa de algo («Buscando tu posición»). */
+function rotular(boton, texto) {
+  boton.querySelector(".rotulo").textContent = texto;
+  boton.classList.toggle("avisa", texto !== boton.dataset.nombre);
+  boton.title = texto;
+}
+/* Enseña el panel si estaba recogido: en el móvil lo deja a media altura (herramientas.js lleva la
+   hoja); en el ordenador lo saca si estaba escondido con el asa. */
+function desplegarPanel() {
+  if (typeof alDesplegarHoja === "function") alDesplegarHoja();
+  if (document.body.classList.contains("sin-panel") && typeof ponerPanel === "function") ponerPanel(true);
+}
+mapa.on("moveend", () => {
+  if (!candidatos.length) return;
+  if (!seleccion && !panelOcupado() && ($("f-vista").checked || $("f-orden").value === "vista")) filtrar();
+  else { pintarHuellas(); guardarVista(); }
+});
+
+/* La posición del aparato. La primera vez que se pulsa el botón se empieza a seguirla: el punto
+   azul se mueve con el aparato y el mapa lo acompaña hasta que se arrastra a mano; volver a pulsar
+   centra otra vez. `discreto`: solo poner el punto, sin mover el mapa (lo usa «cómo llegar»).
+   Con la página en segundo plano se deja de preguntar, para no gastar batería. */
+let vigilancia = null, siguiendo = false, circuloYo = null, quiereSeguir = false;
+function dejarDeVigilar() { if (vigilancia !== null) { navigator.geolocation.clearWatch(vigilancia); vigilancia = null; } }
+function localizar(discreto) {
+  if (!navigator.geolocation) { rotular($("cerca"), "Este navegador no da la posición"); return; }
+  if (discreto !== true) { siguiendo = true; $("cerca").setAttribute("aria-pressed", "true"); }
+  quiereSeguir = true;
+  if (vigilancia !== null) {      // ya se está siguiendo: el botón vuelve a centrar
+    if (discreto !== true && miPosicion) mapa.setView([miPosicion.lat, miPosicion.lon], Math.max(mapa.getZoom(), 16));
+    return;
+  }
+  let primera = !miPosicion;
+  if (primera && discreto !== true) rotular($("cerca"), "Buscando tu posición");
+  vigilancia = navigator.geolocation.watchPosition((pos) => {
+    miPosicion = { lat: pos.coords.latitude, lon: pos.coords.longitude, precision: pos.coords.accuracy || 0, hora: Date.now() };
+    const ll = [miPosicion.lat, miPosicion.lon];
+    if (!marcadorYo) {
+      circuloYo = L.circle(ll, { radius: 1, color: "#1a73e8", weight: 1, opacity: 0.5, fillColor: "#1a73e8", fillOpacity: 0.12, interactive: false, className: "yo-precision" }).addTo(mapa);
+      marcadorYo = L.marker(ll, { icon: L.divIcon({ className: "yo", iconSize: [16, 16] }), interactive: false, zIndexOffset: 900 }).addTo(mapa);
+    } else { marcadorYo.setLatLng(ll); circuloYo.setLatLng(ll); }
+    circuloYo.setRadius(Math.min(miPosicion.precision, 3000));
+    if (primera) {
+      primera = false;
+      rotular($("cerca"), $("cerca").dataset.nombre);
+      if (discreto !== true) {
+        mapa.setView(ll, Math.max(mapa.getZoom(), 15));
+        // Con la lista de sitios a la vista, se ordena de más cerca a más lejos.
+        if (!seleccion && !panelOcupado() && candidatos.length) { $("f-orden").value = "cercania"; filtrar(); }
+      }
+    } else if (siguiendo) mapa.panTo(ll);
+    if (typeof alMoverme === "function") alMoverme(miPosicion);
+  }, () => {
+    if (!primera) return;      // un fallo suelto con la posición ya conocida no importa
+    // Los navegadores solo dan la posición en páginas https o abiertas en el propio equipo.
+    rotular($("cerca"), "Posición no disponible");
+    siguiendo = false; quiereSeguir = false; $("cerca").setAttribute("aria-pressed", "false");
+    dejarDeVigilar();
+    if ($("f-orden").value === "cercania") { $("f-orden").value = "nota"; filtrar(); }
+  }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 });
+}
+$("cerca").addEventListener("click", () => localizar());
+mapa.on("dragstart", () => { if (siguiendo) { siguiendo = false; $("cerca").setAttribute("aria-pressed", "false"); } });
+document.addEventListener("visibilitychange", () => { if (document.hidden) dejarDeVigilar(); else if (quiereSeguir && vigilancia === null) localizar(true); });
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && colocando) { dejarDeColocar(); return; }
+  if (e.key === "Escape" && marcadorAbierto && !/^(INPUT|SELECT)$/.test((document.activeElement || {}).tagName || "")) { cerrarMarcador(); return; }
+  if (!seleccion || e.ctrlKey || e.metaKey || e.altKey) return;
+  const foco = document.activeElement;
+  // Escribiendo en un campo, o con el foco en el mapa (que usa las flechas), no hay atajos.
+  if (foco && (/^(INPUT|TEXTAREA|SELECT)$/.test(foco.tagName) || foco.closest("#mapa-zona"))) return;
+  const tecla = e.key.toLowerCase();
+  if (tecla === "arrowright" || tecla === "j") irA(1);
+  else if (tecla === "arrowleft" || tecla === "k") irA(-1);
+  else if (tecla === "f") marcarDesdeFicha("favorito");
+  else if (tecla === "v") marcarDesdeFicha("visitado");
+  else if (tecla === "x") marcarDesdeFicha("descartado");
+  else if (tecla === "escape") volverALista();
+  else return;
+  e.preventDefault();
+});
+
+const leerFichero = (fichero) => fichero.text().then(JSON.parse);
+$("fichero").addEventListener("change", (e) => {
+  if (!e.target.files[0]) return;
+  leerFichero(e.target.files[0]).then(cargar).catch(() => window.alert("Ese fichero no es un GeoJSON válido."));
+});
+/* Copia de seguridad: un fichero con las marcas y los marcadores. La lista
+   «markers» tiene el mismo formato que las copias de GraffMap. */
+$("exportar-marcas").addEventListener("click", () => {
+  const copia = { app: "OSINT Maps", version: 1, exported: new Date().toISOString(), marcas,
+    markers: Object.entries(marcadores).filter(([, m]) => !m.deleted).map(([id, m]) => ({ id, type: m.type, lat: m.lat, lng: m.lng, note: m.note, created: m.created })) };
+  const enlace = el("a", { href: URL.createObjectURL(new Blob([JSON.stringify(copia, null, 2)], { type: "application/json" })), download: "osintmaps-copia.json" });
+  enlace.click(); URL.revokeObjectURL(enlace.href);
+});
+/* Admite una copia de OSINT Maps, una de GraffMap ({markers: [...]} o la lista
+   sola) o un fichero antiguo solo con marcas. */
+function recuperarCopia(datos) {
+  let nMarcas = 0, nMarcadores = 0;
+  const lista = Array.isArray(datos) ? datos : datos && Array.isArray(datos.markers) ? datos.markers : null;
+  if (lista) {
+    const porId = {};
+    for (const m of lista) if (m && typeof m === "object") porId[typeof m.id === "string" && m.id ? m.id : Date.now().toString(36) + Math.random().toString(36).slice(2, 8)] = m;
+    nMarcadores = almacenMarcadores.incorporarDeCopia(porId);
+  }
+  const deMarcas = datos && !Array.isArray(datos) ? (datos.marcas && typeof datos.marcas === "object" ? datos.marcas : lista ? null : datos) : null;
+  if (deMarcas) nMarcas = almacenMarcas.incorporarDeCopia(Object.fromEntries(Object.entries(deMarcas).filter(([, m]) => m && typeof m === "object" && ("estado" in m || "nota" in m))));
+  if (!nMarcas && !nMarcadores) throw new Error("vacía");
+  return `Recuperados ${nMarcadores} marcadores y ${nMarcas} marcas.`;
+}
+$("importar-marcas").addEventListener("change", (e) => {
+  if (!e.target.files[0]) return;
+  leerFichero(e.target.files[0]).then((datos) => {
+    $("estado-marcas").textContent = recuperarCopia(datos);
+    pintarMarcadores(); if (candidatos.length) filtrar();
+  }).catch(() => { $("estado-marcas").textContent = "Ese fichero no es una copia de OSINT Maps ni de GraffMap."; });
+  e.target.value = "";
+});
+
+/* En la versión web (https) se instala el trabajador de servicio (sw.js): guarda copia de la
+   página para que abra sin cobertura. En el propio ordenador no hace falta. */
+if ("serviceWorker" in navigator && location.protocol === "https:" && !window.OSINT_DATOS) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => { /* sin él todo funciona igual */ }));
+}
+
+/* ---------- Arranque ---------- */
+actualizarCapasDePuntos();
+if (window.OSINT_DATOS) {
+  // Fichero autónomo generado con «osintmaps paquete»: los datos van dentro y lo
+  // que se anote se queda en este navegador.
+  if (window.OSINT_HUELLAS) cargarHuellas(window.OSINT_HUELLAS);
+  if (window.OSINT_CAMARAS) cargarCamaras(window.OSINT_CAMARAS);
+  cargar(window.OSINT_DATOS);
+  pintarMarcadores();
+  $("panel").classList.remove("arrancando");
+} else {
+  const base = new URLSearchParams(location.search).get("datos") || "datos/";
+  // Los datos ya se están bajando (se pidieron en la cabecera de la página); si no, se piden ahora.
+  const pronto = window.OSINT_PRONTO || {};
+  const dato = (nombre) => pronto[nombre] || pedirJSON(`${base}${nombre}.geojson`);
+  const [pHuellas, pCamaras, pSitios] = ["huellas", "camaras", "candidatos"].map(dato);
+  // Primero lo anotado que haya en disco, luego los datos: así cada sitio sale ya con su marca.
+  Promise.allSettled([almacenMarcas.sincronizar(base), almacenMarcadores.sincronizar(base)]).then(() => {
+    pintarMarcadores();
+    pHuellas.then(cargarHuellas).catch(() => { /* las huellas son opcionales */ });
+    pCamaras.then(cargarCamaras).catch(() => { /* las cámaras son opcionales */ });
+    pSitios.then(cargar).catch(() => { /* aún no se ha buscado nada: se explica cómo empezar */ }).finally(() => { $("panel").classList.remove("arrancando"); });
+  });
+}
+</script>
+<script src="capas.js?v=c99b99c45a"></script>
+<script src="herramientas.js?v=e7628a42f5"></script>
+<script src="rutas.js?v=e999f118cd"></script>
+<script src="vision.js?v=95cfcba257"></script>
+<script src="historia.js?v=aa389d476c"></script>
+<script src="tresd.js?v=fe6b6bfe82"></script>
+<script src="pulso.js?v=41bb973b58"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+ "mwrnuh39i9pv95": {
+  "type": "spot",
+  "lat": 39.465032,
+  "lng": -0.37297,
+  "note": "",
+  "created": 1795341284613,
+  "deleted": true
+ },
+ "mwrqzmxge5kzi6": {
+  "type": "spot",
+  "lat": 39.537345,
+  "lng": -0.430017,
+  "note": "Edificios: estado, año y uso: Edificio industrial de 1970",
+  "created": 1795346564308,
+  "deleted": false
+ }
+}
