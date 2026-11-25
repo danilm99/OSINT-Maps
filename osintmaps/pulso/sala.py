@@ -44,6 +44,7 @@ from shapely.geometry import LineString
 
 from ..red import nueva_sesion
 from . import contexto, movilidad as mitma
+from .textos import hilos
 from .catalogo import INDICADORES
 from .cruce import BIN, CIUDAD, FAMILIAS, RASGOS, TIPOS_SUCESO, Cruce, franja
 from .fichas import Fichas
@@ -258,9 +259,13 @@ class Sala:
     @staticmethod
     def _suceso_corto(ev: dict) -> dict:
         causa = ev.get("causa") or {}
+        if "confianza" not in (ev.get("evidencias") or {}):       # sucesos de antes de que se calculara
+            ev["evidencias"] = dict(ev.get("evidencias") or {}) | {"confianza": Cruce.confianza(ev, listo=False)}
         return {k: ev.get(k) for k in ("id", "tipo", "estado", "titulo", "inicio", "fin", "pico", "puntuacion", "lat", "lon", "barrios", "resumen")} | {
             "ahora": (ev.get("evidencias") or {}).get("ahora", []), "explicado": bool(causa.get("explicado")),
-            "causa": causa.get("probable"), "tipo_nombre": TIPOS_SUCESO.get(ev.get("tipo"), ev.get("tipo"))}
+            "causa": causa.get("probable"), "tipo_nombre": TIPOS_SUCESO.get(ev.get("tipo"), ev.get("tipo")),
+            "confianza": ((ev.get("evidencias") or {}).get("confianza") or {}).get("grado"),
+            "valoracion": (ev.get("evidencias") or {}).get("valoracion")}
 
     # ------------------------------------------------------------ estado
 
@@ -278,11 +283,14 @@ class Sala:
                           "valores": x["valores"], "normal": x["normal"]}
         # Alto o muy alto solo si hay sucesos de verdad (varias fuentes a la vez); sin ellos, una señal suelta de
         # la ciudad entera se queda, como mucho, en «atención».
-        nivel = max([min(barrios.get(CIUDAD, {}).get("nivel", 0), 4.9)] + [s["puntuacion"] or 0 for s in activos])
+        # Y un suceso de confianza baja (una sola clase de fuente, o marcado como falso positivo) tampoco pasa de ahí.
+        nivel = max([min(barrios.get(CIUDAD, {}).get("nivel", 0), 4.9)]
+                    + [(s["puntuacion"] or 0) if s.get("confianza") != "baja" else min(s["puntuacion"] or 0, 4.9) for s in activos])
         clase, frase = nivel_de_ciudad(nivel)
+        aprendiendo = e.get("aprendiendo") or (self.cruce.aprendizaje(ahora) if self.cruce else None)
         return {
             "generado": ahora, "publico": publico, "hay": self.zonas is not None, "fase": self.fase, "t": e.get("t"),
-            "aprendiendo": e.get("aprendiendo"), "nivel": {"valor": round(nivel, 1), "clase": clase, "frase": frase},
+            "aprendiendo": aprendiendo, "nivel": {"valor": round(nivel, 1), "clase": clase, "frase": frase},
             "barrios": barrios, "desplazamiento": e.get("desplazamiento", {}),
             "sucesos": sucesos, "ciudad": self._ciudad(ahora), "agenda": self._agenda(ahora),
             "feed": self._feed(ahora, publico), "avisos": self._avisos(ahora), "conversacion": self._conversacion(ahora),
@@ -333,12 +341,12 @@ class Sala:
         salida = []
         for ident, fuente, t, titulo, url, lat, lon, barrio, lugar, cat, urg, extra, visto in self.almacen._filas(
                 "SELECT id, fuente, t, titulo, url, lat, lon, barrio, lugar, categoria, urgencia, extra, visto FROM items WHERE t>? "
-                f"AND (categoria IS NULL OR categoria!='fuera'){filtro} ORDER BY t DESC LIMIT 120", (ahora - 24 * 3600,)):
+                f"AND (categoria IS NULL OR categoria!='fuera'){filtro} ORDER BY t DESC LIMIT 160", (ahora - 24 * 3600,)):
             extra = json.loads(extra) if extra else {}
             salida.append({"id": ident, "fuente": fuente, "t": t, "titulo": titulo, "url": url, "lat": lat, "lon": lon, "barrio": barrio,
                            "lugar": lugar, "categoria": cat, "urgencia": urg, "medio": extra.get("medio"),
                            "activo": fuente in ("dgt", "renfe") and (visto or 0) > ahora - 1200})
-        return salida
+        return hilos(salida)
 
     def _avisos(self, ahora: int) -> list[dict]:
         """Lo que sigue activo: incidencias de la DGT y Renfe vistas en los últimos 20 min y avisos meteorológicos en vigor."""
@@ -445,6 +453,7 @@ class Sala:
         ev = self.cruce.evento(ident) if self.cruce else None
         if not ev:
             raise ValueError("no existe ese suceso")
+        self._suceso_corto(ev)          # deja puesta la confianza si el suceso es de antes de que se calculara
         desde, hasta = ev["inicio"] - 2 * 3600, min(ev["fin"] + 3600, int(time.time()))
         barrios = [b for b in (ev["evidencias"].get("ahora") or ev["barrios"]) if b != CIUDAD][:4] or [CIUDAD]
         rasgos = list(dict.fromkeys(s["rasgo"] for s in (ev["evidencias"].get("pico") or []) + (ev["evidencias"].get("ultimo") or [])))[:5]
@@ -780,6 +789,13 @@ def atender(sala: "Sala | None", ruta: str, consulta: str) -> tuple[int, bytes]:
             datos = sala.estado()
         elif ruta == "/vivo/sala/barrios":
             datos = sala.barrios_geojson()
+        elif ruta == "/vivo/sala/valorar":          # solo llega aquí por POST (ver cli.do_POST)
+            valor = (q.get("valor") or [""])[0]
+            ev = sala.cruce.valorar((q.get("id") or [""])[0][:60], valor if valor in ("confirmado", "falso") else None) if sala.cruce else None
+            if ev is None:
+                raise ValueError("no existe ese suceso")
+            sala._cache.clear()
+            datos = sala._suceso_corto(ev)
         elif ruta == "/vivo/sala/evento":
             datos = sala.evento((q.get("id") or [""])[0][:60])
         elif ruta == "/vivo/sala/barrio":

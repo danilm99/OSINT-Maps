@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS muestras (rasgo TEXT NOT NULL, barrio TEXT NOT NULL, 
 CREATE TABLE IF NOT EXISTS eventos (id TEXT PRIMARY KEY, tipo TEXT, estado TEXT, inicio INTEGER, fin INTEGER, pico INTEGER, puntuacion REAL,
     lat REAL, lon REAL, barrios TEXT, titulo TEXT, resumen TEXT, causa TEXT, evidencias TEXT, actualizado INTEGER);
 CREATE INDEX IF NOT EXISTS eventos_por_fecha ON eventos (fin, inicio);
+CREATE TABLE IF NOT EXISTS valoraciones (id TEXT PRIMARY KEY, valor TEXT NOT NULL, t INTEGER NOT NULL, tipo TEXT, barrios TEXT,
+    puntos REAL, hora INTEGER);
 """
 
 
@@ -92,6 +94,20 @@ class Almacen:
         self._ultimo: dict[tuple[str, str], float] = {}
         self._ultimo_objeto: dict[tuple[str, str], tuple[float, float, int]] = {}
         self._puntos_vistos: dict[tuple[str, str], tuple] = {}
+        # Qué puntos traía la última toma de cada serie y cuándo se vio cada uno por última vez (en memoria):
+        # con eso se sabe qué sensores han dejado de contestar aunque la fuente siga viva.
+        self._presentes: dict[str, tuple[int, set[str]]] = {}
+        self._visto_punto: dict[str, dict[str, int]] = {}
+
+    def callados(self, serie: str, ahora: int) -> tuple[set[str], int]:
+        """Los puntos de la serie que venían en las tomas de las últimas seis horas y no en la última (reciente), y
+        cuántos puntos se han visto en ese tiempo. Sin toma reciente no se sabe nada: conjunto vacío."""
+        with self._candado:
+            ultima = self._presentes.get(serie)
+            if not ultima or ahora - ultima[0] > 1800:
+                return set(), 0
+            habituales = {i for i, t in self._visto_punto.get(serie, {}).items() if t > ahora - 6 * 3600}
+            return habituales - ultima[1], len(habituales)
 
     def cerrar(self) -> None:
         with self._candado:
@@ -114,6 +130,9 @@ class Almacen:
                         self._bd.executemany("INSERT OR REPLACE INTO valores VALUES (?,?,?,?)", nuevos)
                         for _, ident, _, v in nuevos:
                             self._ultimo[(serie, ident)] = v
+                        if valores:
+                            self._presentes[serie] = (t, set(valores))
+                            self._visto_punto.setdefault(serie, {}).update(dict.fromkeys(valores, t))
                     self._bd.executemany("INSERT OR REPLACE INTO indicadores VALUES (?,?,?)", [(clave, t, v) for clave, v in toma.indicadores.items()])
                     for tipo, objetos in toma.objetos.items():
                         self._guardar_objetos(tipo, objetos, t)

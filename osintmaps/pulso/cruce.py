@@ -99,7 +99,21 @@ RASGOS: dict[str, dict] = {
               "familias": {+1: "alerta"}},
     "no2": {"nombre": "NO₂", "unidad": "µg/m³", "tipo": "continuo", "fuente": "aire", "suelo": 6.0,
             "familias": {+1: "ambiente"}, "peso": 0.5},
+    # Sensores del barrio (bicis, tramos, espiras, aparcamientos) que dejan de contestar a la vez mientras su fuente
+    # sigue viva: un corte de luz o de comunicaciones. Solo se sabe en directo.
+    "silencio": {"nombre": "Sensores que han dejado de contestar", "unidad": "sensores", "tipo": "conteo", "fuente": "silencio", "prior": 0.02,
+                 "ciudad": 1.0, "r": 2, "familias": {+1: "alerta"}, "peso": 0.8},
 }
+# De qué clase es cada fuente, para saber cuántas cosas distintas corroboran un suceso: un sensor mide, una fuente
+# oficial afirma, y los textos (prensa y redes) cuentan lo que alguien dice.
+CLASE_FUENTE = {"trafico": "sensor", "aforo": "sensor", "aforo_bici": "sensor", "ora": "sensor", "parking": "sensor", "bicis": "sensor",
+                "metro": "sensor", "aire": "sensor", "aviones": "sensor", "silencio": "sensor", "dgt": "oficial",
+                "textos": "texto", "prensa": "texto", "redes": "texto"}
+SERIES_CON_SILENCIO = ("bicis", "trafico", "aforo", "parking")
+# Lo que pasa en un sitio y a una hora (una protesta, un accidente); lo demás que se publica de un barrio (un
+# reportaje, una crónica) no explica por sí solo que llegue o se vaya gente.
+CATEGORIAS_DE_HECHOS = {"emergencia", "accidente", "protesta", "trafico", "seguridad", "transporte", "meteo"}
+NOMBRE_CONFIANZA = {"alta": "Confianza alta", "media": "Confianza media", "baja": "Confianza baja"}
 FAMILIAS = {
     "afluencia": "llega gente", "salida": "se va gente", "congestion": "más tráfico de lo normal",
     "corte": "calles cortadas o con menos tráfico del normal", "servicio": "el metro no sale", "atencion": "se habla del sitio",
@@ -246,7 +260,7 @@ class Cruce:
         if not instantes or not self.zonas or not self.zonas.hay:
             return {}
         salida: dict[int, dict[str, dict[str, float]]] = {t: defaultdict(dict) for t in instantes}
-        for paso in (self._rasgos_de_puntos, self._rasgos_de_bicis, self._rasgos_de_textos, self._rasgos_de_helicopteros):
+        for paso in (self._rasgos_de_puntos, self._rasgos_de_bicis, self._rasgos_de_textos, self._rasgos_de_helicopteros, self._rasgos_de_silencio):
             try:
                 paso(instantes, salida)
             except Exception:  # noqa: BLE001 - un rasgo que falla no tumba a los demás
@@ -331,16 +345,16 @@ class Cruce:
                     salida[t]["bici_salidas"][b] = salen[k].get(b, 0.0)
 
     def _rasgos_de_textos(self, instantes, salida) -> None:
-        """Publicaciones (30 min), noticias (2 h), incidencias activas y textos urgentes (1 h). La ciudad cuenta
+        """Publicaciones (30 min), noticias (2 h), incidencias activas y textos urgentes de emergencia (1 h). La ciudad cuenta
         también lo que no se ha podido situar en un barrio."""
         desde = instantes[0] - 7200
-        filas = self.almacen._filas("SELECT fuente, t, barrio, urgencia, visto FROM items WHERE (t>? OR visto>?) AND t<=? "
+        filas = self.almacen._filas("SELECT fuente, t, barrio, urgencia, visto, categoria FROM items WHERE (t>? OR visto>?) AND t<=? "
                                     "AND (categoria IS NULL OR categoria!='fuera')", (desde, desde, instantes[-1]))
         cub = {"social": self._cubierto("bluesky", instantes), "prensa": self._cubierto("prensa", instantes),
                "alertas": self._cubierto("dgt", instantes), "urgentes": self._cubierto("prensa", instantes)}
         for k, t in enumerate(instantes):
             cuenta = {r: defaultdict(int) for r in cub}
-            for fuente, ti, b, urg, visto in filas:
+            for fuente, ti, b, urg, visto, cat in filas:
                 if ti > t:
                     continue
                 urg = urg or 0
@@ -352,7 +366,8 @@ class Cruce:
                 # (urgencia 0) son de todos los días y no cuentan.
                 if fuente in ("dgt", "renfe") and urg >= 1 and (visto or ti) > t - 1200:
                     cuenta["alertas"][b] += 1
-                if (fuente == "prensa" or fuente in REDES) and urg >= 2 and ti > t - 3600:
+                # Urgente y de algo que pasa (un mitin o una polémica pueden sonar urgentes y no son una emergencia).
+                if (fuente == "prensa" or fuente in REDES) and urg >= 2 and ti > t - 3600 and cat in ("emergencia", "accidente", "seguridad", None):
                     cuenta["urgentes"][b] += 1
             for rasgo, c in cuenta.items():
                 if not cub[rasgo][k]:
@@ -383,6 +398,37 @@ class Cruce:
             if cubierto[k]:
                 for b in self.zonas.barrios:
                     salida[t]["helis"][b] = round(minutos[k].get(b, 0.0), 1)
+
+    def _rasgos_de_silencio(self, instantes, salida) -> None:
+        """Sensores de un barrio que dejan de venir en la toma mientras su fuente sigue contestando. Solo para el
+        intervalo de ahora (qué traía cada toma no se guarda), y solo si callan al menos tres y la mitad de los del
+        barrio; si calla un quinto de toda la serie es un fallo de la fuente y no dice nada de ningún barrio."""
+        t = instantes[-1]
+        if abs(time.time() - t) > 2 * BIN:
+            return
+        cuenta: dict[str, int] = defaultdict(int)
+        alguna = False
+        for serie in SERIES_CON_SILENCIO:
+            callados, total = self.almacen.callados(serie, t)
+            if not total:
+                continue
+            alguna = True
+            if len(callados) > 0.2 * total:
+                continue
+            mapa = self._barrio_de_puntos(serie)
+            del_barrio: dict[str, int] = defaultdict(int)
+            for b in mapa.values():
+                del_barrio[b] += 1
+            faltan: dict[str, int] = defaultdict(int)
+            for ident in callados:
+                if ident in mapa:
+                    faltan[mapa[ident]] += 1
+            for b, n in faltan.items():
+                if n >= 3 and n >= 0.5 * del_barrio[b]:
+                    cuenta[b] += n
+        if alguna:
+            for b in self.zonas.barrios:
+                salida[t]["silencio"][b] = cuenta.get(b, 0)
 
     @staticmethod
     def _agregar_ciudad(instantes, salida) -> None:
@@ -521,16 +567,25 @@ class Cruce:
         # a un hospital con helipuerto es lo normal, y lo normal se aprende).
         helis = next((s for s in senales if s.rasgo == "helis"), None)
         helis_raro = helis is not None and (helis.valor or 0) >= 4 and helis.z >= 3
+        # Un incidente necesita algo que no sea un texto (una incidencia oficial, un helicóptero, sensores que callan,
+        # cortes o atasco) o, al menos, dos textos urgentes de emergencia distintos. Un solo texto que suena urgente,
+        # por mucho que se hable del barrio, es «se habla de», no un incidente.
+        fisico = any(CLASE_FUENTE.get(s.fuente) != "texto" and s.fuerza >= 1.5 and s.familia in ("alerta", "corte", "congestion") for s in senales)
+        fisico = fisico or (valores.get("urgentes") or 0) >= 2
+        solo_textos = False
         if (g("alerta") >= 3 and (fuentes_fuertes("alerta") >= 2 or g("atencion") >= 2 or g("congestion") >= 2 or g("corte") >= 2)) or helis_raro:
-            tipos.append(("incidente", max(g("alerta"), 3.0) + 0.5 * max(g("atencion"), g("congestion"), g("corte"))))
+            if fisico or helis_raro:
+                tipos.append(("incidente", max(g("alerta"), 3.0) + 0.5 * max(g("atencion"), g("congestion"), g("corte"))))
+            else:
+                solo_textos = True
         if g("corte") >= 3 and (g("congestion") >= 1.5 or g("alerta") >= 1.5 or fuentes_fuertes("corte") >= 2):
             tipos.append(("corte", g("corte") + 0.5 * max(g("congestion"), g("alerta"))))
         elif fuentes_fuertes("congestion", 2.5) >= 2 or g("congestion") >= 4.5:
             tipos.append(("congestion", g("congestion")))
         if g("servicio") >= 3:
             tipos.append(("servicio", g("servicio")))
-        if not tipos and g("atencion") >= 4:
-            tipos.append(("conversacion", g("atencion")))
+        if not tipos and (g("atencion") >= 4 or solo_textos):
+            tipos.append(("conversacion", max(g("atencion"), g("alerta") if solo_textos else 0.0)))
         # Un incidente suele traer cortes y atascos: si lo hay, es lo principal (lo demás son sus consecuencias).
         return {"puntos": puntos, "nivel": round(max(puntos.values(), default=0.0), 2),
                 "tipos": sorted(((t, round(p, 2)) for t, p in tipos), key=lambda x: (x[0] != "incidente", -x[1])),
@@ -575,6 +630,10 @@ class Cruce:
     def _seguir_sucesos(self, t: int, evaluacion: dict[str, dict], desplazamiento: dict[str, float]) -> list[dict]:
         """Junta barrios vecinos con suceso, los empareja con los sucesos abiertos y cierra los que se apagan."""
         # Barrios vecinos con el mismo tipo de suceso son un solo suceso; un incendio al lado de un partido, dos.
+        listones = self._listones(t)
+        if listones:        # lo que se parece a un falso positivo ya marcado no vuelve a saltar
+            for b, e in evaluacion.items():
+                e["tipos"] = [(tipo, p) for tipo, p in e["tipos"] if not self._tapado(tipo, p, t, listones.get((b, tipo), []))]
         principal = {b: e["tipos"][0][0] for b, e in evaluacion.items() if e["tipos"] and b != CIUDAD}
         tipos_de = {b: {x for x, _ in evaluacion[b]["tipos"]} for b in principal}
         grafo = {b: {v for v in self.zonas.vecinos.get(b, set()) if v in principal and (principal[b] in tipos_de[v] or principal[v] in tipos_de[b])}
@@ -678,6 +737,9 @@ class Cruce:
             ev["fin"], ev["estado"] = t, "activo"
             ev["barrios"] = ev["barrios"] + [b for b in barrios if b not in ev["barrios"]]
             ev["evidencias"] = dict(ev.get("evidencias") or {})
+            # Un «se habla de» al que se suma algo físico pasa a ser lo que sea (un incidente, un corte).
+            if ev["tipo"] == "conversacion" and tipo != "conversacion":
+                ev["tipo"] = tipo
             if puntos > ev["puntuacion"]:
                 ev["puntuacion"], ev["pico"] = puntos, t
                 ev["evidencias"]["pico"] = senales
@@ -692,6 +754,7 @@ class Cruce:
             ev["lon"] = round(sum(c[1] for c in centros) / len(centros), 5) if centros else None
         ev["causa"] = self.explicar(ev, t)
         ev["titulo"] = self.titular(ev)
+        ev["evidencias"]["confianza"] = self.confianza(ev, self.aprendizaje(t)["listo"])
         ev["actualizado"] = t
         self._guardar_evento(ev)
         if self.ia is not None:
@@ -730,6 +793,115 @@ class Cruce:
     def guardar_resumen(self, ident: str, resumen: str) -> None:
         with self.almacen._candado:
             self.almacen._bd.execute("UPDATE eventos SET resumen=? WHERE id=?", (resumen, ident))
+
+    # ------------------------------------------------------------ confianza y valoraciones
+
+    @staticmethod
+    def confianza(ev: dict, listo: bool = True) -> dict:
+        """Cuánto fiarse de un suceso, como se gradúa una información: de qué clases de fuente viene (sensores,
+        fuentes oficiales, textos, algo previsto en la agenda) y cuánto dura. Alta: lo dicen dos clases distintas,
+        una de ellas un sensor o una fuente oficial, y lleva veinte minutos. Baja: una sola clase de fuente, o solo
+        sensores mientras lo normal de cada barrio aún se está aprendiendo."""
+        senales = (ev.get("evidencias") or {}).get("pico") or []
+        clases: dict[str, list[str]] = {}
+        for s in senales:
+            if (s.get("fuerza") or 0) < 2:
+                continue
+            clase = CLASE_FUENTE.get(s.get("fuente"), "sensor")
+            nombre = RASGOS.get(s.get("rasgo"), {}).get("nombre", s.get("rasgo"))
+            if nombre not in clases.setdefault(clase, []):
+                clases[clase].append(nombre)
+        fuentes_sensor = {s.get("fuente") for s in senales if (s.get("fuerza") or 0) >= 2 and CLASE_FUENTE.get(s.get("fuente"), "sensor") == "sensor"}
+        causa = (ev.get("causa") or {}).get("probable")
+        if causa:
+            if causa["tipo"] == "texto":
+                clase = "oficial" if causa.get("fuente") in ("dgt", "renfe", "meteoalarm") else "texto"
+            else:
+                clase = "previsto"
+            clases.setdefault(clase, []).append(causa["titulo"][:80])
+        minutos = max(0, (ev["fin"] - ev["inicio"]) // 60)
+        firme = "sensor" in clases or "oficial" in clases
+        motivos = []
+        if len(clases) >= 2 and firme and minutos >= 20 and (listo or "oficial" in clases or "previsto" in clases):
+            grado = "alta"
+        elif len(clases) >= 2 or (len(fuentes_sensor) >= 2 and listo) or (firme and minutos >= 30 and listo):
+            grado = "media"
+        else:
+            grado = "baja"
+        nombres = {"sensor": "sensores", "oficial": "una fuente oficial", "texto": "lo que se publica", "previsto": "algo previsto en la agenda"}
+        motivos.append("Lo indican " + " y ".join(nombres[c] for c in clases) + "." if clases else "Sin señales fuertes.")
+        if len(clases) < 2:
+            motivos.append("Una sola clase de fuente: nada distinto lo corrobora.")
+        if not listo and set(clases) <= {"sensor"}:
+            motivos.append("Lo normal de cada barrio aún se está aprendiendo, así que los sensores solos engañan.")
+        if minutos < 20:
+            motivos.append(f"Lleva {minutos} minutos: puede ser un pico suelto.")
+        valoracion = (ev.get("evidencias") or {}).get("valoracion")
+        if valoracion == "confirmado":
+            grado, motivos = "alta", ["Confirmado a mano."] + motivos
+        elif valoracion == "falso":
+            grado, motivos = "baja", ["Marcado a mano como falso positivo."] + motivos
+        return {"grado": grado, "clases": clases, "minutos": minutos, "motivos": motivos}
+
+    def aprendizaje(self, t: int | None = None) -> dict:
+        """Cuánto histórico hay para saber qué es lo normal: semanas y días desde la primera media hora aprendida."""
+        t = int(t or time.time())
+        primera, franja0 = self.almacen._filas("SELECT semana, MIN(franja) FROM muestras WHERE semana=(SELECT MIN(semana) FROM muestras)")[0]
+        semanas = 0 if primera is None else (semana_local(t) - primera)
+        dias = 0.0 if primera is None else max(0.0, (semanas * 336 + franja(t) - (franja0 or 0)) / 48)
+        return {"semanas": semanas, "dias": round(dias, 1), "listo": semanas >= 4}
+
+    def valorar(self, ident: str, valor: str | None) -> dict | None:
+        """Apunta que un suceso se ha confirmado o que era un falso positivo (o lo quita, con None). Un falso
+        positivo tapa lo parecido: ese tipo de suceso, en esos barrios, a esa hora y sin más fuerza (ver `_listones`)."""
+        ev = self.evento(ident)
+        if ev is None or valor not in ("confirmado", "falso", None):
+            return None
+        with self.almacen._candado:
+            if valor is None:
+                self.almacen._bd.execute("DELETE FROM valoraciones WHERE id=?", (ident,))
+            else:
+                self.almacen._bd.execute("INSERT OR REPLACE INTO valoraciones VALUES (?,?,?,?,?,?,?)",
+                                         (ident, valor, int(time.time()), ev["tipo"], json.dumps(ev["barrios"]), ev["puntuacion"],
+                                          time.localtime(ev["pico"]).tm_hour))
+        ev["evidencias"] = dict(ev.get("evidencias") or {})
+        ev["evidencias"].pop("valoracion", None)
+        if valor:
+            ev["evidencias"]["valoracion"] = valor
+        ev["evidencias"]["confianza"] = self.confianza(ev, self.aprendizaje(ev["fin"])["listo"])
+        self._guardar_evento(ev)
+        self._listones_hechos = None
+        return ev
+
+    def _listones(self, t: int) -> dict[tuple[str, str], list[tuple[int, float]]]:
+        """Los falsos positivos de los últimos 60 días por barrio y tipo de suceso: [(hora del día, puntuación)].
+        Cada suceso confirmado de ese barrio y tipo anula el falso positivo más flojo."""
+        hechos = getattr(self, "_listones_hechos", None)
+        if hechos is not None and hechos[0] == t // 600:
+            return hechos[1]
+        falsos: dict[tuple[str, str], list[tuple[int, float]]] = defaultdict(list)
+        confirmados: dict[tuple[str, str], int] = defaultdict(int)
+        for valor, tipo, barrios, puntos, hora in self.almacen._filas(
+                "SELECT valor, tipo, barrios, puntos, hora FROM valoraciones WHERE t>?", (int(time.time()) - 60 * 86400,)):
+            for b in json.loads(barrios or "[]"):
+                if valor == "falso":
+                    falsos[(b, tipo)].append((hora or 0, puntos or 0.0))
+                else:
+                    confirmados[(b, tipo)] += 1
+        listones = {}
+        for clave, lista in falsos.items():
+            quedan = sorted(lista, key=lambda x: x[1])[confirmados.get(clave, 0):]
+            if quedan:
+                listones[clave] = quedan
+        self._listones_hechos = (t // 600, listones)
+        return listones
+
+    @staticmethod
+    def _tapado(tipo: str, puntos: float, t: int, falsos: list[tuple[int, float]]) -> bool:
+        """¿Se parece a un falso positivo ya marcado? Misma franja del día (dos horas arriba o abajo) y no más de
+        un 15 % más fuerte."""
+        hora = time.localtime(t).tm_hour
+        return any(min((hora - h) % 24, (h - hora) % 24) <= 2 and puntos <= 1.15 * p for h, p in falsos)
 
     # ------------------------------------------------------------ explicar
 
@@ -796,6 +968,13 @@ class Cruce:
         textos = []
         for ident, fuente, ti, titulo, url, cat, urg, barrio in filas:
             peso = PESO_FUENTE_TEXTO.get(fuente, 0.3) + 0.08 * (urg or 0) + (0.15 if cat in encajan else 0) + (0.1 if barrio in barrios else 0)
+            # Para ser la causa, el texto tiene que ser del tema (un reportaje sobre una clínica no explica que se
+            # vaya gente del barrio) y, si es de prensa, hablar de algo que pasa: un hecho o algo urgente.
+            if ev["tipo"] != "conversacion" and not ciudad:
+                if cat not in encajan:
+                    peso = min(peso, 0.3)
+                elif fuente not in ("dgt", "renfe", "meteoalarm") and cat not in CATEGORIAS_DE_HECHOS and not (urg or 0):
+                    peso = min(peso, 0.45)
             textos.append({"id": ident, "fuente": fuente, "t": ti, "titulo": titulo, "url": url, "categoria": cat, "urgencia": urg,
                            "barrio": barrio, "peso": round(min(peso, 0.9), 2)})
         textos.sort(key=lambda x: (-x["peso"], -x["t"]))
@@ -839,12 +1018,8 @@ class Cruce:
                           "senales": [_senal_dict(s, b, t) for s in e["senales"][:5]],
                           "valores": por_barrio.get(b, {}),
                           "normal": {r: c["normal"] for r, c in comparaciones.get(b, {}).items()}}
-        primera, franja0 = self.almacen._filas("SELECT semana, MIN(franja) FROM muestras WHERE semana=(SELECT MIN(semana) FROM muestras)")[0]
-        semanas = 0 if primera is None else (semana_local(t) - primera)
-        # Los días desde la primera media hora aprendida (para decir «día 2 de 28» mientras no hay ni una semana).
-        dias = 0.0 if primera is None else max(0.0, (semanas * 336 + franja(t) - (franja0 or 0)) / 48)
         return {"t": t, "barrios": barrios, "desplazamiento": desplazamiento, "activos": [e["id"] for e in eventos],
-                "aprendiendo": {"semanas": semanas, "dias": round(dias, 1), "listo": semanas >= 4}}
+                "aprendiendo": self.aprendizaje(t)}
 
     def reconstruir(self, desde: int, hasta: int, sucesos_desde: int | None = None, por_tanda: int = 72) -> int:
         """Calcula lo que falte de un rato pasado (al arrancar con histórico de antes): los rasgos, las muestras

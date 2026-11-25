@@ -16,6 +16,7 @@ import email.utils
 import hashlib
 import re
 import time
+import unicodedata
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
@@ -36,6 +37,40 @@ PRENSA: dict[str, str] = {
 # Idiomas de lo que se lee en redes (lo que viene marcado en otro idioma no es de aquí: anuncios de la marca
 # «Valencia» en portugués, la Valencia de Venezuela en inglés...). Lo que no dice idioma se queda.
 IDIOMAS_DE_AQUI = {"es", "ca", "va", "en"}
+_VACIAS = set("de la el en y a los las del un una por con para que se al es su lo como más o sus le ya pero sin sobre este esta entre "
+              "cuando muy tras ante hasta desde son ha han fue ser hay tiene valencia valència valenciano valenciana hoy ayer".split())
+
+
+def palabras_clave(titulo: str) -> frozenset[str]:
+    """Las palabras con contenido de un titular (sin tildes, sin las vacías y sin las de menos de cuatro letras)."""
+    limpio = "".join(c for c in unicodedata.normalize("NFD", (titulo or "").lower()) if unicodedata.category(c) != "Mn")
+    return frozenset(p for p in re.findall(r"[a-z0-9]{4,}", limpio) if p not in _VACIAS)
+
+
+def hilos(textos: list[dict], horas: float = 18.0) -> list[dict]:
+    """Junta las noticias que cuentan el mismo hecho: titulares con la mitad de las palabras clave en común (y al
+    menos tres) publicados con menos de `horas` de diferencia. Devuelve una entrada por hilo, la más reciente, con
+    «mas»: los otros medios que lo cuentan ({medio, titulo, url, t}). El orden de entrada se respeta."""
+    grupos: list[tuple[frozenset[str], dict]] = []
+    for tx in textos:
+        claves = palabras_clave(tx.get("titulo") or "")
+        puesto = False
+        if len(claves) >= 3 and tx.get("fuente") == "prensa":
+            for claves_g, cabeza in grupos:
+                comun = len(claves & claves_g)
+                if cabeza.get("fuente") == "prensa" and comun >= 3 and comun >= 0.5 * min(len(claves), len(claves_g)) \
+                        and abs((cabeza.get("t") or 0) - (tx.get("t") or 0)) <= horas * 3600:
+                    cabeza.setdefault("mas", []).append({k: tx.get(k) for k in ("medio", "titulo", "url", "t")})
+                    # Lo que uno sitúa o da por urgente vale para el hilo.
+                    for k in ("lat", "lon", "barrio", "lugar"):
+                        if cabeza.get(k) is None and tx.get(k) is not None:
+                            cabeza[k] = tx[k]
+                    cabeza["urgencia"] = max(cabeza.get("urgencia") or 0, tx.get("urgencia") or 0)
+                    puesto = True
+                    break
+        if not puesto:
+            grupos.append((claves, dict(tx)))
+    return [cabeza for _, cabeza in grupos]
 # Secciones que son solo de la ciudad: lo que publican es de aquí aunque no nombre València.
 PRENSA_DE_LA_CIUDAD = {"Las Provincias"}
 BLUESKY = "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts"

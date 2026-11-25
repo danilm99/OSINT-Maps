@@ -79,7 +79,7 @@ def tomar(almacen, t, bicis=None, libres=None, items=(), agenda=(), helis=(), ll
                                                 puntos={"parking": {f"p{b}": Punto(f"Parking {b}", *centro(b), 100) for b in LETRAS}}))
     almacen.guardar_toma("prensa", t, Toma(items=[i for i in items if i.fuente == "prensa"], agenda=list(agenda)))
     almacen.guardar_toma("bluesky", t, Toma(items=[i for i in items if i.fuente == "bluesky"]))
-    almacen.guardar_toma("dgt", t, Toma())
+    almacen.guardar_toma("dgt", t, Toma(items=[i for i in items if i.fuente == "dgt"]))
     almacen.guardar_toma("aviones", t, Toma(objetos={"helicopteros": list(helis)}))
     if lluvia is not None:
         almacen.guardar_toma("meteo", t, Toma(indicadores={"meteo_lluvia": lluvia}))
@@ -270,3 +270,102 @@ def test_la_tabla_de_rasgos_vieja_se_rehace(tmp_path):
     assert not a._filas("SELECT 1 FROM sqlite_master WHERE name='rasgos_por_hora'")
     a.cerrar()
     assert "PRIMARY KEY (t, rasgo, barrio)" in Almacen(ruta)._filas("SELECT sql FROM sqlite_master WHERE name='rasgos'")[0][0]
+
+
+# --------------------------------------------------------------------------
+# Fiabilidad: confianza, valoraciones, textos y silencio
+# --------------------------------------------------------------------------
+
+def test_un_solo_texto_urgente_no_es_un_incidente(ciudad):
+    """Un texto que suena urgente y varias noticias del barrio son «se habla de»; con una incidencia oficial, incidente."""
+    almacen, motor = ciudad
+    tomar(almacen, T0 - 1200)
+    tomar(almacen, T0 - 600)
+    textos = [Item("prensa:1", "prensa", T0 - 300, "Tensión por el mitin en la plaza de toros", barrio="G", categoria="seguridad", urgencia=2)]
+    textos += [Item(f"prensa:{k}", "prensa", T0 - 250 + k, f"Crónica {k} del mitin en la plaza de toros", barrio="G", categoria="politica") for k in range(2, 6)]
+    tomar(almacen, T0, items=textos)
+    estado = motor.paso(T0)
+    assert estado["barrios"]["G"]["tipos"] == ["conversacion"]
+    ev = motor.eventos(T0 - 3600, T0)[0]
+    assert ev["tipo"] == "conversacion" and ev["titulo"].startswith("Se habla de Barrio G")
+    assert ev["evidencias"]["confianza"]["grado"] == "baja" and set(ev["evidencias"]["confianza"]["clases"]) == {"texto"}
+    avisos = [Item(f"dgt:{k}", "dgt", T0 + 100, "Calzada cortada por un incendio", barrio="G", categoria="trafico", urgencia=2) for k in (1, 2)]
+    tomar(almacen, T0 + 600, items=textos + avisos)
+    motor.paso(T0 + 600)
+    ev = motor.evento(ev["id"])
+    assert ev["tipo"] == "incidente" and "oficial" in ev["evidencias"]["confianza"]["clases"]
+
+
+def test_un_reportaje_del_barrio_no_es_la_causa(ciudad):
+    almacen, motor = ciudad
+    tomar(almacen, T0 - 1200)
+    reportaje = Item("prensa:9", "prensa", T0 - 900, "De su clínica de fisioterapia al corazón del barrio", barrio="E", categoria="deporte")
+    for t in (T0 - 600, T0):
+        tomar(almacen, t, bicis={"E": 2}, libres={"E": 95}, items=[reportaje])
+        motor.paso(t)
+    ev = motor.eventos(T0 - 3600, T0)[0]
+    assert ev["tipo"] == "salida" and ev["causa"]["probable"] is None and "sin causa conocida" in ev["titulo"]
+    # Una protesta en el barrio a esa hora sí lo explica.
+    protesta = Item("prensa:10", "prensa", T0 - 100, "Desalojan la plaza tras la protesta", barrio="E", categoria="protesta", urgencia=1)
+    tomar(almacen, T0 + 600, bicis={"E": 2}, libres={"E": 95}, items=[reportaje, protesta])
+    motor.paso(T0 + 600)
+    assert motor.evento(ev["id"])["causa"]["probable"]["id"] == "prensa:10"
+
+
+def test_la_confianza_sube_con_fuentes_distintas_y_con_el_tiempo(ciudad):
+    almacen, motor = ciudad
+    partido = Cita("partido:1", "partido", "Valencia CF – Real Betis", T0 + 3600, T0 + 3600 + 6300, *centro("E"), barrio="E")
+    tomar(almacen, T0 - 1200, agenda=[partido])
+    grados = []
+    for t in (T0 - 600, T0, T0 + 600):
+        tomar(almacen, t, bicis={"E": 19}, libres={"E": 5})
+        motor.paso(t)
+        grados.append(motor.eventos(T0 - 3600, t)[0]["evidencias"]["confianza"])
+    assert grados[0]["grado"] == "media" and grados[-1]["grado"] == "alta"          # sensores y agenda; alta al llevar 20 min
+    assert set(grados[-1]["clases"]) == {"sensor", "previsto"} and grados[-1]["minutos"] >= 20
+    # Los mismos sensores, sin nada más y con lo normal aún por aprender: baja.
+    ev = motor.eventos(T0 - 3600, T0 + 600)[0] | {"causa": None}
+    assert C.Cruce.confianza(ev, listo=False)["grado"] == "baja" and C.Cruce.confianza(ev, listo=True)["grado"] == "media"
+    assert motor.aprendizaje(T0) == {"semanas": 6, "dias": pytest.approx(42, abs=1.1), "listo": True}
+
+
+def test_un_falso_positivo_sube_el_liston(ciudad):
+    almacen, motor = ciudad
+    tomar(almacen, T0 - 1200)
+    tomar(almacen, T0 - 600, bicis={"E": 19}, libres={"E": 5})
+    motor.paso(T0 - 600)
+    ev = motor.eventos(T0 - 3600, T0)[0]
+    assert motor.valorar("no-existe", "falso") is None and motor.valorar(ev["id"], "otra cosa") is None
+    marcado = motor.valorar(ev["id"], "falso")
+    assert marcado["evidencias"]["valoracion"] == "falso" and marcado["evidencias"]["confianza"]["grado"] == "baja"
+    almacen._bd.execute("UPDATE eventos SET estado='cerrado'")
+
+    def activos_tras(t, **cambios):
+        tomar(almacen, t, **cambios)
+        motor.paso(t)
+        return [e for e in motor.eventos(t - 600, t) if e["estado"] == "activo"]
+    # Lo mismo, a la misma hora de otro día: ya no salta. Algo bastante más fuerte, o a otra hora, sí.
+    manana = T0 - 600 + 86400
+    tomar(almacen, manana - 600)
+    assert not activos_tras(manana, bicis={"E": 19}, libres={"E": 5})
+    assert motor.valorar(ev["id"], None)["evidencias"].get("valoracion") is None        # se quita la marca: vuelve a saltar
+    assert activos_tras(manana + 600, bicis={"E": 19}, libres={"E": 5})
+    assert C.Cruce._tapado("concentracion", 5.0, T0, [(time.localtime(T0).tm_hour, 8.0)])
+    assert not C.Cruce._tapado("concentracion", 9.5, T0, [(time.localtime(T0).tm_hour, 8.0)])
+    assert not C.Cruce._tapado("concentracion", 5.0, T0 + 6 * 3600, [(time.localtime(T0).tm_hour, 8.0)])
+
+
+def test_sensores_que_callan_a_la_vez(ciudad, monkeypatch):
+    almacen, motor = ciudad
+    monkeypatch.setattr(C.time, "time", lambda: T0 + 30)
+    todas = {f"b{b}{k}": 10 for b in LETRAS for k in range(4)}            # cuatro estaciones por barrio
+    puntos = {i: Punto(i, *centro(i[1]), 20) for i in todas}
+    almacen.guardar_toma("bicis", T0 - 600, Toma(valores={"bicis": todas}, puntos={"bicis": puntos}))
+    almacen.guardar_toma("bicis", T0, Toma(valores={"bicis": {i: v for i, v in todas.items() if not i.startswith("bE") or i == "bE0"}}))
+    callados, total = almacen.callados("bicis", T0)
+    assert callados == {"bE1", "bE2", "bE3"} and total == 36
+    rasgos = motor.calcular_rasgos([T0])[T0]
+    assert rasgos["silencio"]["E"] == 3 and rasgos["silencio"]["A"] == 0
+    # Si calla media ciudad es la fuente, no un barrio.
+    almacen.guardar_toma("bicis", T0 + 5, Toma(valores={"bicis": {i: v for i, v in todas.items() if i[1] in "ABCD"}}))
+    assert set(motor.calcular_rasgos([T0])[T0]["silencio"].values()) == {0}

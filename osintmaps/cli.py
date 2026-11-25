@@ -647,6 +647,9 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         if ruta == "/vivo/noticias":
             self._noticias()
             return
+        if ruta == "/vivo/sala/valorar":           # cambia datos: solo por POST
+            self.send_error(405)
+            return
         if ruta.startswith("/vivo/pulso/") or ruta.startswith("/vivo/sala/"):
             self._pulso(ruta)
             return
@@ -673,14 +676,21 @@ class _Servidor(http.server.SimpleHTTPRequestHandler):
         móvil no se pisan aunque uno tenga datos viejos. Con un candado para que
         dos guardados simultáneos no se mezclen.
         """
+        # Una página de otro sitio web no debe poder cambiar los datos: los
+        # navegadores indican en "Origin" desde dónde se hace la petición.
+        origen = self.headers.get("Origin")
+        de_fuera = bool(origen) and urlparse(origen).netloc != self.headers.get("Host")
+        if urlparse(self.path).path == "/vivo/sala/valorar":      # «confirmado» o «falso positivo» de un suceso de la sala
+            if de_fuera:
+                self.send_error(403)
+            else:
+                self._pulso("/vivo/sala/valorar")
+            return
         nombre = self._fichero_editable()
         if nombre is None:
             self.send_error(405)
             return
-        # Una página de otro sitio web no debe poder cambiar los datos: los
-        # navegadores indican en "Origin" desde dónde se hace la petición.
-        origen = self.headers.get("Origin")
-        if origen and urlparse(origen).netloc != self.headers.get("Host"):
+        if de_fuera:
             self.send_error(403)
             return
         try:
