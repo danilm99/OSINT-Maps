@@ -44,6 +44,9 @@ from shapely.geometry import LineString
 
 from ..red import nueva_sesion
 from . import contexto, movilidad as mitma
+from .agenda import recinto_de
+from .alertas import Alertas
+from .informes import Informes
 from .textos import hilos
 from .catalogo import INDICADORES
 from .cruce import BIN, CIUDAD, FAMILIAS, RASGOS, TIPOS_SUCESO, Cruce, franja
@@ -59,7 +62,8 @@ REDES = ("bluesky", "mastodon")
 RASGOS_PERFIL = ("trafico", "aforo", "bici_ocupacion", "parking", "metro", "social", "bici_llegadas", "bici_salidas")
 DIAS_SEMANA = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
 MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre")
-FICHEROS_WEB = ("sala.json", "sala-barrios.json", "sala-perfiles.json", "sala-movilidad.json", "sala-tramos.json")
+FICHEROS_WEB = ("sala.json", "sala-barrios.json", "sala-perfiles.json", "sala-movilidad.json", "sala-tramos.json",
+                "sala-linea.json", "sala-riesgo.json", "sala-relevo.json", "sala-calidad.json")
 # El mapa de calor de gente: lo que se ha movido en la última hora. Cuánto es «mucho» (peso 1) en cada fuente:
 # una estación de Valenbisi con diez bicis que salen o llegan en una hora, una espira del carril bici con 250
 # bicis a la hora, un aparcamiento con 400 coches dentro.
@@ -94,6 +98,8 @@ class Sala:
         self._hilos: list[threading.Thread] = []
         self._cache: dict[str, tuple[float, object]] = {}
         self._candado = threading.Lock()
+        self.informes = Informes(self)
+        self.alertas = Alertas(self.datos)
         self._cargar_zonas()
 
     # ------------------------------------------------------------ en marcha
@@ -177,6 +183,7 @@ class Sala:
             try:
                 self.cruce.paso(int(time.time()) - 40)
                 self._cache.clear()
+                self.alertas.avisar([self._suceso_corto(ev) for ev in self.cruce._eventos_abiertos()])
                 if time.monotonic() - ultima_situacion > 1800:
                     self.situar_pendientes()
                     ultima_situacion = time.monotonic()
@@ -295,7 +302,7 @@ class Sala:
             "sucesos": sucesos, "ciudad": self._ciudad(ahora), "agenda": self._agenda(ahora),
             "feed": self._feed(ahora, publico), "avisos": self._avisos(ahora), "conversacion": self._conversacion(ahora),
             "fuentes": self._fuentes(), "parte": self.parte(), "trafico": self._trafico(ahora), "calor": self.calor(ahora),
-            "ia": self.ia.estado() if self.ia else {"disponible": False},
+            "ia": self.ia.estado() if self.ia else {"disponible": False}, "alertas": self.alertas.estado(),
             "rasgos": {r: {"nombre": i["nombre"], "unidad": i["unidad"], "tipo": i["tipo"]} for r, i in RASGOS.items()},
             "familias": FAMILIAS, "tipos": TIPOS_SUCESO,
         }
@@ -324,6 +331,10 @@ class Sala:
             base = tipo.split(":")[0]
             fila = {"id": ident, "tipo": base, "subtipo": tipo, "titulo": titulo, "desde": a, "hasta": b, "lat": lat, "lon": lon,
                     "barrio": barrio, "fuente": fuente, "url": url}
+            if base in ("partido", "festejo"):
+                recinto = recinto_de(titulo, lat, lon)
+                if recinto:
+                    fila["recinto"], fila["aforo"] = recinto["nombre"], recinto["aforo"]
             if base in ("partido", "festejo", "festivo", "fiesta"):
                 if base in ("festivo", "fiesta") and b < hoy:
                     continue
@@ -479,6 +490,7 @@ class Sala:
                 if any(self.zonas.barrio_de(x[1], x[2]) in area for x in obj["p"]):
                     helis[ident_h] = {"nombre": obj["nombre"], "p": obj["p"]}
         return {"suceso": ev, "nombres": {b: self._nombre(b) for b in set(ev["barrios"]) | set(barrios)}, "desde": desde, "hasta": hasta,
+                "confianza": ev["evidencias"].get("confianza"), "alcance": self.informes.propagacion(ev),
                 "series": series, "nivel": nivel, "helicopteros": helis,
                 "rasgos": {r: {"nombre": RASGOS[r]["nombre"], "unidad": RASGOS[r]["unidad"]} for r in rasgos}}
 
@@ -703,6 +715,10 @@ class Sala:
             except ValueError:
                 return None
         salida["sala-tramos.json"] = self._guardado("web-tramos", 6 * 3600, lambda: a_bytes(self.tramos()))
+        salida["sala-linea.json"] = a_bytes(self.informes.linea())
+        salida["sala-riesgo.json"] = self._guardado("web-riesgo", 1800, lambda: a_bytes(self.informes.riesgo()))
+        salida["sala-relevo.json"] = a_bytes(self.informes.relevo(publico=True))
+        salida["sala-calidad.json"] = self._guardado("web-calidad", 3600, lambda: a_bytes(self.informes.calidad()))
         datos_mitma = self._guardado("web-mitma", 24 * 3600, flujos)
         if datos_mitma:
             salida["sala-movilidad.json"] = datos_mitma
@@ -810,6 +826,18 @@ def atender(sala: "Sala | None", ruta: str, consulta: str) -> tuple[int, bytes]:
             datos = sala.movilidad(q)
         elif ruta == "/vivo/sala/tramos":
             datos = sala.tramos()
+        elif ruta == "/vivo/sala/linea":
+            datos = sala._guardado("linea", 30, sala.informes.linea)
+        elif ruta == "/vivo/sala/riesgo":
+            datos = sala._guardado("riesgo", 900, sala.informes.riesgo)
+        elif ruta == "/vivo/sala/previsto":
+            datos = sala.informes.previsto((q.get("id") or [""])[0][:80])
+        elif ruta == "/vivo/sala/cronologia":
+            datos = sala.informes.cronologia((q.get("id") or [""])[0][:60])
+        elif ruta == "/vivo/sala/relevo":
+            datos = sala.informes.relevo(int(_real(q, "horas")) if q.get("horas") else 8)
+        elif ruta == "/vivo/sala/calidad":
+            datos = sala.informes.calidad(max(1, min(60, int(_real(q, "dias")))) if q.get("dias") else 7)
         elif ruta == "/vivo/sala/cielo":
             datos = sala.cielo()
         elif ruta == "/vivo/sala/flujos":

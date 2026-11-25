@@ -27,6 +27,36 @@ EQUIPOS = {
     "Levante": ("Soccer", "Ciutat de València", 39.4947, -0.3647),
     "Valencia Basket": ("Basketball", "Roig Arena", 39.4560, -0.3530),
 }
+# Recintos donde cabe mucha gente: (nombre, palabras que lo delatan en un titular, lat, lon, aforo aproximado).
+# Los aforos son los que dan los propios recintos, redondeados; sirven para saber de qué tamaño es lo previsto.
+RECINTOS = (
+    ("Mestalla", ("mestalla",), 39.4746, -0.3583, 49000),
+    ("Ciutat de València", ("ciutat de valència", "ciutat de valencia", "estadi ciutat"), 39.4947, -0.3647, 26000),
+    ("Roig Arena", ("roig arena",), 39.4560, -0.3530, 15600),
+    ("La Fonteta", ("fonteta",), 39.4577, -0.3577, 8500),
+    ("Plaza de Toros", ("plaza de toros", "plaça de bous"), 39.4667, -0.3757, 10500),
+    ("Palau de les Arts", ("palau de les arts", "les arts reina sofía"), 39.4578, -0.3559, 1400),
+    ("Palau de la Música", ("palau de la música", "palau de la musica"), 39.4687, -0.3602, 1800),
+    ("Feria Valencia", ("feria valencia", "fira valència"), 39.5030, -0.4270, 20000),
+    ("Ciutat de les Arts i les Ciències", ("ciudad de las artes", "ciutat de les arts", "l'umbracle", "umbracle", "hemisfèric", "oceanogràfic"), 39.4548, -0.3505, 10000),
+    ("La Marina", ("la marina de valència", "marina de valencia", "marina sur", "tinglado"), 39.4603, -0.3270, 15000),
+    ("Plaza del Ayuntamiento", ("plaza del ayuntamiento", "plaça de l'ajuntament"), 39.4697, -0.3763, 20000),
+)
+
+
+def recinto_de(titulo: str | None, lat: float | None = None, lon: float | None = None) -> dict | None:
+    """El recinto de algo previsto: por el nombre en el título o, si no, por estar a menos de unos 250 m."""
+    t = (titulo or "").lower()
+    for nombre, pistas, la, lo, aforo in RECINTOS:
+        if any(p in t for p in pistas):
+            return {"nombre": nombre, "lat": la, "lon": lo, "aforo": aforo}
+    if lat is not None and lon is not None:
+        for nombre, _, la, lo, aforo in RECINTOS:
+            if abs(la - lat) < 0.0022 and abs(lo - lon) < 0.0029:
+                return {"nombre": nombre, "lat": la, "lon": lo, "aforo": aforo}
+    return None
+
+
 RUIDO = ("https://datosbi.vlci.valencia.es/pentaho/plugin/cda/api/doQuery?path=/public/vlci/datosabiertos/"
          "calidadambiental_sonometros_ruzafa_diarios.cda&dataAccessId=sqlSonometrosRuzafaDaily&outputType=CSV&_TRUST_USER_=publicoda")
 # Sonómetros de Russafa (Ajuntament): código -> dirección. La posición sale del nomenclátor.
