@@ -142,7 +142,7 @@ let ultimoError = null;
 let tramos = null;            // el trazado de cada tramo de calle: [[id, nombre, [[lat, lon], ...]], ...]
 let estadosTrafico = {};      // id del tramo -> 0 fluido, 1 denso, 2 atasco, 3 cortado (null: sin datos)
 let traficoDe = { origen: null, t: 0 };     // de dónde y de cuándo es el estado del tráfico
-const POR_DEFECTO = { trafico: true, calor: true, sucesos: true, textos: true, agenda: true, avisos: true, barrios: false, obras: false, helis: true, nombres: false };
+const POR_DEFECTO = { trafico: true, calor: true, sucesos: true, textos: true, agenda: true, avisos: true, barrios: false, riesgo: false, obras: false, helis: true, nombres: false };
 const guardado = leerLocal("osintmaps.sala.v2", {});
 const ajustes = { feed: guardado.feed || "todo", plegado: !!guardado.plegado, capas: Object.assign({}, POR_DEFECTO, guardado.capas || {}) };
 const recordar = () => guardarLocal("osintmaps.sala.v2", ajustes);
@@ -187,7 +187,7 @@ const CapaCalor = L.Layer.extend({
     if (this._p) return this._p;
     const c = document.createElement("canvas"); c.width = 256; c.height = 1;
     const g = c.getContext("2d"), grad = g.createLinearGradient(0, 0, 256, 0);
-    for (const [k, color] of [[0, "#0b1d4d"], [0.22, "#2563eb"], [0.45, "#7c3aed"], [0.7, "#22d3ee"], [1, "#ecfeff"]]) grad.addColorStop(k, color);
+    for (const [k, color] of this.options.colores || [[0, "#0b1d4d"], [0.22, "#2563eb"], [0.45, "#7c3aed"], [0.7, "#22d3ee"], [1, "#ecfeff"]]) grad.addColorStop(k, color);
     g.fillStyle = grad; g.fillRect(0, 0, 256, 1);
     return (this._p = g.getImageData(0, 0, 256, 1).data);
   },
@@ -227,6 +227,7 @@ const CapaCalor = L.Layer.extend({
 const capas = {
   trafico: L.layerGroup(), calor: new CapaCalor([]), sucesos: L.layerGroup(), textos: L.layerGroup(), avisos: L.layerGroup(), agenda: L.layerGroup(),
   obras: L.layerGroup(), helis: L.layerGroup(), nombres: L.layerGroup(), foco: L.layerGroup().addTo(mapa), barrios: null,
+  riesgo: new CapaCalor([], { metros: 150, minimo: 9, maximo: 46, ganancia: 0.75, colores: [[0, "#3b1206"], [0.3, "#b45309"], [0.6, "#fb923c"], [1, "#fff7ed"]] }),
 };
 const enHistorico = () => !!document.getElementById("pulso") && !document.getElementById("pulso").hidden;
 function ponerCapa(id, si) {
@@ -238,6 +239,7 @@ function ponerCapa(id, si) {
   if (id === "nombres") pintarNombres();
   if (id === "helis" && si) pedirCielo();
   if (id === "trafico" && si) pintarTrafico();
+  if (id === "riesgo" && si) pedirRiesgo().catch(() => {});
   pintarLeyenda();
 }
 
@@ -257,6 +259,8 @@ const DEF_CAPAS = [
   { id: "avisos", nombre: "Carreteras y trenes", ley: () => ley(mini("carril", C.ambar, "carril cortado", true), mini("aviso", C.ambar, "incidencia", true), mini("transporte", C.cian, "Renfe")) },
   { id: "barrios", nombre: "Barrios fuera de lo normal", ley: () => ley(el("span", {}, el("i", { className: "cuadro" }), "más intenso, más raro")),
     titulo: "Cada barrio frente a lo normal para esa hora y ese día: cuanto más intenso, más lejos de lo normal" },
+  { id: "riesgo", nombre: "Accidentes a esta hora", ley: () => ley(el("span", {}, "pocos", el("i", { className: "rampa naranja" }), "muchos")),
+    titulo: "Dónde ha habido más accidentes de tráfico a esta hora en días como hoy (datos del Ajuntament). Por lugar, no por persona." },
   { id: "obras", nombre: "Obras y cortes previstos" },
   { id: "helis", nombre: "Helicópteros", soloServidor: true },
   { id: "nombres", nombre: "Nombres de barrio" },
@@ -289,7 +293,7 @@ for (const id of ["b-capas", "b-investigar", "tira-parte"]) L.DomEvent.disableCl
 montarCapas();
 const bInvestigar = $("b-investigar");
 bInvestigar.addEventListener("click", () => { investigando = !investigando; bInvestigar.setAttribute("aria-pressed", String(investigando)); $("mapa-zona").classList.toggle("investigando", investigando); });
-for (const id of ["trafico", "calor", "sucesos", "textos", "avisos", "agenda", "obras", "helis", "nombres"]) if (ajustes.capas[id]) capas[id].addTo(mapa);
+for (const id of ["trafico", "calor", "riesgo", "sucesos", "textos", "avisos", "agenda", "obras", "helis", "nombres"]) if (ajustes.capas[id]) capas[id].addTo(mapa);
 
 mapa.on("click", (ev) => { if (investigando) abrirLugar(ev.latlng.lat, ev.latlng.lng); else if (movil()) cerrarCapas(); });
 mapa.on("contextmenu", (ev) => abrirLugar(ev.latlng.lat, ev.latlng.lng));
@@ -438,7 +442,10 @@ function popupLista(lista, cita = false) {
 }
 function pintarCapas() {
   capas.sucesos.clearLayers();
-  const ordenados = [...(E?.sucesos || [])].filter((s) => s.lat != null).sort((a, b) => (a.estado === "activo") - (b.estado === "activo") || (a.puntuacion || 0) - (b.puntuacion || 0));
+  const tMirado = instante == null || !lineaT ? null : lineaT.desde + instante * lineaT.paso;
+  const deAhora = tMirado == null ? (E?.sucesos || []).filter((s) => s.valoracion !== "falso")
+    : (lineaT.sucesos || []).filter((s) => s.inicio <= tMirado && s.fin >= tMirado - lineaT.paso).map((s) => ({ ...s, estado: "activo" }));
+  const ordenados = [...deAhora].filter((s) => s.lat != null).sort((a, b) => (a.estado === "activo") - (b.estado === "activo") || (a.puntuacion || 0) - (b.puntuacion || 0));
   const conRotulo = new Set(), ocupado = [];
   for (const s of [...ordenados].reverse()) {
     if (s.estado !== "activo" || conRotulo.size >= 3) continue;
@@ -479,6 +486,7 @@ function pintarCapas() {
   for (const grupo of agrupar((E?.agenda?.destacado || []).filter((a) => a.lat != null))) {
     const a = grupo[0];
     L.marker([a.lat, a.lon], { keyboard: false, title: a.titulo || "", icon: insignia({ dibujo: a.tipo === "partido" ? "deporte" : a.tipo === "festejo" ? "evento" : "estrella", color: C.ambar, tam: 26, llena: true, cuenta: grupo.length }) })
+      .on("click", (ev) => { if (grupo.length === 1) { ev.target.closePopup(); abrirPrevisto(a); } })
       .bindPopup(() => popupLista(grupo, true), { maxWidth: 320 }).addTo(capas.agenda);
   }
   capas.obras.clearLayers();
@@ -669,10 +677,10 @@ function pintarHoy() {
   const fin = new Date(); fin.setHours(23, 59, 59);
   const filas = (ag.destacado || []).filter((a) => a.desde <= fin.getTime() / 1000 + 86400);
   const caja = $("hoy");
-  caja.replaceChildren(...filas.slice(0, 12).map((a) => el("div", { className: "a", title: a.lat != null ? "Ver en el mapa" : "", onclick: () => (a.lat != null ? (ponerVista("mapa"), mapa.flyTo([a.lat, a.lon], 15)) : null) },
+  caja.replaceChildren(...filas.slice(0, 12).map((a) => el("div", { className: "a", title: a.lat != null ? "Ver qué pasa alrededor" : "", onclick: () => (a.lat != null ? abrirPrevisto(a) : null) },
     icono(a.tipo === "partido" ? "deporte" : a.tipo === "festejo" ? "evento" : "estrella", C.ambar),
     el("span", { className: "h", textContent: a.tipo === "partido" || a.tipo === "festejo" ? (a.desde < fin.getTime() / 1000 ? hora(a.desde) : fecha(a.desde).split(" ")[0]) : a.tipo === "fiesta" ? "fiesta" : "festivo" }),
-    el("span", { textContent: a.titulo || "" }))));
+    el("span", {}, a.titulo || "", a.aforo ? el("small", { className: "aforo", textContent: ` aforo ${cifra(a.aforo)}`, title: `${a.recinto}: caben unas ${cifra(a.aforo)} personas` }) : null))));
   const cuenta = ag.cuenta || {};
   const nombres = { obra: "obras", ocupacion: "ocupaciones de la vía", mudanza: "mudanzas" };
   const resumen = Object.entries(cuenta).map(([k, n]) => `${n} ${nombres[k] || k}`).join(", ");
@@ -702,9 +710,11 @@ function pintarSucesos() {
       el("div", { className: "s" },
         el("span", { textContent: s.tipo_nombre || s.tipo }),
         el("span", { textContent: activo ? `desde las ${hora(s.inicio)} (${duracion(ahoraSeg() - s.inicio)})` : `de ${hora(s.inicio)} a ${hora(s.fin)}` }),
+        insigniaConfianza(s),
         el("span", { className: s.explicado ? "con-causa" : "sin-causa", textContent: s.explicado ? "con causa probable" : "sin causa conocida" })),
       fuerza);
     fila.style.setProperty("--c", color);
+    if (s.valoracion === "falso") fila.classList.add("falso");
     return fila;
   }));
 }
@@ -726,8 +736,10 @@ function filaTexto(it) {
   if (NOMBRE_CATEGORIA[it.categoria]) s.append(el("span", { style: `color:${color}`, textContent: NOMBRE_CATEGORIA[it.categoria] }));
   if (it.barrio) s.append(el("span", { textContent: nombreBarrio(it.barrio) }));
   if (it.lat != null) s.append(el("span", { className: "ir", textContent: "Ver en el mapa", onclick: () => { ponerVista("mapa"); mapa.flyTo([it.lat, it.lon], 16); } }));
+  const mas = masMedios(it);
+  if (mas) s.append(mas[0]);
   return el("div", { className: `texto${(it.urgencia || 0) >= 2 ? " urgente" : ""}` },
-    icono(dibujoDeTexto(it), color), el("div", { className: "t" }, enlace(it.titulo || "(sin título)", it.url)), s);
+    icono(dibujoDeTexto(it), color), el("div", { className: "t" }, enlace(it.titulo || "(sin título)", it.url)), s, mas ? mas[1] : null);
 }
 function pintarFeed() {
   const caja = $("feed");
@@ -787,6 +799,8 @@ function pintarTodo() {
   pintarTejas(); pintarListaBarrios(); pintarParte(); pintarHoy(); pintarSucesos(); pintarFeed();
   pintarBarrios(); pintarCapas(); pintarLeyenda();
   capas.calor.ponerPuntos(E.calor?.puntos || []);
+  pintarNovedades();
+  if (instante == null) cargarLinea();
 }
 
 /* ====================== La ficha ====================== */
@@ -813,7 +827,7 @@ function cerrarFicha() {
   $("ficha").hidden = true;
   fichaAbierta = null;
   capas.foco.clearLayers();
-  if (modo.tipo !== "nivel") { modo = { tipo: "nivel" }; pintarBarrios(); pintarLeyenda(); }
+  if (modo.tipo !== "nivel" && modo.tipo !== "instante") { modo = { tipo: "nivel" }; pintarBarrios(); pintarLeyenda(); }
   history.replaceState(null, "", location.pathname + location.search);
 }
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !$("ficha").hidden) cerrarFicha(); });
@@ -946,6 +960,7 @@ function relacionados(id, causaId) {
 function pintarSucesoCorto(cont, s) {
   if (!s) { cont.append(el("p", { className: "vacio", textContent: "Ese suceso ya no está en los datos publicados." })); return; }
   if (s.resumen) cont.append(seccion("Resumen", el("div", { className: "resumen" }, s.resumen, el("small", { textContent: "IA local" }))));
+  cont.append(seccionConfianza(s, { grado: s.confianza }, s.id));
   cont.append(seccion("Por qué", s.causa ? listaCausas({ candidatas: [s.causa], probable: s.causa }) : el("p", { className: "sin-causa", textContent: "Sin causa conocida." })));
   const senales = (s.ahora?.length ? s.ahora : s.barrios).flatMap((b) => (E.barrios?.[b]?.senales || []).map((x) => ({ ...x, barrio: b })));
   cont.append(seccion("Señales ahora", tablaSenales(senales)));
@@ -956,8 +971,10 @@ function pintarSucesoCorto(cont, s) {
 function pintarSucesoEntero(cont, d, color) {
   const s = d.suceso;
   if (s.resumen) cont.append(seccion("Resumen", el("div", { className: "resumen" }, s.resumen, el("small", { textContent: "IA local · a partir de las señales y lo publicado" }))));
+  cont.append(seccionConfianza(s, d.confianza, s.id));
   cont.append(seccion("Por qué", listaCausas(s.causa)));
   const rel = relacionados(s.id, s.causa?.probable?.id); if (rel) cont.append(rel);
+  const alcance = seccionAlcance(d.alcance); if (alcance) cont.append(alcance);
   cont.append(seccion("Señales en el momento más fuerte", tablaSenales(s.evidencias?.pico || []),
     el("p", { className: "pie", textContent: `Pico a las ${hora(s.pico)}. z: cuánto se separa de lo normal para ese barrio a esa hora (±2 ya es raro).` })));
   for (const [rasgo, serie] of Object.entries(d.series || {})) {
@@ -1360,6 +1377,340 @@ function abrirFuentes() {
   cont.append(seccion("Fuentes", t), el("p", { className: "pie", textContent: "Todo son datos públicos y de conjunto. De las redes se guarda el texto público, la fecha y el enlace de cada publicación, nunca quién la escribió, y nada se junta por persona." }));
 }
 
+/* ====================== Confianza, valoración e hilos ====================== */
+const NOMBRE_CONFIANZA = { alta: "Confianza alta", media: "Confianza media", baja: "Confianza baja" };
+const TITULO_CONFIANZA = { alta: "Lo dicen dos clases de fuente distintas (una, sensores o una fuente oficial) y lleva al menos veinte minutos",
+  media: "Lo dicen dos clases de fuente, o varios sensores distintos, pero falta tiempo o corroboración", baja: "Una sola clase de fuente, muy reciente o con lo normal aún por aprender: puede no ser nada" };
+function insigniaConfianza(s) {
+  if (s?.valoracion === "falso") return el("span", { className: "conf baja", textContent: "Falso positivo", title: "Marcado a mano como falso positivo" });
+  if (s?.valoracion === "confirmado") return el("span", { className: "conf alta", textContent: "Confirmado", title: "Confirmado a mano" });
+  const g = s?.confianza || "baja";
+  return el("span", { className: `conf ${g}`, textContent: NOMBRE_CONFIANZA[g], title: TITULO_CONFIANZA[g] });
+}
+const CLASES_FUENTE = [["sensor", "Sensores", "Lo que miden las bicis, los aparcamientos, las espiras, el metro o los aviones"], ["oficial", "Fuente oficial", "Incidencias de la DGT, Renfe o avisos de AEMET"],
+  ["texto", "Se publica", "Prensa y redes"], ["previsto", "Agenda", "Algo previsto en ese sitio a esa hora"]];
+function seccionConfianza(s, conf, id) {
+  const caja = seccion("Cuánto fiarse", el("div", { style: "margin-bottom:8px" }, insigniaConfianza({ confianza: conf?.grado, valoracion: s.valoracion ?? s.evidencias?.valoracion })));
+  if (conf?.clases) {
+    caja.append(el("div", { className: "matriz" }, ...CLASES_FUENTE.map(([clave, nombre, titulo]) => {
+      const cosas = conf.clases[clave] || [];
+      return el("div", { className: `celda${cosas.length ? " si" : ""}`, title: titulo }, el("b", { textContent: nombre }),
+        el("span", { textContent: cosas.length ? cosas.join(", ") : "nada" }));
+    })));
+    for (const m of conf.motivos || []) caja.append(el("p", { className: "pie", textContent: m }));
+  }
+  const botones = el("div", { className: "controles", style: "margin-top:8px" });
+  if (servidor) {
+    const actual = s.valoracion ?? s.evidencias?.valoracion ?? null;
+    for (const [valor, texto, titulo] of [["confirmado", "Confirmado", "Ha pasado de verdad: sube la confianza y cuenta a favor de este tipo de suceso en estos barrios"],
+      ["falso", "Falso positivo", "No era nada: lo parecido (este tipo, en estos barrios, a esta hora y sin más fuerza) no volverá a saltar"]]) {
+      const b = el("button", { type: "button", className: "boton-fino", textContent: actual === valor ? `${texto} ✓` : texto, title: titulo });
+      b.setAttribute("aria-pressed", String(actual === valor));
+      b.addEventListener("click", async () => {
+        try {
+          const r = await fetch(`vivo/sala/valorar?id=${encodeURIComponent(id)}&valor=${actual === valor ? "" : valor}`, { method: "POST" });
+          if (!r.ok) throw new Error(`error ${r.status}`);
+          await cargar(); abrirSuceso(id);
+        } catch (err) { b.textContent = `No se ha podido (${err.message})`; }
+      });
+      botones.append(b);
+    }
+  }
+  botones.append(el("button", { type: "button", className: "boton-fino", textContent: "Informe del suceso", title: "La cronología del suceso, para imprimir o guardar", onclick: () => abrirCronologia(id) }));
+  caja.append(botones);
+  return caja;
+}
+function seccionAlcance(alcance) {
+  if (!alcance?.length) return null;
+  const t = el("table", { className: "datos" }, el("tr", {}, ...["Barrio", "Distancia", "Nivel", "Cuándo", "Qué"].map((x) => el("th", { textContent: x }))));
+  for (const a of alcance) t.append(el("tr", { style: "cursor:pointer", onclick: () => abrirBarrio(a.barrio) }, el("td", { textContent: a.nombre }),
+    el("td", { textContent: a.anillo === 1 ? "al lado" : "a dos barrios" }), el("td", { className: "num", textContent: cifra(a.nivel) }),
+    el("td", { className: "num", textContent: a.minutos ? `+${a.minutos} min` : "a la vez" }), el("td", { textContent: a.senal ? a.senal.nombre : "" })));
+  return seccion("Hasta dónde llega", t, el("p", { className: "pie", textContent: "Barrios de alrededor que se han salido de lo normal desde que empezó." }));
+}
+function masMedios(it) {
+  if (!it.mas?.length) return null;
+  const lista = el("div", { className: "hilo", hidden: true }, ...it.mas.map((m) => el("div", {}, el("span", { className: "pie", textContent: `${hora(m.t)} ${m.medio || ""} ` }), enlace(m.titulo || "", m.url))));
+  const boton = el("button", { type: "button", className: "boton-texto", style: "margin:0", textContent: `y ${it.mas.length} ${it.mas.length === 1 ? "medio más" : "medios más"}`,
+    title: "Otros medios que cuentan lo mismo", onclick: () => { lista.hidden = !lista.hidden; } });
+  return [boton, lista];
+}
+
+/* ====================== Línea de tiempo de 24 horas ====================== */
+let lineaT = null;           // {desde, paso, n, maximo, barrios, sucesos}
+let instante = null;        // el índice de la línea que se está mirando (null: ahora)
+const cajaLinea = $("linea"), lienzoLinea = $("linea-lienzo");
+async function cargarLinea() {
+  try { lineaT = await pedirJSON(servidor ? "vivo/sala/linea" : `${BASE}sala-linea.json`); } catch { return; }
+  cajaLinea.hidden = !lineaT?.n;
+  pintarLinea();
+}
+const colorNivel = (v) => (v >= 8 ? C.rojo : v >= 5 ? C.naranja : v >= 3 ? C.ambar : v >= 1.5 ? "#2f6f7d" : "#16303b");
+function pintarLinea() {
+  if (!lineaT?.n || cajaLinea.hidden) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1), w = lienzoLinea.clientWidth, h = lienzoLinea.clientHeight;
+  if (!w) return;
+  lienzoLinea.width = w * dpr; lienzoLinea.height = h * dpr;
+  const g = lienzoLinea.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  const n = lineaT.n, ancho = w / n, base = h - 13, alto = base - 12;
+  for (let k = 0; k < n; k++) {
+    const v = lineaT.maximo[k] || 0;
+    g.fillStyle = colorNivel(v);
+    const a = Math.max(2, Math.min(1, v / 10) * alto);
+    g.fillRect(k * ancho, base - a, Math.max(1, ancho - 0.6), a);
+  }
+  // Los sucesos, como tramos encima; las horas, debajo.
+  const x = (t) => ((t - lineaT.desde) / lineaT.paso + 1) * ancho;
+  let fila = 0;
+  for (const s of lineaT.sucesos || []) {
+    if (s.valoracion === "falso") continue;
+    g.fillStyle = s.tipo === "incidente" ? C.rojo : C.magenta;
+    g.globalAlpha = s.confianza === "baja" ? 0.45 : 1;
+    const x0 = Math.max(0, x(s.inicio) - ancho), x1 = Math.min(w, x(s.fin));
+    g.fillRect(x0, 2 + (fila++ % 2) * 4, Math.max(3, x1 - x0), 3);
+  }
+  g.globalAlpha = 1;
+  g.fillStyle = C.tenue; g.font = "10px Barlow, sans-serif"; g.textBaseline = "bottom";
+  for (let k = 0; k < n; k++) {
+    const d = new Date((lineaT.desde + k * lineaT.paso) * 1000);
+    if (d.getMinutes() === 0 && d.getHours() % (w < 500 ? 6 : 3) === 0) { g.fillRect(k * ancho, base, 1, 3); g.fillText(`${dos(d.getHours())}h`, k * ancho + 3, h); }
+  }
+  if (instante != null) { g.fillStyle = "#fff"; g.fillRect(instante * ancho + ancho / 2 - 1, 0, 2, base); }
+  $("linea-rotulo").textContent = instante == null ? "Últimas 24 h" : `${fechaHora(lineaT.desde + instante * lineaT.paso)}, ${hace(ahoraSeg() - (lineaT.desde + instante * lineaT.paso))}`;
+  $("linea-ahora").hidden = instante == null;
+}
+function ponerInstante(k) {
+  if (!lineaT) return;
+  instante = k == null ? null : Math.max(0, Math.min(lineaT.n - 1, k));
+  if (instante == null || instante >= lineaT.n - 1) {
+    instante = null;
+    if (modo.tipo === "instante") { modo = { tipo: "nivel" }; }
+  } else {
+    const valores = {};
+    for (const [b, fila] of Object.entries(lineaT.barrios || {})) if (b !== "VLC" && fila[instante]) valores[b] = fila[instante];
+    modo = { tipo: "instante", valores, escala: 10, pos: C.magenta, neg: C.magenta, etiqueta: "Nivel", unidad: "", titulo: `Barrios fuera de lo normal a las ${hora(lineaT.desde + instante * lineaT.paso)}`,
+      izquierda: "normal", derecha: "muy fuera" };
+  }
+  pintarBarrios(); pintarCapas(); pintarLeyenda(); pintarLinea();
+}
+{
+  let arrastrando = false;
+  const indice = (ev) => { const r = lienzoLinea.getBoundingClientRect(); return Math.floor(((ev.clientX - r.left) / r.width) * lineaT.n); };
+  lienzoLinea.addEventListener("pointerdown", (ev) => { if (!lineaT) return; arrastrando = true; lienzoLinea.setPointerCapture(ev.pointerId); ponerInstante(indice(ev)); });
+  lienzoLinea.addEventListener("pointermove", (ev) => { if (arrastrando) ponerInstante(indice(ev)); });
+  lienzoLinea.addEventListener("pointerup", () => { arrastrando = false; });
+  lienzoLinea.addEventListener("keydown", (ev) => {
+    if (!lineaT || !["ArrowLeft", "ArrowRight", "Escape"].includes(ev.key)) return;
+    ev.preventDefault();
+    ponerInstante(ev.key === "Escape" ? null : (instante ?? lineaT.n - 1) + (ev.key === "ArrowLeft" ? -1 : 1));
+  });
+  $("linea-ahora").addEventListener("click", () => ponerInstante(null));
+  L.DomEvent.disableClickPropagation(cajaLinea); L.DomEvent.disableScrollPropagation(cajaLinea);
+  window.addEventListener("resize", pintarLinea);
+}
+
+/* ====================== Qué ha cambiado desde la última visita ====================== */
+function pintarNovedades() {
+  const caja = $("novedades");
+  const antes = leerLocal("osintmaps.sala.visto", null);
+  const ahora = ahoraSeg();
+  const ids = (E.sucesos || []).map((s) => s.id);
+  guardarLocal("osintmaps.sala.visto", { t: ahora, ids, abiertos: (E.sucesos || []).filter((s) => s.estado === "activo").map((s) => s.id) });
+  if (pintarNovedades.hecho) return;
+  pintarNovedades.hecho = true;
+  if (!antes || ahora - antes.t < 1800 || ahora - antes.t > 7 * 86400) return;
+  const nuevos = (E.sucesos || []).filter((s) => !antes.ids?.includes(s.id) && s.valoracion !== "falso");
+  const cerrados = (E.sucesos || []).filter((s) => s.estado !== "activo" && antes.abiertos?.includes(s.id));
+  const urgentes = (E.feed || []).filter((it) => it.t > antes.t && (it.urgencia || 0) >= 2);
+  const partes = [];
+  if (nuevos.length) partes.push(`${nuevos.length} ${nuevos.length === 1 ? "suceso nuevo" : "sucesos nuevos"}`);
+  if (cerrados.length) partes.push(`${cerrados.length} ${cerrados.length === 1 ? "se ha cerrado" : "se han cerrado"}`);
+  if (urgentes.length) partes.push(`${urgentes.length} ${urgentes.length === 1 ? "noticia urgente" : "noticias urgentes"}`);
+  const texto = `Desde tu última visita (${fechaHora(antes.t)}): ${partes.length ? partes.join(", ") : "nada nuevo"}.`;
+  const ver = partes.length ? el("button", { type: "button", className: "boton-fino", textContent: "Ver", onclick: () => {
+    const cont = abrirFicha({ tipo: "Novedades", titulo: `Desde ${fechaHora(antes.t)}`, clave: null, estrecha: true });
+    if (nuevos.length) cont.append(seccion("Sucesos nuevos", ...nuevos.map(filaSuceso)));
+    if (cerrados.length) cont.append(seccion("Se han cerrado", ...cerrados.map(filaSuceso)));
+    if (urgentes.length) cont.append(seccion("Noticias urgentes", ...urgentes.map(filaTexto)));
+    caja.hidden = true;
+  } }) : null;
+  caja.replaceChildren(el("span", { textContent: texto }), ver, el("button", { type: "button", className: "boton-texto", style: "margin:0", textContent: "Cerrar", onclick: () => { caja.hidden = true; } }));
+  caja.hidden = false;
+  if (!partes.length) setTimeout(() => { caja.hidden = true; }, 6000);
+}
+
+/* ====================== Lo previsto: esperado frente a observado ====================== */
+async function abrirPrevisto(a) {
+  const cont = abrirFicha({ tipo: a.tipo === "partido" ? "Partido" : "Previsto", color: C.ambar, titulo: a.titulo, clave: `previsto=${a.id}`,
+    sub: `${fechaHora(a.desde)} → ${hora(a.hasta)}${a.aforo ? ` · aforo ${cifra(a.aforo)}` : ""}` });
+  if (a.lat != null) { capas.foco.clearLayers(); L.circle([a.lat, a.lon], { pane: "foco", interactive: false, radius: 600, color: C.ambar, weight: 1.5, dashArray: "5 5", fillOpacity: 0.04 }).addTo(capas.foco); mapa.flyTo([a.lat, a.lon], 15, { duration: 0.6 }); }
+  if (!servidor) {
+    cont.append(seccion("Qué se sabe", el("p", { textContent: a.recinto ? `${a.recinto}: caben unas ${cifra(a.aforo)} personas.` : "Sin datos del recinto." })),
+      avisoWeb("Cómo se llena y se vacía el barrio alrededor, frente a otras veces en el mismo sitio, se ve en el programa del ordenador."));
+    return;
+  }
+  cargando(cont);
+  try {
+    const d = await pedirJSON(`vivo/sala/previsto?id=${encodeURIComponent(a.id)}`);
+    if (fichaAbierta !== `previsto=${a.id}`) return;
+    cont.replaceChildren();
+    resaltarBarrios([d.barrios[0].codigo], C.ambar);
+    cont.append(seccion("De un vistazo", ...d.frases.map((f) => el("p", { textContent: f }))));
+    const fin = d.desde + (Object.values(d.rasgos)[0]?.ahora || Object.values(d.rasgos)[0]?.esperado || []).length * d.paso;
+    for (const [, x] of Object.entries(d.rasgos)) {
+      const puntos = (fila) => (fila || []).map((v, k) => [d.desde + k * d.paso, v]).filter((p) => p[1] != null);
+      const lineas = [{ nombre: "esta vez", color: C.cian, puntos: puntos(x.ahora) }];
+      if (x.esperado) lineas.push({ nombre: "otras veces", color: C.ambar, discontinua: true, grosor: 1.3, puntos: puntos(x.esperado).map(([t, v]) => [t, v]) });
+      if (!lineas[0].puntos.length && !x.esperado) continue;
+      const c = lienzo();
+      cont.append(seccion(`${x.nombre} (${x.unidad})`, c));
+      requestAnimationFrame(() => grafica(c, lineas, { x0: d.desde, x1: fin, banda: [d.cita.desde, d.cita.hasta], leyenda: true }));
+    }
+    cont.append(el("p", { className: "pie", textContent: `Media de ${d.barrios.map((b) => b.nombre).join(", ")}. Franja: lo que dura lo previsto. `
+      + (d.anteriores.length ? `Otras veces: ${d.anteriores.map((x) => `${x.titulo} (${fecha(x.desde)})`).join("; ")}.` : "") }));
+  } catch (err) { fallo(cont, err); }
+}
+
+/* ====================== Informes: relevo, cronología de un suceso y calidad ====================== */
+const imprimir = () => { document.body.classList.add("imprimiendo"); window.print(); setTimeout(() => document.body.classList.remove("imprimiendo"), 500); };
+function botonesInforme(texto) {
+  const copiar = el("button", { type: "button", className: "boton-fino", textContent: "Copiar el texto", onclick: async () => {
+    try { await navigator.clipboard.writeText(texto()); copiar.textContent = "Copiado"; } catch { copiar.textContent = "No se ha podido copiar"; }
+    setTimeout(() => { copiar.textContent = "Copiar el texto"; }, 2000);
+  } });
+  return el("div", { className: "controles no-imprimir" }, copiar, el("button", { type: "button", className: "boton-fino", textContent: "Imprimir o guardar en PDF", onclick: imprimir }));
+}
+function filaSuceso(s) {
+  return el("div", { className: "fila", onclick: () => abrirSuceso(s.id) }, el("span", { className: "t", textContent: s.titulo }), insigniaConfianza(s),
+    el("span", { className: "s", textContent: s.estado === "activo" ? `desde las ${hora(s.inicio)}` : `de ${hora(s.inicio)} a ${hora(s.fin)}` }));
+}
+function abrirInformes() {
+  const cont = abrirFicha({ tipo: "Informes", titulo: "Informes de la sala", clave: "informes", estrecha: true, sub: "Hechos con lo que la sala tiene guardado; todos se pueden imprimir" });
+  const entrada = (titulo, texto, al_pulsar) => el("div", { className: "fila", onclick: al_pulsar }, el("span", { className: "t", textContent: titulo }), el("span", { className: "s", textContent: texto }));
+  cont.append(seccion("Elige uno",
+    entrada("Relevo de turno", "Qué ha pasado en las últimas horas, qué sigue abierto y qué viene", () => abrirRelevo(8)),
+    entrada("Calidad de la semana", "Sucesos por tipo y confianza, aciertos y falsos positivos, fuentes que fallan", abrirCalidad),
+    entrada("Riesgo de accidente ahora", "Los cruces con más accidentes a esta hora en días como hoy", abrirRiesgo)),
+    el("p", { className: "pie", textContent: "El informe de un suceso está en su ficha («Informe del suceso») y el de algo previsto, al pulsarlo en «Hoy»." }));
+  const al = E?.alertas;
+  if (servidor && al) cont.append(seccion("Alertas al móvil", el("p", { textContent: al.encendidas ? `Encendidas: ${al.enviadas} enviadas esta semana.${al.error ? ` Último fallo: ${al.error}` : ""}`
+    : "Apagadas. Para recibir un aviso cuando salte un suceso con confianza alta: instala la aplicación ntfy en el móvil, suscríbete a un tema con un nombre difícil de adivinar y escribe ese nombre en datos/alertas.json, así: {\"ntfy\": \"tu-tema\"}." })));
+  cont.append(seccion("Pantalla", el("button", { type: "button", className: "boton-fino", textContent: "Modo pared", title: "Pantalla completa, sin paneles de trabajo, y recorriendo sola los sucesos en marcha (tecla P)", onclick: () => { cerrarFicha(); ponerPared(true); } })));
+}
+async function abrirRelevo(horas) {
+  const cont = abrirFicha({ tipo: "Informe", titulo: "Relevo de turno", clave: "relevo", sub: `Últimas ${horas} horas y próximas ${horas}` });
+  cargando(cont);
+  try {
+    const d = await pedirJSON(servidor ? `vivo/sala/relevo?horas=${horas}` : `${BASE}sala-relevo.json`);
+    if (fichaAbierta !== "relevo") return;
+    cont.replaceChildren();
+    const selector = el("div", { className: "controles no-imprimir" });
+    if (servidor) for (const h of [4, 8, 12, 24]) { const b = el("button", { type: "button", className: "boton-fino", textContent: `${h} h`, onclick: () => abrirRelevo(h) }); b.setAttribute("aria-pressed", String(h === d.horas)); selector.append(b); }
+    cont.append(selector, botonesInforme(() => d.texto));
+    cont.append(seccion(`Abierto ahora (${d.abiertos.length})`, ...(d.abiertos.length ? d.abiertos.map(filaSuceso) : [el("p", { className: "vacio", textContent: "Nada." })])));
+    cont.append(seccion(`Cerrado en el turno (${d.cerrados.length})`, ...(d.cerrados.length ? d.cerrados.map(filaSuceso) : [el("p", { className: "vacio", textContent: "Nada." })])));
+    if (d.urgentes.length) cont.append(seccion("Noticias urgentes", ...d.urgentes.map((u) => filaTexto({ ...u, medio: "Prensa" }))));
+    cont.append(seccion("Avisos en vigor", ...(d.avisos.length ? d.avisos.map((a) => el("p", { textContent: a.titulo })) : [el("p", { className: "vacio", textContent: "Ninguno." })]),
+      el("p", { className: "pie", textContent: `Incidencias de carretera activas en el área (DGT): ${d.incidencias}.` })));
+    cont.append(seccion(`Próximas ${d.horas} horas`, ...(d.proximo.length ? d.proximo.map((p) => el("div", { className: "fila" },
+      el("span", { className: "t", textContent: p.titulo }), el("span", { className: "num", textContent: p.aforo ? `aforo ${cifra(p.aforo)}` : "" }),
+      el("span", { className: "s", textContent: `${p.en_marcha ? "en marcha" : fechaHora(p.desde)}${p.barrio_nombre ? `, ${p.barrio_nombre}` : ""}` }))) : [el("p", { className: "vacio", textContent: "Nada destacado en la agenda." })]),
+      d.cortes_previstos ? el("p", { className: "pie", textContent: `Empiezan ${d.cortes_previstos} obras u ocupaciones de la vía.` }) : null));
+    cont.append(seccion("Fuentes", el("p", { textContent: d.fuentes_caidas.length ? `Fallan: ${d.fuentes_caidas.join(", ")}.` : `Las ${d.fuentes} contestan.` })));
+    if (d.aprendiendo && !d.aprendiendo.listo) cont.append(el("p", { className: "pie", textContent: `La sala lleva ${cifra(d.aprendiendo.dias)} días aprendiendo lo normal de cada barrio (necesita 28): lo de confianza baja puede no ser nada.` }));
+    if (!servidor) cont.append(avisoWeb(`Hecho por el ordenador ${hace(ahoraSeg() - d.generado)}.`));
+  } catch (err) { fallo(cont, err); }
+}
+async function abrirCronologia(id) {
+  if (!servidor) { const cont = abrirFicha({ tipo: "Informe", titulo: "Informe del suceso", clave: null }); cont.append(avisoWeb("El informe de un suceso se hace en el programa del ordenador.")); return; }
+  const cont = abrirFicha({ tipo: "Informe del suceso", titulo: "…", clave: `informe=${id}` });
+  cargando(cont);
+  try {
+    const d = await pedirJSON(`vivo/sala/cronologia?id=${encodeURIComponent(id)}`);
+    if (fichaAbierta !== `informe=${id}`) return;
+    const s = d.suceso;
+    cont.titulo.textContent = s.titulo;
+    cont.replaceChildren(botonesInforme(() => [s.titulo, `${fechaHora(s.inicio)} a ${s.estado === "activo" ? "ahora" : hora(s.fin)}. ${NOMBRE_CONFIANZA[d.confianza?.grado || "baja"]}.`,
+      s.resumen || "", "", ...d.hitos.map((h) => `${hora(h.t)}  ${h.que}: ${h.detalle || ""}`)].join("\n")),
+      el("div", { className: "controles no-imprimir" }, el("button", { type: "button", className: "boton-fino", textContent: "Volver a la ficha", onclick: () => abrirSuceso(id) })));
+    cont.append(seccion("Resumen", el("p", {}, insigniaConfianza(s), ` ${s.tipo_nombre}. ${fechaHora(s.inicio)} a ${s.estado === "activo" ? "ahora (sigue abierto)" : hora(s.fin)}, ${duracion((s.estado === "activo" ? ahoraSeg() : s.fin) - s.inicio)}.`),
+      s.resumen ? el("div", { className: "resumen" }, s.resumen, el("small", { textContent: "IA local" })) : null,
+      el("p", { textContent: d.causa ? `Causa probable: ${d.causa.titulo}.` : "Sin causa conocida." }), ...(d.confianza?.motivos || []).map((m) => el("p", { className: "pie", textContent: m }))));
+    const t = el("table", { className: "datos" }, el("tr", {}, ...["Hora", "Qué", "Detalle"].map((x) => el("th", { textContent: x }))));
+    for (const h of d.hitos) t.append(el("tr", {}, el("td", { className: "num", textContent: hora(h.t) }), el("td", { textContent: h.que }), el("td", {}, h.url ? enlace(h.detalle, h.url) : (h.detalle || ""))));
+    cont.append(seccion("Cronología", t));
+    const alcance = seccionAlcance(d.alcance); if (alcance) cont.append(alcance);
+    cont.append(el("p", { className: "pie", textContent: `Informe hecho el ${fecha(ahoraSeg())} a las ${hora(ahoraSeg())} con datos públicos y de conjunto. No identifica a nadie.` }));
+  } catch (err) { fallo(cont, err); }
+}
+async function abrirCalidad() {
+  const cont = abrirFicha({ tipo: "Informe", titulo: "Calidad de la semana", clave: "calidad", sub: "Cómo ha acertado la sala y qué fuentes han fallado" });
+  cargando(cont);
+  try {
+    const d = await pedirJSON(servidor ? "vivo/sala/calidad?dias=7" : `${BASE}sala-calidad.json`);
+    if (fichaAbierta !== "calidad") return;
+    cont.replaceChildren(botonesInforme(() => `Calidad de la sala, últimos ${d.dias} días: ${d.sucesos} sucesos, ${d.valoraciones.confirmados} confirmados, ${d.valoraciones.falsos} falsos positivos.`));
+    const v = d.valoraciones, c = d.por_confianza || {};
+    const dato = (n, valor) => el("div", { className: "dato" }, el("div", { className: "n", textContent: n }), el("div", { className: "v", textContent: valor }));
+    cont.append(seccion(`Sucesos (${d.dias} días)`, el("div", { className: "rejilla-2" }, dato("Sucesos", cifra(d.sucesos)), dato("Con causa probable", cifra(d.explicados)),
+      dato("Confianza alta / media / baja", `${c.alta || 0} / ${c.media || 0} / ${c.baja || 0}`),
+      dato("Confirmados / falsos positivos", `${v.confirmados} / ${v.falsos}${v.acierto != null ? ` (${v.acierto} % de acierto)` : ""}`), dato("Sin valorar", cifra(v.sin_valorar)))));
+    if (d.por_tipo.length) cont.append(seccion("Por tipo", ...d.por_tipo.map(([tipo, n]) => el("div", { className: "causa" }, el("span", { textContent: tipo }), el("span"), el("span", { className: "peso", textContent: String(n) })))));
+    if (d.barrios.length) cont.append(seccion("Barrios que más saltan", ...d.barrios.map((b) => el("div", { className: "fila", onclick: () => abrirBarrio(b.codigo) }, el("span", { className: "t", textContent: b.nombre }), el("span", { className: "num", textContent: String(b.n) })))),
+      el("p", { className: "pie", textContent: "Si un barrio salta mucho sin que pase nada, marca sus sucesos como falso positivo: lo parecido dejará de saltar." }));
+    const t = el("table", { className: "datos" }, el("tr", {}, ...["Fuente", "Tomas", "Bien"].map((x) => el("th", { textContent: x }))));
+    for (const f of d.fuentes) t.append(el("tr", {}, el("td", { textContent: f.nombre }), el("td", { className: "num", textContent: cifra(f.tomas) }),
+      el("td", { className: `num ${f.bien < 90 ? "z-pos" : "z-0"}`, textContent: f.bien == null ? "—" : `${cifra(f.bien)} %` })));
+    cont.append(seccion("Fuentes", t));
+    if (d.aprendiendo && !d.aprendiendo.listo) cont.append(el("p", { className: "pie", textContent: `Con ${cifra(d.aprendiendo.dias)} días de histórico (de 28) es normal que haya falsos positivos.` }));
+  } catch (err) { fallo(cont, err); }
+}
+let riesgo = null;
+async function pedirRiesgo() {
+  if (!riesgo || ahoraSeg() - riesgo.pedido > 1800) { riesgo = await pedirJSON(servidor ? "vivo/sala/riesgo" : `${BASE}sala-riesgo.json`); riesgo.pedido = ahoraSeg(); }
+  capas.riesgo.ponerPuntos(riesgo.puntos || []);
+  return riesgo;
+}
+async function abrirRiesgo() {
+  const cont = abrirFicha({ tipo: "Informe", titulo: "Riesgo de accidente ahora", clave: "riesgo", estrecha: true, color: C.naranja });
+  cargando(cont);
+  try {
+    const d = await pedirRiesgo();
+    if (!ajustes.capas.riesgo) { ponerCapa("riesgo", true); montarCapas(); }
+    cont.replaceChildren(seccion("De dónde sale", el("p", { textContent: `${cifra(d.n)} accidentes de tráfico registrados por el Ajuntament ${d.franja || ""} en ${d.dias || "días como hoy"}. En el mapa, en naranja: más intenso, más accidentes y más graves.` })));
+    cont.append(seccion("Los cruces con más", ...(d.cruces || []).map((c) => el("div", { className: "fila", onclick: () => { ponerVista("mapa"); mapa.flyTo([c.lat, c.lon], 17); } },
+      el("span", { className: "t", textContent: c.ubicacion || "" }), el("span", { className: "num", textContent: String(c.n) }),
+      el("span", { className: "s", textContent: `${c.barrio_nombre || ""}${c.gravedad ? `, hasta ${GRAVEDAD[c.gravedad]}` : ""}` })))),
+      el("p", { className: "pie", textContent: "Es dónde y a qué hora ha habido accidentes, no una predicción de nadie en concreto." }));
+  } catch (err) { fallo(cont, err); }
+}
+
+/* ====================== Modo pared ====================== */
+let relojPared = 0, turnoPared = 0;
+function ponerPared(si) {
+  document.body.classList.toggle("pared", si);
+  clearInterval(relojPared);
+  if (si) {
+    document.documentElement.requestFullscreen?.().catch(() => {});
+    const paso = () => {
+      const activos = (E?.sucesos || []).filter((s) => s.estado === "activo" && s.lat != null && s.valoracion !== "falso");
+      if (!activos.length || turnoPared % (activos.length + 1) === activos.length) mapa.flyTo([39.4699, -0.3763], 13, { duration: 1.5 });
+      else { const s = activos[turnoPared % (activos.length + 1)]; mapa.flyTo([s.lat, s.lon], 15, { duration: 1.5 }); }
+      turnoPared++;
+    };
+    relojPared = setInterval(paso, 25000);
+  } else if (document.fullscreenElement) document.exitFullscreen?.();
+  setTimeout(() => { mapa.invalidateSize(); pintarLinea(); }, 300);
+}
+document.addEventListener("keydown", (ev) => {
+  if (ev.target.matches("input, select, textarea") || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  if (ev.key === "p" || ev.key === "P") ponerPared(!document.body.classList.contains("pared"));
+  else if (ev.key === "Escape" && document.body.classList.contains("pared")) ponerPared(false);
+});
+$("salir-pared").addEventListener("click", () => ponerPared(false));
+$("b-informes").addEventListener("click", abrirInformes);
+
 /* ====================== Pestañas (móvil) y herramientas ====================== */
 function ponerVista(v) {
   $("rejilla").dataset.vista = v;
@@ -1378,6 +1729,7 @@ $("b-tiempo").addEventListener("click", () => {
   if (!abierto) ponerVista("mapa");
 });
 window.OSINT_SALA = { estado: () => E, abrirSuceso, abrirBarrio, abrirLugar, abrirComparar, abrirMovilidad, cerrarFicha, modo: () => modo, servidor: () => servidor,
+  abrirInformes, abrirRelevo, abrirCalidad, abrirRiesgo, abrirCronologia, abrirPrevisto, ponerInstante, ponerPared, linea: () => lineaT, instante: () => instante,
   capas: () => ({ barrios: capas.barrios ? capas.barrios.getLayers().length : 0, tramos: capas.trafico.getLayers().length, calor: (E?.calor?.puntos || []).length,
     sucesos: capas.sucesos.getLayers().length, textos: capas.textos.getLayers().length, avisos: capas.avisos.getLayers().length, agenda: capas.agenda.getLayers().length,
     trafico: traficoDe.origen }) };
@@ -1392,7 +1744,9 @@ function vigilarHistorico() {
     const abierto = !caja.hidden;
     $("b-tiempo").setAttribute("aria-pressed", String(abierto));
     for (const id of ["trafico", "calor"]) if (ajustes.capas[id]) (abierto ? mapa.removeLayer(capas[id]) : capas[id].addTo(mapa));
-    if (!abierto) pintarTrafico();
+    if (abierto) ponerInstante(null);
+    cajaLinea.hidden = abierto || !lineaT?.n;
+    if (!abierto) { pintarTrafico(); pintarLinea(); }
   }).observe(caja, { attributes: true, attributeFilter: ["hidden"] });
 }
 hayServidor.then(async (si) => {
@@ -1411,6 +1765,14 @@ hayServidor.then(async (si) => {
   else if (clave === "vista" && valor) { const [la, lo, z] = valor.split(",").map(Number); if (Number.isFinite(la) && Number.isFinite(lo)) mapa.setView([la, lo], Number.isFinite(z) ? z : 15); }
   else if (clave === "comparar") abrirComparar();
   else if (clave === "movilidad") abrirMovilidad();
+  else if (clave === "informes") abrirInformes();
+  else if (clave === "relevo") abrirRelevo(8);
+  else if (clave === "calidad") abrirCalidad();
+  else if (clave === "riesgo") abrirRiesgo();
+  else if (clave === "informe" && valor) abrirCronologia(valor);
+  else if (clave === "previsto" && valor) { const a = (E?.agenda?.destacado || []).find((x) => x.id === valor); if (a) abrirPrevisto(a); }
+  else if (clave === "pared") ponerPared(true);
+  if (ajustes.capas.riesgo) pedirRiesgo().catch(() => {});
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) return;

@@ -209,8 +209,10 @@ class Informes:
         nucleo = {b for b in ev["barrios"] if b != CIUDAD}
         if not nucleo:
             return []
-        anillo1 = {v for b in nucleo for v in self.zonas.vecinos.get(b, ())} - nucleo
-        anillo2 = {v for b in anillo1 for v in self.zonas.vecinos.get(b, ())} - nucleo - anillo1
+        # Lo que es de otro suceso de ese rato (el partido de al lado) no es alcance de este.
+        de_otros = {b for otro in self.cruce.eventos(ev["inicio"], ev["fin"] + 1, 40) if otro["id"] != ev["id"] for b in otro["barrios"]}
+        anillo1 = {v for b in nucleo for v in self.zonas.vecinos.get(b, ())} - nucleo - de_otros
+        anillo2 = {v for b in anillo1 for v in self.zonas.vecinos.get(b, ())} - nucleo - anillo1 - de_otros
         desde, hasta = ev["inicio"] - BIN, ev["fin"] + 1800
         niveles = self.cruce.serie("nivel", sorted(anillo1 | anillo2), desde, hasta)
         salida = []
